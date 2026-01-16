@@ -7,10 +7,31 @@ import {
    ChevronDown, Plus, Check, Mail as MailIcon,
    Phone as PhoneIcon, Calendar as CalendarIcon,
    MapPin, CreditCard, Sparkles, MessageSquare as MessageIcon,
-   Eye, File as GenericFileIcon, AlertTriangle, Edit
+   Eye, File as GenericFileIcon, AlertTriangle, Edit, FileUp
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document } from '../types';
+import BulkImport from './BulkImport';
+
+// Helper function to format date of birth for display
+const formatDateOfBirth = (dob: string | undefined): string => {
+   if (!dob) return 'DOB Not Set';
+
+   try {
+      // Handle ISO date strings (e.g., "1978-02-04T18:30:00.000Z")
+      const date = new Date(dob);
+      if (isNaN(date.getTime())) return dob; // Return as-is if invalid
+
+      // Format as DD/MM/YYYY (UK format)
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+
+      return `${day}/${month}/${year}`;
+   } catch {
+      return dob; // Return original if parsing fails
+   }
+};
 
 // Common Lenders List for Dropdowns
 const COMMON_LENDERS = [
@@ -275,7 +296,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            </div>
                            <div className="flex items-center gap-2 group">
                               <div className="p-1.5 bg-gray-50 dark:bg-slate-700 rounded text-gray-400 group-hover:text-purple-500 transition-colors"><CalendarIcon size={14} /></div>
-                              <span className="flex-1">{contact.dateOfBirth || 'DOB Not Set'}</span>
+                              <span className="flex-1">{formatDateOfBirth(contact.dateOfBirth)}</span>
                            </div>
                         </div>
                      </div>
@@ -813,10 +834,11 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 };
 
 const Contacts: React.FC = () => {
-   const { contacts, addContact, deleteContacts } = useCRM();
+   const { contacts, addContact, deleteContacts, addNotification } = useCRM();
    const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
    const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
    const [showAddContact, setShowAddContact] = useState(false);
+   const [showBulkImport, setShowBulkImport] = useState(false);
    const [searchTerm, setSearchTerm] = useState('');
 
    // Action Menu & Delete Logic
@@ -912,6 +934,12 @@ const Contacts: React.FC = () => {
                      className="pl-9 pr-4 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
                   />
                </div>
+               <button
+                  onClick={() => setShowBulkImport(true)}
+                  className="bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 text-navy-700 dark:text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
+               >
+                  <FileUp size={18} /> Bulk Import
+               </button>
                <button
                   onClick={() => setShowAddContact(true)}
                   className="bg-brand-orange hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
@@ -1171,6 +1199,16 @@ const Contacts: React.FC = () => {
                   </div>
                </div>
             </div>
+         )}
+
+         {/* Bulk Import Modal */}
+         {showBulkImport && (
+            <BulkImport
+               onClose={() => setShowBulkImport(false)}
+               onComplete={(count) => {
+                  addNotification('success', `Successfully imported ${count} contact${count !== 1 ? 's' : ''}`);
+               }}
+            />
          )}
       </div>
    );

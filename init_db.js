@@ -24,8 +24,22 @@ async function initDb() {
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contact_source') THEN
-          CREATE TYPE contact_source AS ENUM ('Client Filled', 'Manual Input');
+          CREATE TYPE contact_source AS ENUM ('Client Filled', 'Manual Input', 'Website', 'Referral', 'AI Import', 'Bulk Import');
         END IF;
+      END
+      $$;
+    `);
+
+    // Add new enum values if they don't exist (for existing databases)
+    await pool.query(`
+      DO $$
+      BEGIN
+        ALTER TYPE contact_source ADD VALUE IF NOT EXISTS 'Website';
+        ALTER TYPE contact_source ADD VALUE IF NOT EXISTS 'Referral';
+        ALTER TYPE contact_source ADD VALUE IF NOT EXISTS 'AI Import';
+        ALTER TYPE contact_source ADD VALUE IF NOT EXISTS 'Bulk Import';
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
       END
       $$;
     `);

@@ -67,7 +67,7 @@ interface CRMContextType {
   setActiveContext: (ctx: ActiveContext | null) => void;
 
   updateContactStatus: (id: string, newStatus: string) => { success: boolean; message: string };
-  updateContact: (contact: Contact) => { success: boolean; message: string };
+  updateContact: (contact: Contact) => Promise<{ success: boolean; message: string }>;
   addContact: (contact: Partial<Contact>) => Promise<{ success: boolean; message: string; id?: string }>;
   deleteContacts: (ids: string[]) => { success: boolean; message: string };
   getContactDetails: (nameOrId: string) => Contact | undefined;
@@ -599,49 +599,108 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: `Updated ${id} to ${statusToSet}` };
   };
 
-  const updateContact = (contact: Contact) => {
-    let found = false;
-    const updated = contacts.map(c => {
-      if (c.id === contact.id) {
-        found = true;
-        logActivity(c.id, 'Details Updated', 'Contact personal details were updated', 'note');
-        return contact;
-      }
-      return c;
-    });
+  const updateContact = async (contact: Contact) => {
+    try {
+      // Call the backend API to persist the update
+      const response = await fetch(`${API_BASE_URL}/contacts/${contact.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: contact.firstName,
+          last_name: contact.lastName,
+          email: contact.email,
+          phone: contact.phone,
+          dob: contact.dateOfBirth,
+          address_line_1: contact.address?.line1,
+          address_line_2: contact.address?.line2,
+          city: contact.address?.city,
+          state_county: contact.address?.state_county,
+          postal_code: contact.address?.postalCode
+        })
+      });
 
-    if (!found) {
-      addNotification('error', 'Contact not found');
-      return { success: false, message: `Contact not found: ${contact.id}` };
+      if (!response.ok) {
+        const errorData = await response.json();
+        addNotification('error', errorData.error || 'Failed to update contact');
+        return { success: false, message: errorData.error || 'Failed to update contact' };
+      }
+
+      const updatedData = await response.json();
+
+      // Update local state with the response
+      const updated = contacts.map(c => {
+        if (c.id === contact.id) {
+          logActivity(c.id, 'Details Updated', 'Contact personal details were updated', 'note');
+          return {
+            ...contact,
+            fullName: updatedData.full_name || contact.fullName,
+            firstName: updatedData.first_name || contact.firstName,
+            lastName: updatedData.last_name || contact.lastName,
+            dateOfBirth: updatedData.dob || contact.dateOfBirth,
+            address: {
+              line1: updatedData.address_line_1 || contact.address?.line1,
+              line2: updatedData.address_line_2 || contact.address?.line2,
+              city: updatedData.city || contact.address?.city,
+              state_county: updatedData.state_county || contact.address?.state_county,
+              postalCode: updatedData.postal_code || contact.address?.postalCode
+            }
+          };
+        }
+        return c;
+      });
+
+      setContacts(updated);
+      addNotification('success', 'Contact details updated successfully');
+      return { success: true, message: `Updated contact ${contact.fullName}` };
+    } catch (e: any) {
+      addNotification('error', 'Failed to update contact');
+      return { success: false, message: e.message };
     }
-    setContacts(updated);
-    addNotification('success', 'Contact details updated successfully');
-    return { success: true, message: `Updated contact ${contact.fullName}` };
   };
 
   const addContact = async (contactData: Partial<Contact>) => {
+    console.log('[CRMContext addContact] Received contactData:', contactData);
+
+    const requestBody = {
+      first_name: contactData.firstName,
+      last_name: contactData.lastName,
+      full_name: contactData.fullName,
+      email: contactData.email,
+      phone: contactData.phone,
+      dob: contactData.dateOfBirth,
+      address_line_1: contactData.address?.line1,
+      address_line_2: contactData.address?.line2,
+      city: contactData.address?.city,
+      state_county: contactData.address?.state_county,
+      postal_code: contactData.address?.postalCode,
+      source: contactData.source || 'Manual Input'
+    };
+
+    console.log('[CRMContext addContact] Sending to API:', requestBody);
+
     try {
       const response = await fetch(`${API_BASE_URL}/contacts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: contactData.firstName,
-          last_name: contactData.lastName,
-          email: contactData.email,
-          phone: contactData.phone,
-          dob: contactData.dateOfBirth,
-          address_line_1: contactData.address?.line1,
-          address_line_2: contactData.address?.line2,
-          city: contactData.address?.city,
-          state_county: contactData.address?.state_county,
-          postal_code: contactData.address?.postalCode
-        })
+        body: JSON.stringify(requestBody)
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
+      }
+
       const c = await response.json();
+
+      console.log('[CRMContext addContact] API Response:', c);
+
+      if (!c || !c.id) {
+        throw new Error('Invalid response from server - missing contact ID');
+      }
 
       const newContact: Contact = {
         id: c.id.toString(),
-        fullName: c.full_name,
+        fullName: c.full_name || `${c.first_name || ''} ${c.last_name || ''}`.trim(),
         firstName: c.first_name,
         lastName: c.last_name,
         email: c.email || '',
@@ -664,7 +723,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addNotification('success', `Contact ${newContact.fullName} created successfully`);
       return { success: true, message: `Created contact for ${newContact.fullName}`, id: newContact.id };
     } catch (e: any) {
-      addNotification('error', 'Failed to create contact');
+      console.error('[CRMContext addContact] Error:', e);
+      addNotification('error', `Failed to create contact: ${e.message}`);
       return { success: false, message: e.message };
     }
   };
