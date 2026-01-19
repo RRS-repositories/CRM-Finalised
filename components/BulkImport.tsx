@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus } from '../types';
+import { API_ENDPOINTS } from '../src/config';
 
 // Types for bulk import
 interface ParsedContact {
@@ -59,7 +60,7 @@ const CRM_FIELDS = [
   { key: 'skip', label: '-- Skip this field --', required: false }
 ];
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = API_ENDPOINTS.api;
 
 interface BulkImportProps {
   onClose: () => void;

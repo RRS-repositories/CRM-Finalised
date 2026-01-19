@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS } from '../constants';
 import { emailService } from '../services/emailService';
+import { API_ENDPOINTS } from '../src/config';
 
 interface PendingRegistration {
   email: string;
@@ -108,7 +109,7 @@ interface CRMContextType {
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = API_ENDPOINTS.api;
 
 const INITIAL_USERS: User[] = [
   {

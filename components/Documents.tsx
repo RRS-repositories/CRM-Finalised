@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import {
    FileText, Search, Filter, Upload, File, Download, Trash2, Tag, Eye, Edit, Save, X,
@@ -8,6 +7,7 @@ import { useCRM } from '../context/CRMContext';
 import { Document, Template } from '../types';
 import { MOCK_TEMPLATE_FOLDERS, TEMPLATE_VARIABLES } from '../constants';
 import Templates from './Templates';
+import { API_ENDPOINTS } from '../src/config';
 
 const Documents: React.FC = () => {
    const [activeTab, setActiveTab] = useState<'documents' | 'templates'>('documents');
@@ -47,7 +47,7 @@ const Documents: React.FC = () => {
 // --- Sub-Component: Documents Content ---
 const DocumentsContent: React.FC = () => {
    const { documents, updateDocument, addDocument, addNotification } = useCRM();
-   const API_BASE_URL = 'http://localhost:5000/api';
+   const API_BASE_URL = API_ENDPOINTS.api;
    const [activeCategory, setActiveCategory] = useState('All');
    const [searchQuery, setSearchQuery] = useState('');
 

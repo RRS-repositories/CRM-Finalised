@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Sparkles, Loader2, ChevronRight, FileText, BarChart2, Calendar, CheckCircle } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { useCRM } from '../context/CRMContext';
+import { API_ENDPOINTS } from '../src/config';
 
 interface AIAssistantProps {
   isOpen: boolean;
@@ -15,7 +16,7 @@ interface ToolCall {
   input: Record<string, unknown>;
 }
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = API_ENDPOINTS.base;
 
 const AIAssistant: React.FC<AIAssistantProps> = ({ isOpen, onClose }) => {
   const {
@@ -340,7 +341,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ isOpen, onClose }) => {
 
         const scoreInterpretation = score >= 70 ? 'Strong case - proceed to complaint' :
           score >= 50 ? 'Moderate case - gather additional evidence' :
-          score >= 30 ? 'Weak case - requires review' : 'Case unlikely to succeed';
+            score >= 30 ? 'Weak case - requires review' : 'Case unlikely to succeed';
 
         return {
           success: true,
@@ -710,11 +711,11 @@ Submitted by FastAction Claims on behalf of ${clientName}`;
         <div className="h-16 flex items-center justify-between px-6 border-b border-gray-100 bg-navy-900 text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-brand-orange rounded-lg text-white">
-               <Bot size={20} />
+              <Bot size={20} />
             </div>
             <div>
-               <h2 className="font-bold text-lg leading-tight">FastAction AI</h2>
-               <p className="text-[10px] text-gray-300 uppercase tracking-wider font-medium">Powered by Claude</p>
+              <h2 className="font-bold text-lg leading-tight">FastAction AI</h2>
+              <p className="text-[10px] text-gray-300 uppercase tracking-wider font-medium">Powered by Claude</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -725,11 +726,11 @@ Submitted by FastAction Claims on behalf of ${clientName}`;
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 h-[calc(100%-140px)] bg-slate-50">
           {activeContext && (
-             <div className="flex justify-center">
-                <div className="bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full border border-blue-100 flex items-center gap-2">
-                   <Sparkles size={10} /> Context: Viewing {activeContext.name || activeContext.type}
-                </div>
-             </div>
+            <div className="flex justify-center">
+              <div className="bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full border border-blue-100 flex items-center gap-2">
+                <Sparkles size={10} /> Context: Viewing {activeContext.name || activeContext.type}
+              </div>
+            </div>
           )}
           {messages.map((msg) => (
             <div
@@ -741,43 +742,42 @@ Submitted by FastAction Claims on behalf of ${clientName}`;
               </div>
 
               <div
-                className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed shadow-sm ${
-                  msg.role === 'user'
+                className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed shadow-sm ${msg.role === 'user'
                     ? 'bg-white text-gray-800 border border-gray-100 rounded-tr-none'
                     : 'bg-white text-navy-900 border-l-4 border-brand-orange rounded-tl-none'
-                }`}
+                  }`}
               >
                 <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
 
                 {/* Visual Cards for AI Actions */}
                 {msg.role === 'model' && msg.id !== 'welcome' && (
-                   <div className="mt-3 pt-3 border-t border-gray-100/20 flex flex-wrap gap-2">
-                      {(msg.text.toLowerCase().includes("score") || msg.text.includes("qualification")) && (
-                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-100 font-bold">
-                            <BarChart2 size={12} /> Analysis Complete
-                         </span>
-                      )}
-                      {(msg.text.toLowerCase().includes("appointment") || msg.text.toLowerCase().includes("scheduled") || msg.text.toLowerCase().includes("reminder")) && (
-                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-100 font-bold">
-                            <Calendar size={12} /> Calendar Updated
-                         </span>
-                      )}
-                      {(msg.text.toLowerCase().includes("updated") || msg.text.toLowerCase().includes("moved") || msg.text.toLowerCase().includes("status")) && (
-                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100 font-bold">
-                            <CheckCircle size={12} /> CRM Updated
-                         </span>
-                      )}
-                      {(msg.text.toLowerCase().includes("complaint") || msg.text.toLowerCase().includes("draft") || msg.text.toLowerCase().includes("letter") || msg.text.toLowerCase().includes("fos submission")) && (
-                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 text-xs rounded border border-amber-100 font-bold">
-                            <FileText size={12} /> Document Generated
-                         </span>
-                      )}
-                      {(msg.text.toLowerCase().includes("conc") || msg.text.toLowerCase().includes("fca") || msg.text.toLowerCase().includes("breach")) && (
-                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 text-xs rounded border border-red-100 font-bold">
-                            <FileText size={12} /> Compliance Analysis
-                         </span>
-                      )}
-                   </div>
+                  <div className="mt-3 pt-3 border-t border-gray-100/20 flex flex-wrap gap-2">
+                    {(msg.text.toLowerCase().includes("score") || msg.text.includes("qualification")) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-100 font-bold">
+                        <BarChart2 size={12} /> Analysis Complete
+                      </span>
+                    )}
+                    {(msg.text.toLowerCase().includes("appointment") || msg.text.toLowerCase().includes("scheduled") || msg.text.toLowerCase().includes("reminder")) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-100 font-bold">
+                        <Calendar size={12} /> Calendar Updated
+                      </span>
+                    )}
+                    {(msg.text.toLowerCase().includes("updated") || msg.text.toLowerCase().includes("moved") || msg.text.toLowerCase().includes("status")) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100 font-bold">
+                        <CheckCircle size={12} /> CRM Updated
+                      </span>
+                    )}
+                    {(msg.text.toLowerCase().includes("complaint") || msg.text.toLowerCase().includes("draft") || msg.text.toLowerCase().includes("letter") || msg.text.toLowerCase().includes("fos submission")) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 text-xs rounded border border-amber-100 font-bold">
+                        <FileText size={12} /> Document Generated
+                      </span>
+                    )}
+                    {(msg.text.toLowerCase().includes("conc") || msg.text.toLowerCase().includes("fca") || msg.text.toLowerCase().includes("breach")) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 text-xs rounded border border-red-100 font-bold">
+                        <FileText size={12} /> Compliance Analysis
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -816,18 +816,18 @@ Submitted by FastAction Claims on behalf of ${clientName}`;
             </button>
           </div>
           <div className="text-center mt-2 flex justify-center flex-wrap gap-3">
-             <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                <BarChart2 size={10} /> Analytics
-             </span>
-             <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                <FileText size={10} /> Legal Drafting
-             </span>
-             <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                <CheckCircle size={10} /> CONC Compliance
-             </span>
-             <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                <Calendar size={10} /> Automation
-             </span>
+            <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+              <BarChart2 size={10} /> Analytics
+            </span>
+            <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+              <FileText size={10} /> Legal Drafting
+            </span>
+            <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+              <CheckCircle size={10} /> CONC Compliance
+            </span>
+            <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+              <Calendar size={10} /> Automation
+            </span>
           </div>
         </div>
       </div>

@@ -1,7 +1,8 @@
 import { ClientFormData, Page1Response, Page2Response } from '../types';
+import { API_ENDPOINTS } from '../src/config';
 
 // The consolidated server runs on port 5000
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = API_ENDPOINTS.api;
 
 export const submitPage1 = async (data: ClientFormData): Promise<Page1Response> => {
     const response = await fetch(`${API_BASE_URL}/submit-page1`, {

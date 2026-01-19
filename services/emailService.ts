@@ -1,7 +1,8 @@
 
 // Email Service - communicates with local backend (server.js) to send real emails via SMTP
+import { API_ENDPOINTS } from '../src/config';
 
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = API_ENDPOINTS.base;
 
 // Helper to generate the HTML wrapper
 const getHtmlTemplate = (title: string, content: string) => `
@@ -45,7 +46,7 @@ export const emailService = {
    */
   sendVerificationEmail: async (toEmail: string, code: string) => {
     const subject = "Verify Your Sign-In – Rowan Rose Solicitors";
-    
+
     const htmlContent = `
       <p>Dear Valued Client,</p>
       <p>Thank you for signing in to Rowan Rose Solicitors. We are committed to providing clear, reliable, and client-focused legal support.</p>
@@ -62,7 +63,7 @@ export const emailService = {
 
     try {
       console.log(`Sending Verification Email to ${toEmail}...`);
-      
+
       const response = await fetch(`${BACKEND_URL}/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
