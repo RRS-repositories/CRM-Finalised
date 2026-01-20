@@ -13,11 +13,16 @@ import nodemailer from 'nodemailer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import termsPkg from './termsText.cjs';
+import termsHtmlPkg from './termsHtml.cjs';
 import Anthropic from '@anthropic-ai/sdk';
+import { createCanvas, loadImage } from 'canvas';
+import puppeteer from 'puppeteer';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const { tcText } = termsPkg;
+const { tcHtml } = termsHtmlPkg;
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -674,6 +679,355 @@ const CLAUDE_TOOLS = [
     }
 ];
 
+// --- HELPER FUNCTION: Add Timestamp to Signature ---
+async function addTimestampToSignature(base64Data) {
+    try {
+        // Remove the data URL prefix if present
+        const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        const imageBuffer = Buffer.from(base64Image, 'base64');
+
+        // Load the original signature image
+        const originalImage = await loadImage(imageBuffer);
+
+        // Calculate new canvas dimensions (add space at bottom for timestamp)
+        const timestampHeight = 40; // Height for timestamp area
+        const padding = 10;
+        const newWidth = originalImage.width;
+        const newHeight = originalImage.height + timestampHeight;
+
+        // Create new canvas with extra space
+        const canvas = createCanvas(newWidth, newHeight);
+        const ctx = canvas.getContext('2d');
+
+        // Fill background with white
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, newWidth, newHeight);
+
+        // Draw the original signature at the top
+        ctx.drawImage(originalImage, 0, 0);
+
+        // Add timestamp at the bottom
+        const now = new Date();
+        const timestamp = now.toLocaleString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
+        // Draw timestamp text
+        ctx.fillStyle = '#64748b'; // Slate-500 color
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Signed on: ${timestamp}`, newWidth / 2, originalImage.height + 25);
+
+        // Convert canvas to PNG buffer
+        return canvas.toBuffer('image/png');
+    } catch (error) {
+        console.error('Error adding timestamp to signature:', error);
+        throw error;
+    }
+}
+
+// --- HELPER FUNCTION: Generate HTML Template for T&C PDF ---
+async function generateTermsHTML(clientData, logoBase64) {
+    const {
+        first_name,
+        last_name,
+        street_address,
+        address_line_2,
+        city,
+        state_county,
+        postal_code,
+        phone
+    } = clientData;
+
+    const fullName = `${first_name} ${last_name}`;
+    const streetCombined = [street_address, address_line_2].filter(Boolean).join(', ');
+    const addressParts = [street_address, address_line_2, city, state_county].filter(Boolean);
+    const fullAddress = `${addressParts.join(', ')} | ${postal_code}`;
+
+    // Get current date/time
+    const now = new Date();
+    const today = now.toLocaleDateString('en-GB');
+    const todayWithTime = now.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
+    // Populate HTML content with client data
+    let populatedHtml = tcHtml;
+    populatedHtml = populatedHtml.replace(/{{first name}}/g, first_name || '');
+    populatedHtml = populatedHtml.replace(/{{last name}}/g, last_name || '');
+    populatedHtml = populatedHtml.replace(/{{street address}}/g, streetCombined);
+    populatedHtml = populatedHtml.replace(/{{city\/town}}/g, city || '');
+    populatedHtml = populatedHtml.replace(/{{country\/state}}/g, state_county || '');
+    populatedHtml = populatedHtml.replace(/{{postalcode}}/g, postal_code || '');
+    populatedHtml = populatedHtml.replace(/{{Contact number}}/g, phone || '');
+    populatedHtml = populatedHtml.replace(/14\/01\/2026/g, today);
+    populatedHtml = populatedHtml.replace(/{PLATFORM_DATE}/g, todayWithTime);
+    populatedHtml = populatedHtml.replace(/\[Client\.FirstName\]/g, first_name || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.LastName\]/g, last_name || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.StreetAddress\]/g, streetCombined);
+    populatedHtml = populatedHtml.replace(/\[Client\.City\]/g, city || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.PostalCode\]/g, postal_code || '');
+    const fullAddressTpl = [street_address, address_line_2, city, state_county, postal_code].filter(Boolean).join(', ');
+    populatedHtml = populatedHtml.replace(/\[Client\.Address\]/g, fullAddressTpl);
+
+    // Create full HTML document
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms and Conditions - ${fullName}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 10pt;
+            line-height: 1.6;
+            color: #334155;
+            background: white;
+        }
+        
+        .page {
+            padding: 20mm 15mm;
+            max-width: 210mm;
+            margin: 0 auto;
+        }
+        
+        .header {
+            margin-top: 60px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 20px;
+        }
+        
+        .logo {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+        }
+        
+        .company-name {
+            font-size: 22pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 5px;
+        }
+        
+        .company-tagline {
+            font-size: 10pt;
+            color: #64748b;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .company-address {
+            margin-top: 10px;
+            font-size: 9pt;
+            color: #64748b;
+        }
+        
+        .client-details {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+        
+        .client-details h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .client-details p {
+            font-size: 10pt;
+            margin-bottom: 5px;
+            color: #1e293b;
+        }
+        
+        .content {
+            margin-top: 20px;
+        }
+        
+        h1 {
+            font-size: 16pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            text-decoration: underline;
+        }
+        
+        h2 {
+            font-size: 14pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 5px;
+        }
+        
+        h3 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        
+        h4 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 12px;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+        
+        p {
+            margin-bottom: 10px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin-bottom: 15px;
+            padding-left: 25px;
+        }
+        
+        li {
+            margin-bottom: 5px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 9pt;
+        }
+        
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f8fafc;
+            font-weight: bold;
+            color: #0f172a;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        
+        strong {
+            color: #0f172a;
+            font-weight: bold;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            font-size: 8pt;
+            color: #94a3b8;
+            font-style: italic;
+        }
+        
+        .signature-box {
+            border: 1px solid #e2e8f0;
+            padding: 20px;
+            margin-top: 30px;
+            background: #fafafa;
+        }
+        
+        .signature-box h3 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+        
+        .signature-box p {
+            font-size: 10pt;
+            margin-bottom: 5px;
+        }
+        
+        @media print {
+            .page {
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Rowan Rose Logo" />` : ''}
+        
+        <div class="header">
+            <div class="company-name">Rowan Rose Solicitors</div>
+            <div class="company-tagline">Legal Professionals</div>
+            <div class="company-address">
+                103 Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br/>
+                Tel: 0161 533 1706 | www.rowanrose.co.uk
+            </div>
+        </div>
+        
+        <div class="client-details">
+            <h3>CLIENT DETAILS</h3>
+            <p><strong>Name:</strong> ${fullName}</p>
+            <p><strong>Address:</strong> ${fullAddress}</p>
+            <p><strong>Contact Number:</strong> ${phone}</p>
+        </div>
+        
+        <h1>Terms and Conditions of Engagement</h1>
+        
+        <div class="content">
+            ${populatedHtml}
+        </div>
+        
+        <div class="signature-box">
+            <h3>ELECTRONIC SIGNATURE VERIFICATION</h3>
+            <p><strong>Signatory:</strong> ${fullName}</p>
+            <p><strong>Certified Timestamp:</strong> ${todayWithTime}</p>
+        </div>
+        
+        <div class="footer">
+            This document is electronically signed and legally binding.
+        </div>
+    </div>
+</body>
+</html>
+    `;
+}
+
 // --- EMAIL TRANSPORTER ---
 const transporter = nodemailer.createTransport({
     host: 'smtp.office365.com',
@@ -899,108 +1253,67 @@ app.post('/api/submit-page1', async (req, res) => {
         const folderPath = `${first_name}_${last_name}_${contactId}/`;
 
         // 3. Upload Signature to S3: user_id/Signatures/signature.png
-        const base64Data = signature_data.replace(/^data:image\/\w+;base64,/, "");
-        const signatureBuffer = Buffer.from(base64Data, 'base64');
+        // Add timestamp to signature image
+        const signatureBufferWithTimestamp = await addTimestampToSignature(signature_data);
         const signatureKey = `${folderPath}Signatures/signature.png`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
             Key: signatureKey,
-            Body: signatureBuffer,
+            Body: signatureBufferWithTimestamp,
             ContentType: 'image/png',
             ACL: 'public-read'
         }));
 
         const signatureUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${signatureKey}`;
 
-        // 4. Generate T&C PDF: user_id/Terms-and-Conditions/Terms.pdf
-        const pdfBuffer = await new Promise((resolve) => {
-            const doc = new PDFDocument({ margin: 50, size: 'A4' });
-            let buffers = [];
-            doc.on('data', buffers.push.bind(buffers));
-            doc.on('end', () => resolve(Buffer.concat(buffers)));
+        // 4. Generate T&C PDF using Puppeteer (HTML to PDF)
+        let logoBase64 = null;
+        try {
+            const logoPath = path.join(__dirname, 'public', 'rr-logo.png');
+            const logoBuffer = await fs.promises.readFile(logoPath);
+            logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+        } catch (e) {
+            console.warn('Logo not found, PDF will be generated without logo');
+        }
 
-            try {
-                const logoPath = path.join(__dirname, 'public', 'rr-logo.png');
-                doc.image(logoPath, 50, 45, { width: 50 });
-            } catch (e) {
-                console.warn('Logo missing at:', path.join(__dirname, 'public', 'rr-logo.png'));
-            }
+        // Prepare client data for HTML generation
+        const clientData = {
+            first_name,
+            last_name,
+            street_address: finalAddressLine1,
+            address_line_2: finalAddressLine2,
+            city: finalCity,
+            state_county: finalState,
+            postal_code,
+            phone
+        };
 
-            doc.fillColor('#0f172a').fontSize(22).text('Rowan Rose Solicitors', 110, 50);
-            doc.fillColor('#64748b').fontSize(10).text('Legal Professionals | Manchester', 110, 75);
-            doc.moveDown(4);
+        // Generate HTML content
+        const htmlContent = await generateTermsHTML(clientData, logoBase64);
 
-            doc.rect(50, doc.y, 495, 80).fill('#f8fafc');
-            doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold');
-            doc.text('CLIENT DETAILS', 65, doc.y - 70);
-            doc.font('Helvetica').fontSize(11);
-            const addressParts = [finalAddressLine1, finalAddressLine2, finalCity, finalState].filter(Boolean);
-            const fullAddress = `${addressParts.join(', ')} | ${postal_code}`;
-            doc.text(`Name: ${fullName}`, 65, doc.y + 10);
-            doc.text(`Address: ${fullAddress}`);
-            doc.text(`Contact numbers: ${phone}`);
-            doc.moveDown(3);
-
-            doc.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Terms and Conditions of Engagement', { underline: true });
-            doc.moveDown();
-
-            let populatedText = tcText || '';
-            populatedText = populatedText.replace(/{{first name}}/g, first_name || '');
-            populatedText = populatedText.replace(/{{last name}}/g, last_name || '');
-            const streetCombined = [finalAddressLine1, finalAddressLine2].filter(Boolean).join(', ');
-            populatedText = populatedText.replace(/{{street address}}/g, streetCombined);
-            populatedText = populatedText.replace(/{{city\/town}}/g, finalCity || '');
-            populatedText = populatedText.replace(/{{country\/state}}/g, finalState || '');
-            populatedText = populatedText.replace(/{{postalcode}}/g, postal_code || '');
-            populatedText = populatedText.replace(/{{Contact number}}/g, phone || '');
-
-            // Parity with [Client.FirstName] style placeholders
-            populatedText = populatedText.replace(/\[Client\.FirstName\]/g, first_name || '');
-            populatedText = populatedText.replace(/\[Client\.LastName\]/g, last_name || '');
-            const fullAddressTpl = [finalAddressLine1, finalAddressLine2, finalCity, finalState, postal_code].filter(Boolean).join(', ');
-            populatedText = populatedText.replace(/\[Client\.Address\]/g, fullAddressTpl);
-
-            const now = new Date();
-            const today = now.toLocaleDateString('en-GB');
-            const todayWithTime = now.toLocaleString('en-GB', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-
-            populatedText = populatedText.replace(/14\/01\/2026/g, today);
-            populatedText = populatedText.replace(/{PLATFORM_DATE}/g, todayWithTime);
-
-            populatedText = populatedText.replace(/\[Client\.FirstName\]/g, first_name || '');
-            populatedText = populatedText.replace(/\[Client\.LastName\]/g, last_name || '');
-            populatedText = populatedText.replace(/\[Client\.StreetAddress\]/g, streetCombined);
-            populatedText = populatedText.replace(/\[Client\.City\]/g, city || '');
-            populatedText = populatedText.replace(/\[Client\.PostalCode\]/g, postal_code || '');
-
-            const paragraphs = populatedText.split('\n\n');
-            paragraphs.forEach(para => {
-                if (para.trim()) {
-                    if (doc.y > 700) doc.addPage();
-                    doc.font('Helvetica').fontSize(10).fillColor('#334155');
-                    doc.text(para.trim(), { align: 'justify', lineGap: 2 });
-                    doc.moveDown(0.5);
-                }
-            });
-
-            doc.addPage();
-            doc.rect(50, 50, 495, 100).strokeColor('#e2e8f0').stroke();
-            doc.fontSize(12).fillColor('#1e293b').font('Helvetica-Bold').text('ELECTRONIC SIGNATURE VERIFICATION', 65, 65);
-            doc.fontSize(10).font('Helvetica').text(`Signatory: ${fullName}`, 65, 85);
-            doc.text(`Digital Hash: ${contactId}`, 65, 100);
-            doc.text(`Certified Timestamp: ${todayWithTime}`, 65, 115);
-
-            doc.fontSize(8).fillColor('#94a3b8').text('This document is electronically signed and legally binding.', 50, 750, { align: 'center' });
-            doc.end();
+        // Generate PDF using Puppeteer
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
+
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            margin: {
+                top: '10mm',
+                right: '10mm',
+                bottom: '10mm',
+                left: '10mm'
+            },
+            printBackground: true,
+            preferCSSPageSize: false
+        });
+
+        await browser.close();
 
         const tcKey = `${folderPath}Terms-and-Conditions/Terms.pdf`;
         await s3Client.send(new PutObjectCommand({
