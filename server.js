@@ -810,63 +810,64 @@ async function generateTermsHTML(clientData, logoBase64) {
             margin: 0 auto;
         }
         
-        .header {
-            margin-top: 60px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 20px;
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .header-left {
+            flex: 0 0 auto;
         }
         
         .logo {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            width: 50px;
-            height: 50px;
+            width: 180px;
+            height: auto;
+        }
+        
+        .header-right {
+            flex: 1;
+            text-align: right;
+            padding-left: 40px;
         }
         
         .company-name {
-            font-size: 22pt;
+            font-size: 14pt;
             font-weight: bold;
             color: #0f172a;
             margin-bottom: 5px;
         }
         
-        .company-tagline {
+        .company-tel {
             font-size: 10pt;
-            color: #64748b;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            color: #334155;
+            margin-bottom: 3px;
         }
         
         .company-address {
-            margin-top: 10px;
-            font-size: 9pt;
-            color: #64748b;
-        }
-        
-        .client-details {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            padding: 20px;
-            margin-bottom: 30px;
-            border-radius: 4px;
-        }
-        
-        .client-details h3 {
             font-size: 10pt;
-            font-weight: bold;
-            color: #0f172a;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .client-details p {
-            font-size: 10pt;
+            color: #334155;
+            line-height: 1.4;
             margin-bottom: 5px;
-            color: #1e293b;
+        }
+        
+        .company-email {
+            font-size: 10pt;
+        }
+        
+        .company-email a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        
+        .document-date {
+            font-size: 10pt;
+            color: #334155;
+            margin-top: 15px;
+            margin-bottom: 20px;
         }
         
         .content {
@@ -989,23 +990,26 @@ async function generateTermsHTML(clientData, logoBase64) {
 </head>
 <body>
     <div class="page">
-        ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Rowan Rose Logo" />` : ''}
-        
-        <div class="header">
-            <div class="company-name">Rowan Rose Solicitors</div>
-            <div class="company-tagline">Legal Professionals</div>
-            <div class="company-address">
-                103 Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br/>
-                Tel: 0161 533 1706 | www.rowanrose.co.uk
+        <div class="header-container">
+            <div class="header-left">
+                ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Rowan Rose Solicitors" />` : ''}
+            </div>
+            <div class="header-right">
+                <div class="company-name">Rowan Rose Solicitors</div>
+                <div class="company-tel">Tel: 0161 5331706</div>
+                <div class="company-address">
+                    Address: 1.03 The boat shed<br/>
+                    12 Exchange Quay<br/>
+                    Salford<br/>
+                    M5 3EQ
+                </div>
+                <div class="company-email">
+                    <a href="mailto:info@fastactionclaims.co.uk">info@fastactionclaims.co.uk</a>
+                </div>
             </div>
         </div>
         
-        <div class="client-details">
-            <h3>CLIENT DETAILS</h3>
-            <p><strong>Name:</strong> ${fullName}</p>
-            <p><strong>Address:</strong> ${fullAddress}</p>
-            <p><strong>Contact Number:</strong> ${phone}</p>
-        </div>
+        <div class="document-date">Date: ${today}</div>
         
         <h1>Terms and Conditions of Engagement</h1>
         
@@ -1270,7 +1274,7 @@ app.post('/api/submit-page1', async (req, res) => {
         // 4. Generate T&C PDF using Puppeteer (HTML to PDF)
         let logoBase64 = null;
         try {
-            const logoPath = path.join(__dirname, 'public', 'rr-logo.png');
+            const logoPath = path.join(__dirname, 'public', 'rowan-rose-logo.png');
             const logoBuffer = await fs.promises.readFile(logoPath);
             logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
         } catch (e) {

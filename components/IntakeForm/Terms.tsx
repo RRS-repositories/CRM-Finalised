@@ -73,21 +73,33 @@ const Terms: React.FC<TermsProps> = ({ formData }) => {
         </div>
 
         {/* Floating Logo/Header */}
-        <div className="flex flex-col md:flex-row justify-between mb-12 border-b-2 border-slate-100 pb-8 gap-6">
-          <div className="flex items-center gap-4">
-            <img src="/rr-logo.png" alt="Rowan Rose Logo" className="w-16 h-16 rounded-full shadow-md" />
-            <div>
-              <h1 className="font-serif text-3xl tracking-wide text-navy-900">Rowan Rose Solicitors</h1>
-              <p className="text-gold-600 text-sm font-bold uppercase tracking-widest">Legal Professionals</p>
-            </div>
+        <div className="flex justify-between items-start mb-6 pb-6 border-b border-slate-200">
+          {/* Left: Logo */}
+          <div className="flex-shrink-0">
+            <img src="/rowan-rose-logo.png" alt="Rowan Rose Solicitors" className="w-48 h-auto" />
           </div>
-          <div className="text-right text-slate-500 text-sm">
-            <p className="font-bold text-navy-900">103 Boat Shed</p>
-            <p>12 Exchange Quay</p>
-            <p>Salford, M5 3EQ</p>
-            <p className="mt-2"><i className="fas fa-phone mr-2"></i>0161 533 1706</p>
-            <p><i className="fas fa-globe mr-2"></i>rowanrose.co.uk</p>
+
+          {/* Right: Company Details */}
+          <div className="text-right text-sm">
+            <p className="font-bold text-navy-900 text-base mb-1">Rowan Rose Solicitors</p>
+            <p className="text-slate-600">Tel: 0161 5331706</p>
+            <p className="text-slate-600 mt-1">
+              Address: 1.03 The boat shed<br />
+              12 Exchange Quay<br />
+              Salford<br />
+              M5 3EQ
+            </p>
+            <p className="mt-2">
+              <a href="mailto:info@fastactionclaims.co.uk" className="text-blue-600 hover:underline">
+                info@fastactionclaims.co.uk
+              </a>
+            </p>
           </div>
+        </div>
+
+        {/* Date */}
+        <div className="mb-8 text-sm text-slate-700">
+          Date: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
         </div>
 
         {/* The Professionally Formatted Content from Docx */}
