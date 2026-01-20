@@ -1346,6 +1346,22 @@ app.post('/api/submit-page1', async (req, res) => {
             [contactId, 'Terms and Conditions.pdf', 'pdf', 'Legal', tcUrl, 'Auto-generated', ['T&C', 'Signed']]
         );
 
+        // Create action log entry for contact creation via intake form
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                contactId,
+                'client',
+                contactId.toString(),
+                fullName,
+                'contact_created',
+                'account',
+                `Created by - Intake Form`,
+                JSON.stringify({ source: 'Client Filled', email, phone })
+            ]
+        );
+
         res.json({ success: true, contact_id: contactId, folder_path: folderPath });
     } catch (error) {
         console.error('Submit Step 1 Error:', error);
@@ -2056,7 +2072,7 @@ app.put('/api/workflows/:id/cancel', async (req, res) => {
             `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
             VALUES ($1, $2, $3, $4, $5, $6)`,
             [rows[0].client_id, 'agent', cancelled_by || 'system', 'workflow_cancelled', 'workflows',
-                `Cancelled workflow: ${rows[0].workflow_name}`]
+            `Cancelled workflow: ${rows[0].workflow_name}`]
         );
 
         res.json({ success: true, workflow: rows[0] });
@@ -2337,6 +2353,563 @@ app.get('/api/cases/:id/full', async (req, res) => {
         res.json(rows[0]);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================
+// LENDER SELECTION FORM ENDPOINTS
+// ============================================
+
+// Generate unique LOA (Letter of Authority) form link for a contact
+app.post('/api/contacts/:id/generate-loa-link', async (req, res) => {
+    const { id } = req.params;
+    const { userId, userName } = req.body; // User who generated the link
+
+    try {
+        // Check if contact exists
+        const contactCheck = await pool.query('SELECT id, first_name, last_name FROM contacts WHERE id = $1', [id]);
+        if (contactCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+
+        const contact = contactCheck.rows[0];
+
+        // Generate unique ID (UUID)
+        const { randomUUID } = await import('crypto');
+        const uniqueId = randomUUID();
+
+        // Use BASE_URL from env if set, otherwise auto-detect from request
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        const uniqueLink = `${baseUrl}/loa-form/${uniqueId}`;
+
+        // Update contact with unique link
+        await pool.query('UPDATE contacts SET unique_form_link = $1 WHERE id = $2', [uniqueId, id]);
+
+        // Create action log entry
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                id,
+                'user',
+                userId || 'system',
+                userName || 'System',
+                'loa_link_generated',
+                'system',
+                `LOA (Letter of Authority) form link generated`,
+                JSON.stringify({ uniqueId, link: uniqueLink })
+            ]
+        );
+
+        res.json({ success: true, uniqueLink, uniqueId });
+    } catch (error) {
+        console.error('Error generating LOA link:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Serve LOA (Letter of Authority) form page (GET endpoint)
+app.get('/loa-form/:uniqueId', async (req, res) => {
+    const { uniqueId } = req.params;
+
+    try {
+        // Find contact by unique link
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name, full_name FROM contacts WHERE unique_form_link = $1',
+            [uniqueId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Invalid Link</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                        h1 { color: #EF4444; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Invalid or Expired Link</h1>
+                    <p>This LOA form link is not valid. Please contact Rowan Rose Solicitors for assistance.</p>
+                </body>
+                </html>
+            `);
+        }
+
+        const contact = contactRes.rows[0];
+        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
+
+        // Return HTML form page
+        res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOA Form - ${contactName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+            background: #f8f9fa; 
+            padding: 20px; 
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 900px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 50px 60px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 40px; 
+            padding-bottom: 30px; 
+            border-bottom: 2px solid #e5e7eb; 
+        }
+        .logo-container {
+            margin-bottom: 20px;
+        }
+        .logo {
+            max-width: 280px;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+        .contact-info { 
+            font-size: 14px; 
+            color: #6b7280; 
+            margin: 20px 0;
+            line-height: 1.8;
+            text-align: center;
+        }
+        .contact-info a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+        .contact-info a:hover {
+            text-decoration: underline;
+        }
+        .greeting { 
+            font-size: 28px; 
+            font-weight: 700; 
+            color: #111827; 
+            margin: 30px 0 20px 0; 
+            text-align: left;
+        }
+        .intro { 
+            font-size: 17px; 
+            color: #374151; 
+            line-height: 1.9; 
+            margin-bottom: 30px; 
+            text-align: left;
+        }
+        .intro strong {
+            font-weight: 700;
+            color: #111827;
+        }
+        .category { margin: 35px 0; }
+        .category-title { 
+            font-size: 15px; 
+            font-weight: 700; 
+            color: #111827; 
+            margin-bottom: 18px; 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px;
+            font-style: italic;
+        }
+        .lender-item { 
+            display: flex; 
+            align-items: center; 
+            padding: 12px 15px; 
+            margin: 6px 0; 
+            border-radius: 6px; 
+            transition: background 0.2s; 
+        }
+        .lender-item:hover { background: #f9fafb; }
+        .lender-item input[type="checkbox"] { 
+            width: 22px; 
+            height: 22px; 
+            margin-right: 14px; 
+            cursor: pointer; 
+            accent-color: #3b82f6; 
+        }
+        .lender-item label { 
+            font-size: 15px; 
+            color: #374151; 
+            cursor: pointer; 
+            user-select: none; 
+            font-weight: 500;
+        }
+        .questions { 
+            margin: 45px 0; 
+            padding: 25px; 
+            background: #fef3c7; 
+            border-radius: 10px; 
+            border: 2px solid #fbbf24;
+        }
+        .question-item { 
+            display: flex; 
+            align-items: center; 
+            margin: 18px 0; 
+        }
+        .question-item input[type="checkbox"] { 
+            width: 22px; 
+            height: 22px; 
+            margin-right: 14px; 
+            cursor: pointer; 
+            accent-color: #f59e0b; 
+        }
+        .question-item label { 
+            font-size: 15px; 
+            font-weight: 600; 
+            color: #92400e; 
+            cursor: pointer; 
+        }
+        .signature-section { margin: 45px 0; }
+        .signature-title { 
+            font-size: 18px; 
+            font-weight: 700; 
+            color: #111827; 
+            margin-bottom: 15px; 
+        }
+        .signature-canvas { 
+            border: 2px solid #d1d5db; 
+            border-radius: 10px; 
+            cursor: crosshair; 
+            display: block; 
+            margin: 15px 0; 
+            background: white; 
+        }
+        .signature-buttons { 
+            display: flex; 
+            gap: 12px; 
+            margin: 15px 0; 
+        }
+        .btn { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 15px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            font-family: 'Inter', sans-serif;
+        }
+        .btn-clear { 
+            background: #ef4444; 
+            color: white; 
+        }
+        .btn-clear:hover { 
+            background: #dc2626; 
+            transform: translateY(-1px);
+        }
+        .btn-submit { 
+            background: #3b82f6; 
+            color: white; 
+            padding: 18px 50px; 
+            font-size: 18px; 
+            font-weight: 700;
+            width: 100%; 
+            margin-top: 35px; 
+        }
+        .btn-submit:hover { 
+            background: #2563eb; 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+        .btn-submit:disabled { 
+            background: #9ca3af; 
+            cursor: not-allowed; 
+            transform: none;
+        }
+        .disclaimer { 
+            font-size: 12px; 
+            color: #6b7280; 
+            margin-top: 25px; 
+            padding: 18px; 
+            background: #f9fafb; 
+            border-radius: 8px; 
+            line-height: 1.6; 
+        }
+        .loading { 
+            display: none; 
+            text-align: center; 
+            padding: 30px; 
+        }
+        .success-message { 
+            display: none; 
+            text-align: center; 
+            padding: 50px; 
+        }
+        .success-message h2 { 
+            color: #10b981; 
+            margin-bottom: 15px; 
+            font-size: 28px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo-container">
+                <img src="http://localhost:3000/fac.png" alt="Fast Action Claims" class="logo" onerror="this.style.display='none'">
+            </div>
+            <div class="contact-info">
+                Email: <a href="mailto:info@fastactionclaims.co.uk">info@fastactionclaims.co.uk</a><br>
+                Tel: <a href="tel:01615331706">0161 533 1706</a><br>
+                Web: <a href="https://fastactionclaims.co.uk/" target="_blank">https://fastactionclaims.co.uk/</a>
+            </div>
+        </div>
+        
+        <div class="greeting">Hi ${contactName},</div>
+        <div class="intro">
+            Great news — your claim is progressing smoothly!<br><br>
+            We wanted to get in touch to share a list of lenders we're currently pursuing. <strong>Millions of pounds have already been repaid to consumers.</strong><br><br>
+            <strong>Please take a moment to review the list below and tick any lenders you've used in the last 15 years.</strong><br><br>
+            Millions has been claimed from lenders for irresponsible lending so it's well worth taking a careful look!<br><br>
+            If you need any help or have questions, don't hesitate to get in touch.
+        </div>
+        <form id="lenderForm">
+            <div id="lenderCategories"></div>
+            <div class="questions">
+                <div class="question-item"><input type="checkbox" id="ccj" name="ccj"><label for="ccj">HAVE YOU EVER HAD A CCJ IN THE LAST 6 YEARS?</label></div>
+                <div class="question-item"><input type="checkbox" id="scam" name="scam"><label for="scam">HAVE YOU BEEN A VICTIM OF A SCAM IN THE LAST 6 YEARS?</label></div>
+                <div class="question-item"><input type="checkbox" id="gambling" name="gambling"><label for="gambling">HAVE YOU EXPERIENCED PERIODS OF EXCESSIVE OR PROBLEMATIC GAMBLING WITHIN THE LAST 10 YEARS?</label></div>
+            </div>
+            <div class="signature-section">
+                <div class="signature-title">Please sign in the box below</div>
+                <canvas id="signatureCanvas" class="signature-canvas" width="700" height="200"></canvas>
+                <div class="signature-buttons"><button type="button" class="btn btn-clear" onclick="clearSignature()">Clear Signature</button></div>
+                <div class="disclaimer">Fast Action Claims (Rowan Rose Solicitors) is a trading name of Rowan Rose Solicitors Limited, a limited company registered in England and Wales. Company number: 12345678. Registered office: [Address]. Rowan Rose Solicitors Limited is authorised and regulated by the Solicitors Regulation Authority. SRA number: 123456.</div>
+            </div>
+            <button type="submit" class="btn btn-submit" id="submitBtn">Submit</button>
+        </form>
+        <div class="loading" id="loading"><p>Submitting your form...</p></div>
+        <div class="success-message" id="success"><h2>✓ Form Submitted Successfully!</h2><p>Thank you for completing the lender selection form. We will process your information shortly.</p></div>
+    </div>
+    <script>
+        const lenderCategories = ${JSON.stringify([{ title: 'TICK THE CREDIT CARDS WHICH APPLY TO YOU :', lenders: ['AQUA', 'BIP CREDIT CARD', 'FLUID', 'VANQUIS', 'LUMA', 'MARBLES', 'MBNA', 'OCEAN', 'REVOLUT CREDIT CARD', 'WAVE', 'ZABLE', 'ZILCH', '118 118 MONEY'] }, { title: 'TICK THE PAYDAY LOANS / LOANS WHICH APPLY TO YOU :', lenders: ['ADMIRAL LOANS', 'ANICO FINANCE', 'AVANT CREDIT', 'BAMBOO', 'BETTER BORROW', 'CREDIT SPRING', 'CASH ASAP', 'CASH FLOAT', 'CAR CASH POINT', 'CREATION FINANCE', 'CASTLE COMMUNITY BANK', 'DRAFTY LOANS', 'EVOLUTION MONEY', 'EVERY DAY LENDING', 'FERNOVO', 'FAIR FINANCE', 'FINIO LOANS', 'FINTERN', 'FLURO', 'KOYO LOANS', 'LIKELY LOANS', 'LOANS2GO', 'LOANS BY MAL', 'LOGBOOK LENDING', 'LOGBOOK MONEY', 'LENDING STREAM', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT', 'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK', 'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY', 'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT', 'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE (NEYBER)', 'SNAP FINANCE', 'SHAWBROOK', 'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN'] }, { title: 'TICK THE GUARANTOR LOANS WHICH APPLY TO YOU :', lenders: ['GUARANTOR MY LOAN', 'HERO LOANS', 'JUO LOANS', 'SUCO', 'UK CREDIT', '1 PLUS 1'] }, { title: 'TICK THE LOGBOOK LOANS / PAWNBROKERS WHICH APPLY TO YOU :', lenders: ['CASH CONVERTERS', 'H&T PAWNBROKERS'] }, { title: 'TICK THE CATALOGUES WHICH APPLY TO YOU :', lenders: ['FASHION WORLD', 'JD WILLIAMS', 'SIMPLY BE', 'VERY CATALOGUE'] }, { title: 'TICK THE CAR FINANCE WHICH APPLY TO YOU :', lenders: ['ADVANTAGE FINANCE', 'AUDI / VOLKSWAGEN FINANCE / SKODA', 'BLUE MOTOR FINANCE', 'CLOSE BROTHERS', 'HALIFAX / BANK OF SCOTLAND', 'MONEY WAY', 'MOTONOVO', 'MONEY BARN', 'OODLE', 'PSA FINANCE', 'RCI FINANCIAL'] }, { title: 'TICK THE OVERDRAFTS WHICH APPLY TO YOU :', lenders: ['HALIFAX OVERDRAFT', 'BARCLAYS OVERDRAFT', 'CO-OP BANK OVERDRAFT', 'LLOYDS OVERDRAFT', 'TSB OVERDRAFT OVERDRAFT', 'NATWEST / RBS OVERDRAFT', 'HSBC OVERDRAFT', 'SANTANDER OVERDRAFT'] }])};
+        const container = document.getElementById('lenderCategories');
+        lenderCategories.forEach((category, catIndex) => {
+            const categoryDiv = document.createElement('div');
+            categoryDiv.className = 'category';
+            const title = document.createElement('div');
+            title.className = 'category-title';
+            title.textContent = category.title;
+            categoryDiv.appendChild(title);
+            category.lenders.forEach((lender, lenderIndex) => {
+                const lenderDiv = document.createElement('div');
+                lenderDiv.className = 'lender-item';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = \`lender_\${catIndex}_\${lenderIndex}\`;
+                checkbox.name = 'lenders';
+                checkbox.value = lender;
+                const label = document.createElement('label');
+                label.htmlFor = checkbox.id;
+                label.textContent = lender;
+                lenderDiv.appendChild(checkbox);
+                lenderDiv.appendChild(label);
+                categoryDiv.appendChild(lenderDiv);
+            });
+            container.appendChild(categoryDiv);
+        });
+        const canvas = document.getElementById('signatureCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let hasSignature = false;
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        canvas.addEventListener('mousedown', (e) => { isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
+        canvas.addEventListener('mousemove', (e) => { if (!isDrawing) return; const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); hasSignature = true; });
+        canvas.addEventListener('mouseup', () => { isDrawing = false; });
+        canvas.addEventListener('mouseout', () => { isDrawing = false; });
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.beginPath(); ctx.moveTo(x, y); isDrawing = true; });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (!isDrawing) return; const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.lineTo(x, y); ctx.stroke(); hasSignature = true; });
+        canvas.addEventListener('touchend', (e) => { e.preventDefault(); isDrawing = false; });
+        function clearSignature() { ctx.clearRect(0, 0, canvas.width, canvas.height); hasSignature = false; }
+        document.getElementById('lenderForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const selectedLenders = Array.from(document.querySelectorAll('input[name="lenders"]:checked')).map(cb => cb.value);
+            if (selectedLenders.length === 0) { alert('Please select at least one lender.'); return; }
+            if (!hasSignature) { alert('Please provide your signature.'); return; }
+            const signatureData = canvas.toDataURL('image/png');
+            const hadCCJ = document.getElementById('ccj').checked;
+            const victimOfScam = document.getElementById('scam').checked;
+            const problematicGambling = document.getElementById('gambling').checked;
+            document.getElementById('lenderForm').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            try {
+                const response = await fetch('/api/submit-loa-form', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uniqueId: '${uniqueId}', selectedLenders, signature2Data: signatureData, hadCCJ, victimOfScam, problematicGambling })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('success').style.display = 'block';
+                } else {
+                    alert('Error: ' + result.message);
+                    document.getElementById('lenderForm').style.display = 'block';
+                    document.getElementById('loading').style.display = 'none';
+                }
+            } catch (error) {
+                alert('Error submitting form. Please try again.');
+                document.getElementById('lenderForm').style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
+        `);
+    } catch (error) {
+        console.error('Error serving lender form:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Submit LOA form
+app.post('/api/submit-loa-form', async (req, res) => {
+    const { uniqueId, selectedLenders, signature2Data, hadCCJ, victimOfScam, problematicGambling } = req.body;
+
+    if (!uniqueId || !selectedLenders || !signature2Data) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // Find contact by unique link
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name FROM contacts WHERE unique_form_link = $1',
+            [uniqueId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid form link' });
+        }
+
+        const contact = contactRes.rows[0];
+        const contactId = contact.id;
+        const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+
+        // 1. Upload Signature 2 to S3
+        const signatureBufferWithTimestamp = await addTimestampToSignature(signature2Data);
+        const timestamp = Date.now();
+        const signature2Key = `${folderPath}Signatures/signature_2_${timestamp}.png`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: signature2Key,
+            Body: signatureBufferWithTimestamp,
+            ContentType: 'image/png',
+            ACL: 'public-read'
+        }));
+
+        const signature2Url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${signature2Key}`;
+
+        // 2. Update contact with signature 2 URL
+        await pool.query('UPDATE contacts SET signature_2_url = $1 WHERE id = $2', [signature2Url, contactId]);
+
+        // 3. Save signature 2 to documents table
+        await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [contactId, 'Signature_2.png', 'image', 'Legal', signature2Url, 'Auto-generated', ['Signature', 'LOA Form']]
+        );
+
+        // 4. Create one claim per selected lender
+        const claimPromises = selectedLenders.map(lender => {
+            return pool.query(
+                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at)
+                 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+                [contactId, lender, 'New Lead', 0] // claim_value = 0 as specified
+            );
+        });
+
+        await Promise.all(claimPromises);
+
+        // 5. Create action log entry for form submission
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                contactId,
+                'client',
+                contactId.toString(),
+                `${contact.first_name} ${contact.last_name}`,
+                'loa_form_submitted',
+                'claims',
+                `LOA form submitted - ${selectedLenders.length} lender(s) selected`,
+                JSON.stringify({
+                    selectedLenders,
+                    hadCCJ,
+                    victimOfScam,
+                    problematicGambling,
+                    claimsCreated: selectedLenders.length
+                })
+            ]
+        );
+
+        res.json({
+            success: true,
+            message: `Successfully created ${selectedLenders.length} claim(s)`,
+            claimsCreated: selectedLenders.length
+        });
+    } catch (error) {
+        console.error('Error submitting LOA form:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Get action timeline for a contact
+app.get('/api/contacts/:id/action-timeline', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const timelineRes = await pool.query(
+            `SELECT * FROM action_logs WHERE client_id = $1 ORDER BY timestamp DESC`,
+            [id]
+        );
+
+        // Group timeline entries
+        const timeline = {
+            creation: [],
+            formSubmissions: [],
+            updates: []
+        };
+
+        timelineRes.rows.forEach(entry => {
+            const formattedEntry = {
+                id: entry.id,
+                timestamp: entry.timestamp,
+                actorType: entry.actor_type,
+                actorName: entry.actor_name,
+                actionType: entry.action_type,
+                description: entry.description,
+                metadata: entry.metadata
+            };
+
+            if (entry.action_type === 'contact_created') {
+                timeline.creation.push(formattedEntry);
+            } else if (entry.action_type.includes('form') || entry.action_type.includes('link')) {
+                timeline.formSubmissions.push(formattedEntry);
+            } else {
+                timeline.updates.push(formattedEntry);
+            }
+        });
+
+        res.json({ success: true, timeline });
+    } catch (error) {
+        console.error('Error fetching action timeline:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
     }
 });
 

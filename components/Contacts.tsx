@@ -99,19 +99,27 @@ const getStatusColor = (status: string) => {
 };
 
 // Simple date formatter for timeline
-const formatTimeAgo = (dateString: string) => {
-   const date = new Date(dateString);
-   const now = new Date();
-   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+const formatTimeAgo = (dateString: string | undefined | null) => {
+   if (!dateString) return 'Unknown';
 
-   if (seconds < 60) return 'Just now';
-   const minutes = Math.floor(seconds / 60);
-   if (minutes < 60) return `${minutes}m ago`;
-   const hours = Math.floor(minutes / 60);
-   if (hours < 24) return `${hours}h ago`;
-   const days = Math.floor(hours / 24);
-   if (days < 7) return `${days}d ago`;
-   return date.toLocaleDateString();
+   try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid date';
+
+      const now = new Date();
+      const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      return date.toLocaleDateString();
+   } catch {
+      return 'Unknown';
+   }
 };
 
 // --- Sub-Component: Contact Detail View (7-Tab Structure) ---
@@ -154,6 +162,11 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
    const [selectedLenders, setSelectedLenders] = useState<string[]>([]);
    const [isLenderDropdownOpen, setIsLenderDropdownOpen] = useState(false);
    const dropdownRef = useRef<HTMLDivElement>(null);
+
+   // LOA Link Generation State
+   const [loaLink, setLoaLink] = useState<string | null>(null);
+   const [generatingLoaLink, setGeneratingLoaLink] = useState(false);
+   const [showLoaLinkModal, setShowLoaLinkModal] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -686,6 +699,66 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       return `RR-${yy}${mm}${dd}-${xxxx}`;
    };
 
+   // Generate LOA Link
+   const handleGenerateLoaLink = async () => {
+      if (!contact || !currentUser) return;
+
+      console.log('🔗 Generating LOA link for contact:', contact.id);
+      console.log('Current user:', currentUser);
+
+      setGeneratingLoaLink(true);
+      try {
+         // Use full backend URL (port 5000) instead of relative path
+         const apiUrl = `http://localhost:5000/api/contacts/${contact.id}/generate-loa-link`;
+         console.log('Calling API:', apiUrl);
+
+         const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+               userId: currentUser.id,
+               userName: currentUser.name
+            })
+         });
+
+         console.log('Response status:', response.status);
+         const data = await response.json();
+         console.log('Response data:', data);
+
+         if (data.success) {
+            setLoaLink(data.uniqueLink);
+            setShowLoaLinkModal(true);
+         } else {
+            console.error('API returned error:', data.message);
+            alert('Error generating LOA link: ' + data.message);
+         }
+      } catch (error) {
+         console.error('Error generating LOA link:', error);
+         alert('Failed to generate LOA link. Please try again.');
+      } finally {
+         setGeneratingLoaLink(false);
+      }
+   };
+
+   // Copy LOA Link to Clipboard
+   const copyLoaLinkToClipboard = () => {
+      if (loaLink) {
+         navigator.clipboard.writeText(loaLink);
+         // Change button color to green for visual feedback
+         const copyBtn = document.querySelector('.loa-copy-btn') as HTMLButtonElement;
+         if (copyBtn) {
+            copyBtn.style.background = '#10b981';
+            copyBtn.style.color = 'white';
+            copyBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => {
+               copyBtn.style.background = '';
+               copyBtn.style.color = '';
+               copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            }, 2000);
+         }
+      }
+   };
+
    return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 animate-in fade-in duration-200 relative transition-colors">
          {/* CRM Specification Header - Client ID + Name + Quick Actions */}
@@ -746,11 +819,10 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   <button
                      key={tab.id}
                      onClick={() => setActiveTab(tab.id)}
-                     className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === tab.id
-                           ? 'border-brand-orange text-navy-900 dark:text-white'
-                           : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-300'
-                     }`}
+                     className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id
+                        ? 'border-brand-orange text-navy-900 dark:text-white'
+                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-300'
+                        }`}
                   >
                      <tab.icon size={16} />
                      {tab.label}
@@ -958,12 +1030,30 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      <>
                         <div className="flex justify-between items-center mb-4">
                            <h2 className="text-lg font-bold text-navy-900 dark:text-white">ACTIVE CLAIMS</h2>
-                           <button
-                              onClick={() => setShowAddClaim(true)}
-                              className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
-                           >
-                              <Plus size={14} /> New Claim
-                           </button>
+                           <div className="flex items-center gap-3">
+                              <button
+                                 onClick={handleGenerateLoaLink}
+                                 disabled={generatingLoaLink}
+                                 className="text-xs font-bold bg-brand-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+                              >
+                                 {generatingLoaLink ? (
+                                    <>
+                                       <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                       Generating...
+                                    </>
+                                 ) : (
+                                    <>
+                                       <FileCheck size={14} /> Generate LOA Link
+                                    </>
+                                 )}
+                              </button>
+                              <button
+                                 onClick={() => setShowAddClaim(true)}
+                                 className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                              >
+                                 <Plus size={14} /> New Claim
+                              </button>
+                           </div>
                         </div>
 
                         <div className="space-y-3">
@@ -1495,16 +1585,15 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      {filteredCommunications.map((comm) => (
                         <div key={comm.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-4">
                            <div className="flex items-start gap-3">
-                              <div className={`p-2 rounded-lg ${
-                                 comm.channel === 'email' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600' :
+                              <div className={`p-2 rounded-lg ${comm.channel === 'email' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600' :
                                  comm.channel === 'sms' ? 'bg-green-50 dark:bg-green-900/30 text-green-600' :
-                                 comm.channel === 'whatsapp' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600' :
-                                 'bg-purple-50 dark:bg-purple-900/30 text-purple-600'
-                              }`}>
+                                    comm.channel === 'whatsapp' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600' :
+                                       'bg-purple-50 dark:bg-purple-900/30 text-purple-600'
+                                 }`}>
                                  {comm.channel === 'email' ? <MailIcon size={18} /> :
-                                  comm.channel === 'sms' ? <MessageIcon size={18} /> :
-                                  comm.channel === 'whatsapp' ? <MessageIcon size={18} /> :
-                                  <PhoneIcon size={18} />}
+                                    comm.channel === 'sms' ? <MessageIcon size={18} /> :
+                                       comm.channel === 'whatsapp' ? <MessageIcon size={18} /> :
+                                          <PhoneIcon size={18} />}
                               </div>
                               <div className="flex-1">
                                  <div className="flex justify-between items-start">
@@ -1767,14 +1856,13 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                         <div className="absolute left-5 top-2 bottom-2 w-px bg-gray-200 dark:bg-slate-700"></div>
                         {filteredActionLogs.length > 0 ? filteredActionLogs.map((log) => (
                            <div key={log.id} className="relative flex items-start gap-4 pl-4">
-                              <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${
-                                 log.actionCategory === 'claims' ? 'bg-indigo-500 border-indigo-100' :
+                              <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${log.actionCategory === 'claims' ? 'bg-indigo-500 border-indigo-100' :
                                  log.actionCategory === 'communication' ? 'bg-green-500 border-green-100' :
-                                 log.actionCategory === 'documents' ? 'bg-blue-500 border-blue-100' :
-                                 log.actionCategory === 'notes' ? 'bg-yellow-500 border-yellow-100' :
-                                 log.actionCategory === 'workflows' ? 'bg-purple-500 border-purple-100' :
-                                 'bg-gray-400 border-gray-100'
-                              }`}></div>
+                                    log.actionCategory === 'documents' ? 'bg-blue-500 border-blue-100' :
+                                       log.actionCategory === 'notes' ? 'bg-yellow-500 border-yellow-100' :
+                                          log.actionCategory === 'workflows' ? 'bg-purple-500 border-purple-100' :
+                                             'bg-gray-400 border-gray-100'
+                                 }`}></div>
                               <div className="flex-1 pb-4">
                                  <div className="flex justify-between items-start">
                                     <div>
@@ -1792,12 +1880,11 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            // Fall back to legacy timeline if no CRM action logs
                            legacyTimeline.map((item) => (
                               <div key={item.id} className="relative flex items-start gap-4 pl-4">
-                                 <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${
-                                    item.type === 'creation' ? 'bg-green-500 border-green-100' :
+                                 <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${item.type === 'creation' ? 'bg-green-500 border-green-100' :
                                     item.type === 'status_change' ? 'bg-blue-500 border-blue-100' :
-                                    item.type === 'communication' ? 'bg-purple-500 border-purple-100' :
-                                    'bg-gray-400 border-gray-100'
-                                 }`}></div>
+                                       item.type === 'communication' ? 'bg-purple-500 border-purple-100' :
+                                          'bg-gray-400 border-gray-100'
+                                    }`}></div>
                                  <div className="flex-1 pb-4">
                                     <div className="flex justify-between items-start">
                                        <div>
@@ -1925,114 +2012,114 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            title={`Preview: ${previewDoc.name}`}
                         />
                      ) : /* Image Preview */
-                     (previewDoc.type === 'image' || previewDoc.name.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i)) && previewDoc.url ? (
-                        <div className="relative p-4 flex items-center justify-center w-full h-full overflow-auto">
-                           <img
-                              src={previewDoc.url}
-                              alt={`Preview: ${previewDoc.name}`}
-                              className="max-w-full max-h-full object-contain shadow-lg rounded"
-                              onError={(e) => {
-                                 // If image fails to load, show fallback
-                                 const target = e.target as HTMLImageElement;
-                                 target.style.display = 'none';
-                                 const fallback = target.parentElement?.querySelector('.image-fallback');
-                                 if (fallback) (fallback as HTMLElement).style.display = 'flex';
-                              }}
-                           />
-                           <div className="image-fallback hidden flex-col items-center justify-center text-center p-8">
-                              <GenericFileIcon size={64} className="mb-4 text-gray-300 dark:text-slate-600" />
-                              <p className="text-lg font-medium text-gray-700 dark:text-gray-200">Image Failed to Load</p>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">The image URL may be invalid or expired.</p>
-                           </div>
-                        </div>
-                     ) : /* Text/HTML Preview */
-                     (previewDoc.type === 'txt' || previewDoc.type === 'html' || previewDoc.content) ? (
-                        <div className="w-full h-full p-6 overflow-auto">
-                           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 max-w-4xl mx-auto">
-                              {previewDoc.type === 'html' || previewDoc.content?.startsWith('<') ? (
-                                 <div
-                                    className="prose dark:prose-invert max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: previewDoc.content || '' }}
-                                 />
-                              ) : (
-                                 <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-mono">
-                                    {previewDoc.content || 'No content available'}
-                                 </pre>
-                              )}
-                           </div>
-                        </div>
-                     ) : /* Office Documents - Show iframe or fallback */
-                     (previewDoc.name.match(/\.(docx?|xlsx?|pptx?)$/i)) && previewDoc.url ? (
-                        <div className="flex flex-col items-center justify-center text-center p-8">
-                           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8 max-w-md">
-                              <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                                 <FileIcon size={32} className="text-blue-600 dark:text-blue-400" />
-                              </div>
-                              <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{previewDoc.name}</h4>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                                 Office documents require download to view properly.
-                              </p>
-                              <div className="flex flex-col gap-3">
-                                 <a
-                                    href={previewDoc.url}
-                                    download={previewDoc.name}
-                                    className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                                 >
-                                    <Download size={16} /> Download File
-                                 </a>
-                                 <a
-                                    href={previewDoc.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
-                                 >
-                                    <Eye size={16} /> Open in Browser
-                                 </a>
+                        (previewDoc.type === 'image' || previewDoc.name.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i)) && previewDoc.url ? (
+                           <div className="relative p-4 flex items-center justify-center w-full h-full overflow-auto">
+                              <img
+                                 src={previewDoc.url}
+                                 alt={`Preview: ${previewDoc.name}`}
+                                 className="max-w-full max-h-full object-contain shadow-lg rounded"
+                                 onError={(e) => {
+                                    // If image fails to load, show fallback
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    const fallback = target.parentElement?.querySelector('.image-fallback');
+                                    if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                                 }}
+                              />
+                              <div className="image-fallback hidden flex-col items-center justify-center text-center p-8">
+                                 <GenericFileIcon size={64} className="mb-4 text-gray-300 dark:text-slate-600" />
+                                 <p className="text-lg font-medium text-gray-700 dark:text-gray-200">Image Failed to Load</p>
+                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">The image URL may be invalid or expired.</p>
                               </div>
                            </div>
-                        </div>
-                     ) : /* Default Fallback - No Preview Available */
-                     (
-                        <div className="flex flex-col items-center justify-center text-center p-8">
-                           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8 max-w-md border border-gray-200 dark:border-slate-700">
-                              <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-slate-700 rounded-xl flex items-center justify-center">
-                                 <GenericFileIcon size={32} className="text-gray-400 dark:text-slate-500" />
+                        ) : /* Text/HTML Preview */
+                           (previewDoc.type === 'txt' || previewDoc.type === 'html' || previewDoc.content) ? (
+                              <div className="w-full h-full p-6 overflow-auto">
+                                 <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 max-w-4xl mx-auto">
+                                    {previewDoc.type === 'html' || previewDoc.content?.startsWith('<') ? (
+                                       <div
+                                          className="prose dark:prose-invert max-w-none"
+                                          dangerouslySetInnerHTML={{ __html: previewDoc.content || '' }}
+                                       />
+                                    ) : (
+                                       <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-mono">
+                                          {previewDoc.content || 'No content available'}
+                                       </pre>
+                                    )}
+                                 </div>
                               </div>
-                              <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{previewDoc.name}</h4>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                                 Size: {previewDoc.size || 'Unknown'}
-                              </p>
-                              {previewDoc.url ? (
-                                 <>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                                       This file type cannot be previewed directly in the browser.
-                                    </p>
-                                    <div className="flex flex-col gap-3">
-                                       <a
-                                          href={previewDoc.url}
-                                          download={previewDoc.name}
-                                          className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                                       >
-                                          <Download size={16} /> Download File
-                                       </a>
-                                       <a
-                                          href={previewDoc.url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
-                                       >
-                                          <Eye size={16} /> Open in New Tab
-                                       </a>
+                           ) : /* Office Documents - Show iframe or fallback */
+                              (previewDoc.name.match(/\.(docx?|xlsx?|pptx?)$/i)) && previewDoc.url ? (
+                                 <div className="flex flex-col items-center justify-center text-center p-8">
+                                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8 max-w-md">
+                                       <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                                          <FileIcon size={32} className="text-blue-600 dark:text-blue-400" />
+                                       </div>
+                                       <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{previewDoc.name}</h4>
+                                       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                          Office documents require download to view properly.
+                                       </p>
+                                       <div className="flex flex-col gap-3">
+                                          <a
+                                             href={previewDoc.url}
+                                             download={previewDoc.name}
+                                             className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                          >
+                                             <Download size={16} /> Download File
+                                          </a>
+                                          <a
+                                             href={previewDoc.url}
+                                             target="_blank"
+                                             rel="noopener noreferrer"
+                                             className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+                                          >
+                                             <Eye size={16} /> Open in Browser
+                                          </a>
+                                       </div>
                                     </div>
-                                 </>
-                              ) : (
-                                 <p className="text-sm text-red-500 dark:text-red-400">
-                                    No file URL available. The file may not have been uploaded correctly.
-                                 </p>
-                              )}
-                           </div>
-                        </div>
-                     )}
+                                 </div>
+                              ) : /* Default Fallback - No Preview Available */
+                                 (
+                                    <div className="flex flex-col items-center justify-center text-center p-8">
+                                       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8 max-w-md border border-gray-200 dark:border-slate-700">
+                                          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-slate-700 rounded-xl flex items-center justify-center">
+                                             <GenericFileIcon size={32} className="text-gray-400 dark:text-slate-500" />
+                                          </div>
+                                          <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{previewDoc.name}</h4>
+                                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                                             Size: {previewDoc.size || 'Unknown'}
+                                          </p>
+                                          {previewDoc.url ? (
+                                             <>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                                   This file type cannot be previewed directly in the browser.
+                                                </p>
+                                                <div className="flex flex-col gap-3">
+                                                   <a
+                                                      href={previewDoc.url}
+                                                      download={previewDoc.name}
+                                                      className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                                   >
+                                                      <Download size={16} /> Download File
+                                                   </a>
+                                                   <a
+                                                      href={previewDoc.url}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+                                                   >
+                                                      <Eye size={16} /> Open in New Tab
+                                                   </a>
+                                                </div>
+                                             </>
+                                          ) : (
+                                             <p className="text-sm text-red-500 dark:text-red-400">
+                                                No file URL available. The file may not have been uploaded correctly.
+                                             </p>
+                                          )}
+                                       </div>
+                                    </div>
+                                 )}
                   </div>
                </div>
             </div>
@@ -2454,6 +2541,50 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                         className="px-4 py-2 bg-navy-700 text-white rounded-lg hover:bg-navy-800 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                      >
                         {editingNote ? 'Update Note' : 'Save Note'}
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* LOA Link Modal */}
+         {showLoaLinkModal && loaLink && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-lg p-6 border border-gray-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between mb-4">
+                     <h3 className="font-bold text-lg text-navy-900 dark:text-white">LOA Link Generated</h3>
+                     <button
+                        onClick={() => setShowLoaLinkModal(false)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                     >
+                        <X size={20} />
+                     </button>
+                  </div>
+
+                  <div className="mb-4">
+                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                        Share this link with <strong>{contact?.fullName}</strong> to complete the LOA (Letter of Authority) form:
+                     </p>
+                     <div className="bg-gray-50 dark:bg-slate-700 p-3 rounded-lg border border-gray-200 dark:border-slate-600 flex items-center gap-2">
+                        <code className="flex-1 text-xs text-gray-800 dark:text-gray-200 break-all font-mono">
+                           {loaLink}
+                        </code>
+                        <button
+                           onClick={copyLoaLinkToClipboard}
+                           className="loa-copy-btn p-2 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded transition-colors flex-shrink-0 flex items-center gap-1"
+                           title="Copy to clipboard"
+                        >
+                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                     </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                     <button
+                        onClick={() => setShowLoaLinkModal(false)}
+                        className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                     >
+                        Done
                      </button>
                   </div>
                </div>

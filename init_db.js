@@ -182,6 +182,18 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_id VARCHAR(20);
     `);
 
+    // Add unique form link column for lender selection form
+    console.log('Adding unique_form_link column to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS unique_form_link TEXT;
+    `);
+
+    // Add second signature URL column
+    console.log('Adding signature_2_url column to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS signature_2_url TEXT;
+    `);
+
     // Add extended claim fields to cases table
     console.log('Adding extended claim fields to cases...');
     await pool.query(`

@@ -426,3 +426,23 @@ export interface ActionLogEntry {
   ipAddress?: string;
   userAgent?: string;
 }
+
+// Lender Selection Form Types
+export interface LenderFormSubmission {
+  uniqueId: string;
+  selectedLenders: string[];
+  signature2Data: string;
+  hadCCJ: boolean;
+  victimOfScam: boolean;
+  problematicGambling: boolean;
+}
+
+export interface ActionTimelineEntry {
+  id: string;
+  timestamp: string;
+  actorType: 'system' | 'user' | 'client';
+  actorName: string;
+  actionType: string;
+  description: string;
+  metadata?: Record<string, any>;
+}

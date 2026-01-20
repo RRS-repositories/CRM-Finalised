@@ -194,14 +194,14 @@ export const MOCK_CONVERSATIONS: Conversation[] = [
       status: "read"
     },
     messages: [
-       {
+      {
         id: "m2",
         sender: "agent",
         text: "We have received your documents.",
         timestamp: "Yesterday",
         platform: "email",
         status: "read"
-       }
+      }
     ],
     mediaGallery: {
       images: [],
@@ -537,3 +537,156 @@ export const WHATSAPP_TEMPLATES = [
     content: 'Great news {{firstName}}! We have received an offer on your claim. Please check your email for full details or call us to discuss.'
   }
 ];
+
+// ============================================
+// Lender Selection Form Constants
+// ============================================
+
+export interface LenderCategory {
+  title: string;
+  lenders: string[];
+}
+
+export const LENDER_CATEGORIES: LenderCategory[] = [
+  {
+    title: 'TICK THE CREDIT CARDS WHICH APPLY TO YOU :',
+    lenders: [
+      'AQUA',
+      'BIP CREDIT CARD',
+      'FLUID',
+      'VANQUIS',
+      'LUMA',
+      'MARBLES',
+      'MBNA',
+      'OCEAN',
+      'REVOLUT CREDIT CARD',
+      'WAVE',
+      'ZABLE',
+      'ZILCH',
+      '118 118 MONEY'
+    ]
+  },
+  {
+    title: 'TICK THE PAYDAY LOANS / LOANS WHICH APPLY TO YOU :',
+    lenders: [
+      'ADMIRAL LOANS',
+      'ANICO FINANCE',
+      'AVANT CREDIT',
+      'BAMBOO',
+      'BETTER BORROW',
+      'CREDIT SPRING',
+      'CASH ASAP',
+      'CASH FLOAT',
+      'CAR CASH POINT',
+      'CREATION FINANCE',
+      'CASTLE COMMUNITY BANK',
+      'DRAFTY LOANS',
+      'EVOLUTION MONEY',
+      'EVERY DAY LENDING',
+      'FERNOVO',
+      'FAIR FINANCE',
+      'FINIO LOANS',
+      'FINTERN',
+      'FLURO',
+      'KOYO LOANS',
+      'LIKELY LOANS',
+      'LOANS2GO',
+      'LOANS BY MAL',
+      'LOGBOOK LENDING',
+      'LOGBOOK MONEY',
+      'LENDING STREAM',
+      'LENDABLE',
+      'LIFE STYLE LOANS',
+      'MY COMMUNITY FINANCE',
+      'MY KREDIT',
+      'MY FINANCE CLUB',
+      'MONEY BOAT',
+      'MR LENDER',
+      'MONEY LINE',
+      'MY COMMUNITY BANK',
+      'MONTHLY ADVANCE LOANS',
+      'NOVUNA',
+      'OPOLO',
+      'PM LOANS',
+      'POLAR FINANCE',
+      'POST OFFICE MONEY',
+      'PROGRESSIVE MONEY',
+      'PLATA FINANCE',
+      'PLEND',
+      'QUID MARKET',
+      'QUICK LOANS',
+      'SKYLINE DIRECT',
+      'SALAD MONEY',
+      'SAVVY LOANS',
+      'SALARY FINANCE (NEYBER)',
+      'SNAP FINANCE',
+      'SHAWBROOK',
+      'THE ONE STOP MONEY SHOP',
+      'TM ADVANCES',
+      'TANDEM',
+      '118 LOANS',
+      'WAGESTREAM',
+      'CONSOLADATION LOAN'
+    ]
+  },
+  {
+    title: 'TICK THE GUARANTOR LOANS WHICH APPLY TO YOU :',
+    lenders: [
+      'GUARANTOR MY LOAN',
+      'HERO LOANS',
+      'JUO LOANS',
+      'SUCO',
+      'UK CREDIT',
+      '1 PLUS 1'
+    ]
+  },
+  {
+    title: 'TICK THE LOGBOOK LOANS / PAWNBROKERS WHICH APPLY TO YOU :',
+    lenders: [
+      'CASH CONVERTERS',
+      'H&T PAWNBROKERS'
+    ]
+  },
+  {
+    title: 'TICK THE CATALOGUES WHICH APPLY TO YOU :',
+    lenders: [
+      'FASHION WORLD',
+      'JD WILLIAMS',
+      'SIMPLY BE',
+      'VERY CATALOGUE'
+    ]
+  },
+  {
+    title: 'TICK THE CAR FINANCE WHICH APPLY TO YOU :',
+    lenders: [
+      'ADVANTAGE FINANCE',
+      'AUDI / VOLKSWAGEN FINANCE / SKODA',
+      'BLUE MOTOR FINANCE',
+      'CLOSE BROTHERS',
+      'HALIFAX / BANK OF SCOTLAND',
+      'MONEY WAY',
+      'MOTONOVO',
+      'MONEY BARN',
+      'OODLE',
+      'PSA FINANCE',
+      'RCI FINANCIAL'
+    ]
+  },
+  {
+    title: 'TICK THE OVERDRAFTS WHICH APPLY TO YOU :',
+    lenders: [
+      'HALIFAX OVERDRAFT',
+      'BARCLAYS OVERDRAFT',
+      'CO-OP BANK OVERDRAFT',
+      'LLOYDS OVERDRAFT',
+      'TSB OVERDRAFT OVERDRAFT',
+      'NATWEST / RBS OVERDRAFT',
+      'HSBC OVERDRAFT',
+      'SANTANDER OVERDRAFT'
+    ]
+  }
+];
+
+// Flatten all lenders for easy access
+export const ALL_LENDERS = LENDER_CATEGORIES.flatMap(category => category.lenders);
+
