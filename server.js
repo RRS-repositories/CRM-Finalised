@@ -1930,6 +1930,416 @@ app.post('/api/ai/clear-session', (req, res) => {
     res.json({ success: true });
 });
 
+// ============================================
+// Rowan Rose Solicitors CRM Specification APIs
+// ============================================
+
+// --- COMMUNICATIONS API ---
+
+// Get all communications for a client
+app.get('/api/clients/:id/communications', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM communications WHERE client_id = $1 ORDER BY timestamp DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create a new communication record
+app.post('/api/communications', async (req, res) => {
+    const {
+        client_id, channel, direction, subject, content,
+        call_duration_seconds, call_notes, agent_id, agent_name
+    } = req.body;
+
+    if (!client_id || !channel || !direction) {
+        return res.status(400).json({ error: 'client_id, channel, and direction are required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO communications
+            (client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [client_id, channel, direction, subject || null, content || null,
+                call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null]
+        );
+
+        // Also log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [client_id, 'agent', agent_id || 'system', agent_name || 'System',
+                `${direction}_${channel}`, 'communication',
+                `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message`]
+        );
+
+        res.json({ success: true, communication: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- WORKFLOW TRIGGERS API ---
+
+// Get all workflow triggers for a client
+app.get('/api/clients/:id/workflows', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM workflow_triggers WHERE client_id = $1 ORDER BY triggered_at DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Trigger a new workflow
+app.post('/api/workflows/trigger', async (req, res) => {
+    const { client_id, workflow_type, workflow_name, triggered_by, total_steps } = req.body;
+
+    if (!client_id || !workflow_type) {
+        return res.status(400).json({ error: 'client_id and workflow_type are required' });
+    }
+
+    try {
+        // Calculate next action time (e.g., 2 days from now for first step)
+        const nextActionAt = new Date();
+        nextActionAt.setDate(nextActionAt.getDate() + 2);
+
+        const { rows } = await pool.query(
+            `INSERT INTO workflow_triggers
+            (client_id, workflow_type, workflow_name, triggered_by, total_steps, next_action_at, next_action_description)
+            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [client_id, workflow_type, workflow_name || workflow_type, triggered_by || 'system',
+                total_steps || 4, nextActionAt, 'Send follow-up SMS']
+        );
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [client_id, 'agent', triggered_by || 'system', 'workflow_triggered', 'workflows',
+                `Triggered workflow: ${workflow_name || workflow_type}`]
+        );
+
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Cancel a workflow
+app.put('/api/workflows/:id/cancel', async (req, res) => {
+    const { id } = req.params;
+    const { cancelled_by } = req.body;
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE workflow_triggers
+            SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1
+            WHERE id = $2 RETURNING *`,
+            [cancelled_by || 'system', id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Workflow not found' });
+        }
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [rows[0].client_id, 'agent', cancelled_by || 'system', 'workflow_cancelled', 'workflows',
+                `Cancelled workflow: ${rows[0].workflow_name}`]
+        );
+
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- NOTES API ---
+
+// Get all notes for a client
+app.get('/api/clients/:id/notes', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM notes WHERE client_id = $1 ORDER BY pinned DESC, created_at DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create a new note
+app.post('/api/clients/:id/notes', async (req, res) => {
+    const { id } = req.params;
+    const { content, pinned, created_by, created_by_name } = req.body;
+
+    if (!content) {
+        return res.status(400).json({ error: 'Content is required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name)
+            VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [id, content, pinned || false, created_by || 'system', created_by_name || 'System']
+        );
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [id, 'agent', created_by || 'system', created_by_name || 'System', 'note_added', 'notes',
+                `Added note: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`]
+        );
+
+        res.json({ success: true, note: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update a note
+app.put('/api/notes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { content, pinned, updated_by } = req.body;
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE notes SET content = COALESCE($1, content), pinned = COALESCE($2, pinned),
+            updated_by = $3, updated_at = NOW()
+            WHERE id = $4 RETURNING *`,
+            [content, pinned, updated_by || 'system', id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Note not found' });
+        }
+
+        res.json({ success: true, note: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a note
+app.delete('/api/notes/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { rows } = await pool.query(
+            `DELETE FROM notes WHERE id = $1 RETURNING client_id`,
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Note not found' });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- ACTION LOGS API ---
+
+// Get action logs for a client
+app.get('/api/clients/:id/actions', async (req, res) => {
+    const { category, limit } = req.query;
+
+    try {
+        let query = `SELECT * FROM action_logs WHERE client_id = $1`;
+        const params = [req.params.id];
+
+        if (category && category !== 'all') {
+            query += ` AND action_category = $2`;
+            params.push(category);
+        }
+
+        query += ` ORDER BY timestamp DESC`;
+
+        if (limit) {
+            query += ` LIMIT $${params.length + 1}`;
+            params.push(parseInt(limit));
+        }
+
+        const { rows } = await pool.query(query, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get action logs for a specific claim
+app.get('/api/claims/:id/actions', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM action_logs WHERE claim_id = $1 ORDER BY timestamp DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- EXTENDED CONTACT FIELDS API ---
+
+// Update contact with bank details and previous address
+app.patch('/api/contacts/:id/extended', async (req, res) => {
+    const { id } = req.params;
+    const {
+        bank_name, account_name, sort_code, bank_account_number,
+        previous_address_line_1, previous_address_line_2, previous_city,
+        previous_county, previous_postal_code
+    } = req.body;
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (bank_name !== undefined) { updates.push(`bank_name = $${paramCount++}`); values.push(bank_name); }
+        if (account_name !== undefined) { updates.push(`account_name = $${paramCount++}`); values.push(account_name); }
+        if (sort_code !== undefined) { updates.push(`sort_code = $${paramCount++}`); values.push(sort_code); }
+        if (bank_account_number !== undefined) { updates.push(`bank_account_number = $${paramCount++}`); values.push(bank_account_number); }
+        if (previous_address_line_1 !== undefined) { updates.push(`previous_address_line_1 = $${paramCount++}`); values.push(previous_address_line_1); }
+        if (previous_address_line_2 !== undefined) { updates.push(`previous_address_line_2 = $${paramCount++}`); values.push(previous_address_line_2); }
+        if (previous_city !== undefined) { updates.push(`previous_city = $${paramCount++}`); values.push(previous_city); }
+        if (previous_county !== undefined) { updates.push(`previous_county = $${paramCount++}`); values.push(previous_county); }
+        if (previous_postal_code !== undefined) { updates.push(`previous_postal_code = $${paramCount++}`); values.push(previous_postal_code); }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        values.push(id);
+        const query = `UPDATE contacts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [id, 'agent', 'system', 'details_updated', 'account', 'Updated contact extended details (bank/previous address)']
+        );
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- EXTENDED CLAIM FIELDS API ---
+
+// Update case/claim with extended specification fields
+app.patch('/api/cases/:id/extended', async (req, res) => {
+    const { id } = req.params;
+    const {
+        lender_other, finance_type, finance_type_other, number_of_loans,
+        lender_reference, dates_timeline, apr, outstanding_balance,
+        dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+        billed_finance_charges, total_refund, total_debt, client_fee,
+        our_total_fee, fee_without_vat, vat, our_fee_net, spec_status
+    } = req.body;
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        const fields = {
+            lender_other, finance_type, finance_type_other, number_of_loans,
+            lender_reference, dates_timeline, apr, outstanding_balance,
+            dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+            billed_finance_charges, total_refund, total_debt, client_fee,
+            our_total_fee, fee_without_vat, vat, our_fee_net, spec_status
+        };
+
+        for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined) {
+                updates.push(`${key} = $${paramCount++}`);
+                values.push(value);
+            }
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        values.push(id);
+        const query = `UPDATE cases SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [rows[0].contact_id, id, 'agent', 'system', 'claim_updated', 'claims', 'Updated claim extended details']
+        );
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get single contact with all extended fields
+app.get('/api/contacts/:id/full', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM contacts WHERE id = $1`,
+            [req.params.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get single case with all extended fields
+app.get('/api/cases/:id/full', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM cases WHERE id = $1`,
+            [req.params.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Consolidated Server running on port ${port}`);
 });

@@ -1,7 +1,7 @@
 
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState } from '../types';
-import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS } from '../constants';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails } from '../types';
+import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -96,8 +96,51 @@ interface CRMContextType {
   updateForm: (frm: Form) => { success: boolean; message: string };
   deleteForm: (id: string) => { success: boolean; message: string };
 
-  // Notes
+  // Notes (Legacy)
   addNote: (contactId: string, content: string) => void;
+
+  // ============================================
+  // CRM Specification Methods (Phase 3)
+  // ============================================
+
+  // Communications
+  communications: CRMCommunication[];
+  fetchCommunications: (clientId: string) => Promise<void>;
+  addCommunication: (comm: Partial<CRMCommunication>) => Promise<{ success: boolean; message: string; id?: string }>;
+
+  // Workflow Triggers
+  workflowTriggers: WorkflowTrigger[];
+  fetchWorkflows: (clientId: string) => Promise<void>;
+  triggerWorkflow: (clientId: string, workflowType: string) => Promise<{ success: boolean; message: string; id?: string }>;
+  cancelWorkflow: (triggerId: string) => Promise<{ success: boolean; message: string }>;
+
+  // Notes (Enhanced CRM)
+  crmNotes: CRMNote[];
+  fetchNotes: (clientId: string) => Promise<void>;
+  addCRMNote: (clientId: string, content: string, pinned?: boolean) => Promise<{ success: boolean; message: string; id?: string }>;
+  updateCRMNote: (noteId: string, content: string, pinned?: boolean) => Promise<{ success: boolean; message: string }>;
+  deleteCRMNote: (noteId: string) => Promise<{ success: boolean; message: string }>;
+
+  // Action Timeline
+  actionLogs: ActionLogEntry[];
+  fetchActionLogs: (clientId: string) => Promise<void>;
+
+  // Extended Contact Fields (Bank Details, Previous Address)
+  updateContactExtended: (contactId: string, data: {
+    bankDetails?: BankDetails;
+    previousAddress?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      county?: string;
+      postalCode?: string;
+    };
+    clientId?: string;
+  }) => Promise<{ success: boolean; message: string }>;
+
+  // Extended Claim Fields
+  updateClaimExtended: (claimId: string, data: Record<string, any>) => Promise<{ success: boolean; message: string }>;
+  fetchFullClaim: (claimId: string) => Promise<any>;
 
   // Theme
   theme: Theme;
@@ -146,6 +189,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [activeContext, setActiveContext] = useState<ActiveContext | null>(null);
+
+  // CRM Specification State (Phase 3)
+  const [communications, setCommunications] = useState<CRMCommunication[]>([]);
+  const [workflowTriggers, setWorkflowTriggers] = useState<WorkflowTrigger[]>([]);
+  const [crmNotes, setCrmNotes] = useState<CRMNote[]>([]);
+  const [actionLogs, setActionLogs] = useState<ActionLogEntry[]>([]);
 
   // Auth Persistence Initialization
   useEffect(() => {
@@ -995,10 +1044,458 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: `Deleted form` };
   };
 
-  // --- Note Logic ---
+  // --- Note Logic (Legacy) ---
   const addNote = (contactId: string, content: string) => {
     logActivity(contactId, 'Note Added', content, 'note');
     addNotification('success', 'Note added successfully');
+  };
+
+  // ============================================
+  // CRM Specification Methods Implementation
+  // ============================================
+
+  // --- Communications ---
+  const fetchCommunications = useCallback(async (clientId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clients/${clientId}/communications`);
+      if (!response.ok) throw new Error('Failed to fetch communications');
+      const data = await response.json();
+
+      const mappedComms: CRMCommunication[] = data.map((c: any) => ({
+        id: c.id.toString(),
+        clientId: c.client_id.toString(),
+        channel: c.channel,
+        direction: c.direction,
+        subject: c.subject,
+        content: c.content,
+        callDurationSeconds: c.call_duration_seconds,
+        callNotes: c.call_notes,
+        agentId: c.agent_id,
+        agentName: c.agent_name,
+        timestamp: c.timestamp,
+        read: c.read
+      }));
+
+      setCommunications(mappedComms);
+    } catch (error) {
+      console.error('Error fetching communications:', error);
+    }
+  }, []);
+
+  const addCommunication = async (comm: Partial<CRMCommunication>): Promise<{ success: boolean; message: string; id?: string }> => {
+    if (!comm.clientId) {
+      addNotification('error', 'Client ID required for communication');
+      return { success: false, message: 'Client ID required' };
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/communications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: comm.clientId,
+          channel: comm.channel,
+          direction: comm.direction || 'outbound',
+          subject: comm.subject,
+          content: comm.content,
+          call_duration_seconds: comm.callDurationSeconds,
+          call_notes: comm.callNotes,
+          agent_id: currentUser?.id || 'system',
+          agent_name: currentUser?.fullName || 'System'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add communication');
+      }
+
+      const data = await response.json();
+
+      const newComm: CRMCommunication = {
+        id: data.id.toString(),
+        clientId: data.client_id.toString(),
+        channel: data.channel,
+        direction: data.direction,
+        subject: data.subject,
+        content: data.content,
+        callDurationSeconds: data.call_duration_seconds,
+        callNotes: data.call_notes,
+        agentId: data.agent_id,
+        agentName: data.agent_name,
+        timestamp: data.timestamp,
+        read: data.read
+      };
+
+      setCommunications(prev => [newComm, ...prev]);
+      addNotification('success', `${comm.channel?.toUpperCase()} logged successfully`);
+      return { success: true, message: 'Communication logged', id: newComm.id };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  // --- Workflow Triggers ---
+  const fetchWorkflows = useCallback(async (clientId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clients/${clientId}/workflows`);
+      if (!response.ok) throw new Error('Failed to fetch workflows');
+      const data = await response.json();
+
+      const mappedWorkflows: WorkflowTrigger[] = data.map((w: any) => ({
+        id: w.id.toString(),
+        clientId: w.client_id.toString(),
+        workflowType: w.workflow_type,
+        workflowName: w.workflow_name,
+        triggeredBy: w.triggered_by,
+        triggeredAt: w.triggered_at,
+        status: w.status,
+        currentStep: w.current_step,
+        totalSteps: w.total_steps,
+        nextActionAt: w.next_action_at,
+        nextActionDescription: w.next_action_description,
+        completedAt: w.completed_at,
+        cancelledAt: w.cancelled_at,
+        cancelledBy: w.cancelled_by
+      }));
+
+      setWorkflowTriggers(mappedWorkflows);
+    } catch (error) {
+      console.error('Error fetching workflows:', error);
+    }
+  }, []);
+
+  const triggerWorkflow = async (clientId: string, workflowType: string): Promise<{ success: boolean; message: string; id?: string }> => {
+    // Find workflow config from constants
+    const workflowConfig = WORKFLOW_TYPES.find(w => w.id === workflowType);
+    if (!workflowConfig) {
+      addNotification('error', 'Invalid workflow type');
+      return { success: false, message: 'Invalid workflow type' };
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/workflows/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          workflow_type: workflowType,
+          workflow_name: workflowConfig.name,
+          triggered_by: currentUser?.id || 'system',
+          total_steps: workflowConfig.totalSteps || 4,
+          next_action_description: `Step 1: ${workflowConfig.sequence.split(' → ')[0]}`
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to trigger workflow');
+      }
+
+      const data = await response.json();
+
+      const newWorkflow: WorkflowTrigger = {
+        id: data.id.toString(),
+        clientId: data.client_id.toString(),
+        workflowType: data.workflow_type,
+        workflowName: data.workflow_name,
+        triggeredBy: data.triggered_by,
+        triggeredAt: data.triggered_at,
+        status: data.status,
+        currentStep: data.current_step,
+        totalSteps: data.total_steps,
+        nextActionAt: data.next_action_at,
+        nextActionDescription: data.next_action_description
+      };
+
+      setWorkflowTriggers(prev => [newWorkflow, ...prev]);
+      addNotification('success', `${workflowConfig.name} workflow triggered`);
+      return { success: true, message: 'Workflow triggered', id: newWorkflow.id };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  const cancelWorkflow = async (triggerId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/workflows/${triggerId}/cancel`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cancelled_by: currentUser?.id || 'system'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to cancel workflow');
+      }
+
+      setWorkflowTriggers(prev => prev.map(w =>
+        w.id === triggerId
+          ? { ...w, status: 'cancelled' as const, cancelledAt: new Date().toISOString(), cancelledBy: currentUser?.id }
+          : w
+      ));
+
+      addNotification('success', 'Workflow cancelled');
+      return { success: true, message: 'Workflow cancelled' };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  // --- CRM Notes (Enhanced) ---
+  const fetchNotes = useCallback(async (clientId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clients/${clientId}/notes`);
+      if (!response.ok) throw new Error('Failed to fetch notes');
+      const data = await response.json();
+
+      const mappedNotes: CRMNote[] = data.map((n: any) => ({
+        id: n.id.toString(),
+        clientId: n.client_id.toString(),
+        content: n.content,
+        pinned: n.pinned,
+        createdBy: n.created_by,
+        createdByName: n.created_by_name,
+        createdAt: n.created_at,
+        updatedBy: n.updated_by,
+        updatedAt: n.updated_at
+      }));
+
+      setCrmNotes(mappedNotes);
+    } catch (error) {
+      console.error('Error fetching notes:', error);
+    }
+  }, []);
+
+  const addCRMNote = async (clientId: string, content: string, pinned: boolean = false): Promise<{ success: boolean; message: string; id?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clients/${clientId}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          pinned,
+          created_by: currentUser?.id || 'system',
+          created_by_name: currentUser?.fullName || 'System'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add note');
+      }
+
+      const data = await response.json();
+
+      const newNote: CRMNote = {
+        id: data.id.toString(),
+        clientId: data.client_id.toString(),
+        content: data.content,
+        pinned: data.pinned,
+        createdBy: data.created_by,
+        createdByName: data.created_by_name,
+        createdAt: data.created_at
+      };
+
+      setCrmNotes(prev => [newNote, ...prev]);
+      addNotification('success', 'Note added successfully');
+      return { success: true, message: 'Note added', id: newNote.id };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  const updateCRMNote = async (noteId: string, content: string, pinned?: boolean): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/notes/${noteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          pinned,
+          updated_by: currentUser?.id || 'system'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update note');
+      }
+
+      const data = await response.json();
+
+      setCrmNotes(prev => prev.map(n =>
+        n.id === noteId
+          ? { ...n, content: data.content, pinned: data.pinned, updatedBy: data.updated_by, updatedAt: data.updated_at }
+          : n
+      ));
+
+      addNotification('success', 'Note updated successfully');
+      return { success: true, message: 'Note updated' };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  const deleteCRMNote = async (noteId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/notes/${noteId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete note');
+      }
+
+      setCrmNotes(prev => prev.filter(n => n.id !== noteId));
+      addNotification('success', 'Note deleted successfully');
+      return { success: true, message: 'Note deleted' };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  // --- Action Timeline ---
+  const fetchActionLogs = useCallback(async (clientId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clients/${clientId}/actions`);
+      if (!response.ok) throw new Error('Failed to fetch action logs');
+      const data = await response.json();
+
+      const mappedLogs: ActionLogEntry[] = data.map((a: any) => ({
+        id: a.id.toString(),
+        clientId: a.client_id?.toString(),
+        claimId: a.claim_id?.toString(),
+        actorType: a.actor_type,
+        actorId: a.actor_id,
+        actorName: a.actor_name,
+        actionType: a.action_type,
+        actionCategory: a.action_category,
+        description: a.description,
+        metadata: a.metadata,
+        timestamp: a.timestamp,
+        ipAddress: a.ip_address,
+        userAgent: a.user_agent
+      }));
+
+      setActionLogs(mappedLogs);
+    } catch (error) {
+      console.error('Error fetching action logs:', error);
+    }
+  }, []);
+
+  // --- Extended Contact Fields ---
+  const updateContactExtended = async (contactId: string, data: {
+    bankDetails?: BankDetails;
+    previousAddress?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      county?: string;
+      postalCode?: string;
+    };
+    clientId?: string;
+  }): Promise<{ success: boolean; message: string }> => {
+    try {
+      const requestBody: Record<string, any> = {};
+
+      if (data.bankDetails) {
+        requestBody.bank_name = data.bankDetails.bankName;
+        requestBody.account_name = data.bankDetails.accountName;
+        requestBody.sort_code = data.bankDetails.sortCode;
+        requestBody.bank_account_number = data.bankDetails.accountNumber;
+      }
+
+      if (data.previousAddress) {
+        requestBody.previous_address_line_1 = data.previousAddress.line1;
+        requestBody.previous_address_line_2 = data.previousAddress.line2;
+        requestBody.previous_city = data.previousAddress.city;
+        requestBody.previous_county = data.previousAddress.county;
+        requestBody.previous_postal_code = data.previousAddress.postalCode;
+      }
+
+      if (data.clientId) {
+        requestBody.client_id = data.clientId;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/contacts/${contactId}/extended`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update contact');
+      }
+
+      // Update local state
+      setContacts(prev => prev.map(c => {
+        if (c.id === contactId) {
+          return {
+            ...c,
+            bankDetails: data.bankDetails || c.bankDetails,
+            previousAddressObj: data.previousAddress ? {
+              line1: data.previousAddress.line1 || '',
+              line2: data.previousAddress.line2,
+              city: data.previousAddress.city || '',
+              state_county: data.previousAddress.county || '',
+              postalCode: data.previousAddress.postalCode || ''
+            } : c.previousAddressObj,
+            clientId: data.clientId || c.clientId
+          };
+        }
+        return c;
+      }));
+
+      addNotification('success', 'Contact details updated successfully');
+      return { success: true, message: 'Contact updated' };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  // --- Extended Claim Fields ---
+  const updateClaimExtended = async (claimId: string, data: Record<string, any>): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/cases/${claimId}/extended`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update claim');
+      }
+
+      addNotification('success', 'Claim details updated successfully');
+      return { success: true, message: 'Claim updated' };
+    } catch (e: any) {
+      addNotification('error', e.message);
+      return { success: false, message: e.message };
+    }
+  };
+
+  const fetchFullClaim = async (claimId: string): Promise<any> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/cases/${claimId}/full`);
+      if (!response.ok) throw new Error('Failed to fetch claim');
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching full claim:', error);
+      return null;
+    }
   };
 
   return (
@@ -1015,7 +1512,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addAppointment, addDocument, updateDocument,
       addTemplate, updateTemplate,
       addForm, updateForm, deleteForm,
-      addNote, theme, toggleTheme
+      addNote, theme, toggleTheme,
+      // CRM Specification Methods (Phase 3)
+      communications, fetchCommunications, addCommunication,
+      workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
+      crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
+      actionLogs, fetchActionLogs,
+      updateContactExtended, updateClaimExtended, fetchFullClaim
     }}>
       {children}
     </CRMContext.Provider>

@@ -139,6 +139,215 @@ async function initDb() {
       ON CONFLICT (email) DO NOTHING;
     `);
 
+    // ============================================
+    // Rowan Rose Solicitors CRM Specification Schema
+    // ============================================
+
+    // Add bank details columns to contacts table
+    console.log('Adding bank details columns to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS account_name VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS sort_code VARCHAR(8);
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(8);
+    `);
+
+    // Add previous address columns to contacts table
+    console.log('Adding previous address columns to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_address_line_1 TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_address_line_2 TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_city VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_county VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_postal_code VARCHAR(20);
+    `);
+
+    // Add client_id column (RR-YYMMDD-XXXX format)
+    console.log('Adding client_id column to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_id VARCHAR(20);
+    `);
+
+    // Add extended claim fields to cases table
+    console.log('Adding extended claim fields to cases...');
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS lender_other VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS finance_type VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS finance_type_other VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS number_of_loans INTEGER;
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS lender_reference VARCHAR(100);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS dates_timeline TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS apr DECIMAL(5, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS outstanding_balance DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS dsar_review TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS complaint_paragraph TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS offer_made DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS late_payment_charges DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS billed_finance_charges DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS total_refund DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS total_debt DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS client_fee DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS our_total_fee DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS fee_without_vat DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS vat DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS our_fee_net DECIMAL(10, 2);
+    `);
+    await pool.query(`
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS spec_status VARCHAR(50);
+    `);
+
+    // Create Communications Table
+    console.log('Creating communications table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS communications (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        channel VARCHAR(20) NOT NULL,
+        direction VARCHAR(10) NOT NULL,
+        subject VARCHAR(255),
+        content TEXT,
+        call_duration_seconds INTEGER,
+        call_notes TEXT,
+        agent_id VARCHAR(50),
+        agent_name VARCHAR(100),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        read BOOLEAN DEFAULT FALSE
+      );
+    `);
+
+    // Create Workflow Triggers Table
+    console.log('Creating workflow_triggers table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS workflow_triggers (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        workflow_type VARCHAR(50) NOT NULL,
+        workflow_name VARCHAR(100),
+        triggered_by VARCHAR(50),
+        triggered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'active',
+        current_step INTEGER DEFAULT 1,
+        total_steps INTEGER DEFAULT 4,
+        next_action_at TIMESTAMP,
+        next_action_description TEXT,
+        completed_at TIMESTAMP,
+        cancelled_at TIMESTAMP,
+        cancelled_by VARCHAR(50)
+      );
+    `);
+
+    // Create Notes Table
+    console.log('Creating notes table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        pinned BOOLEAN DEFAULT FALSE,
+        created_by VARCHAR(50),
+        created_by_name VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(50),
+        updated_at TIMESTAMP
+      );
+    `);
+
+    // Create Action Logs Table
+    console.log('Creating action_logs table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS action_logs (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        claim_id INTEGER,
+        actor_type VARCHAR(20) NOT NULL,
+        actor_id VARCHAR(50),
+        actor_name VARCHAR(100),
+        action_type VARCHAR(50) NOT NULL,
+        action_category VARCHAR(50),
+        description TEXT,
+        metadata JSONB,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ip_address VARCHAR(45),
+        user_agent TEXT
+      );
+    `);
+
+    // Create indexes for better query performance
+    console.log('Creating indexes...');
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_communications_client_id ON communications(client_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_communications_timestamp ON communications(timestamp);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_workflow_triggers_client_id ON workflow_triggers(client_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_workflow_triggers_status ON workflow_triggers(status);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_notes_client_id ON notes(client_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_action_logs_client_id ON action_logs(client_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp);
+    `);
+
     console.log('Database initialization complete!');
     process.exit(0);
   } catch (err) {

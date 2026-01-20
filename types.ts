@@ -92,8 +92,17 @@ export interface Contact {
   phone: string;
   dateOfBirth?: string;
   address?: Address;
-  previousAddress?: string;
+  previousAddress?: string | Address; // Can be string (legacy) or full Address object
+  previousAddressObj?: Address; // Explicit Address object for previous address
   livedLessThan3Years?: boolean;
+
+  // Bank Details (Rowan Rose Specification)
+  bankDetails?: {
+    bankName?: string;
+    accountName?: string;
+    sortCode?: string;  // XX-XX-XX format
+    accountNumber?: string;  // 8 digits
+  };
 
   status: ClaimStatus;
   lender?: string;
@@ -104,6 +113,11 @@ export interface Contact {
   avatar?: string;
   source?: 'Client Filled' | 'Manual Input' | 'Website' | 'Referral' | 'AI Import' | 'Bulk Import';
   customFields?: Record<string, string>; // Flexible field mapping
+
+  // Client ID format: RR-YYMMDD-XXXX
+  clientId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ClientFormData {
@@ -291,4 +305,124 @@ export interface Notification {
   type: 'success' | 'error' | 'info';
   message: string;
   isExiting?: boolean;
+}
+
+// ============================================
+// Rowan Rose Solicitors CRM Specification Types
+// ============================================
+
+// Bank Details for Client
+export interface BankDetails {
+  bankName: string;
+  accountName: string;
+  sortCode: string;  // XX-XX-XX format
+  accountNumber: string;  // 8 digits
+}
+
+// Communication Record (SMS, Email, WhatsApp, Call)
+export interface CRMCommunication {
+  id: string;
+  clientId: string;
+  channel: 'email' | 'sms' | 'whatsapp' | 'call';
+  direction: 'inbound' | 'outbound';
+  subject?: string;
+  content: string;
+  callDurationSeconds?: number;
+  callNotes?: string;
+  agentId: string;
+  agentName?: string;
+  timestamp: string;
+  read: boolean;
+  attachments?: MessageAttachment[];
+}
+
+// Workflow Trigger for Chase Sequences
+export interface WorkflowTrigger {
+  id: string;
+  clientId: string;
+  workflowType: string;
+  workflowName?: string;
+  triggeredBy: string;
+  triggeredAt: string;
+  status: 'active' | 'completed' | 'cancelled';
+  currentStep: number;
+  totalSteps: number;
+  nextActionAt?: string;
+  nextActionDescription?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+}
+
+// Enhanced Note with pinning and audit
+export interface CRMNote {
+  id: string;
+  clientId: string;
+  content: string;
+  pinned: boolean;
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+// Specification's 13 Claim Statuses (for claim-level display)
+export enum ClaimStatusSpec {
+  NEW_CLAIM = 'New Claim',
+  LOA_SENT = 'LOA Sent',
+  AWAITING_DSAR = 'Awaiting DSAR',
+  DSAR_RECEIVED = 'DSAR Received',
+  COMPLAINT_SUBMITTED = 'Complaint Submitted',
+  FRL_RECEIVED = 'FRL Received',
+  COUNTER_SUBMITTED = 'Counter Submitted',
+  FOS_REFERRED = 'FOS Referred',
+  OFFER_MADE = 'Offer Made',
+  ACCEPTED = 'Accepted',
+  PAYMENT_RECEIVED = 'Payment Received',
+  CLOSED_WON = 'Closed - Won',
+  CLOSED_LOST = 'Closed - Lost'
+}
+
+// Extended Claim fields from specification
+export interface ClaimExtended extends Claim {
+  lenderOther?: string;
+  financeType?: string;
+  financeTypeOther?: string;
+  numberOfLoans?: number;
+  lenderReference?: string;
+  datesTimeline?: string;
+  apr?: number;
+  outstandingBalance?: number;
+  dsarReview?: string;
+  complaintParagraph?: string;
+  offerMade?: number;
+  latePaymentCharges?: number;
+  billedFinanceCharges?: number;
+  totalRefund?: number;
+  totalDebt?: number;
+  clientFee?: number;
+  ourTotalFee?: number;
+  feeWithoutVat?: number;
+  vat?: number;
+  ourFeeNet?: number;
+  specStatus?: ClaimStatusSpec;
+  documents?: Document[];
+}
+
+// Action Log Entry for Timeline
+export interface ActionLogEntry {
+  id: string;
+  clientId: string;
+  claimId?: string;
+  actorType: 'agent' | 'client' | 'system';
+  actorId: string;
+  actorName?: string;
+  actionType: string;
+  actionCategory: 'account' | 'claims' | 'communication' | 'documents' | 'notes' | 'workflows' | 'system';
+  description: string;
+  metadata?: Record<string, any>;
+  timestamp: string;
+  ipAddress?: string;
+  userAgent?: string;
 }
