@@ -119,6 +119,33 @@
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
       }
+
+      /* Pipeline vertical text for collapsed columns */
+      .writing-mode-vertical {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+      }
+
+      /* Enhanced custom scrollbar for Pipeline */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #d1d5db;
+        border-radius: 3px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af;
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #475569;
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
     </style>
   <script type="importmap">
 {

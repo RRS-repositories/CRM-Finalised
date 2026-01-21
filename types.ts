@@ -384,28 +384,72 @@ export enum ClaimStatusSpec {
   CLOSED_LOST = 'Closed - Lost'
 }
 
-// Extended Claim fields from specification
+// Loan Details for dynamic EF fields (per loan)
+export interface LoanDetails {
+  loanNumber: number;
+  valueOfLoan?: string;
+  startDate?: string;
+  endDate?: string;
+  apr?: string;
+}
+
+// Finance Type Entry for multi-select with account number
+export interface FinanceTypeEntry {
+  financeType: string;
+  accountNumber?: string;
+}
+
+// Payment Plan details
+export interface PaymentPlan {
+  clientOutstandingFees?: string;
+  planStatus?: 'Plan Set Up' | 'Missed Payment' | 'Not Set Up' | 'Settled' | '';
+  planDate?: string;
+  termOfPlan?: string;
+  startDate?: string;
+  remainingBalance?: string;
+}
+
+// Extended Claim fields from specification (updated per crm-claim-spec.md)
 export interface ClaimExtended extends Claim {
   lenderOther?: string;
-  financeType?: string;
+  // Multi-select finance types with account numbers (EF fields)
+  financeTypes?: FinanceTypeEntry[];
+  financeType?: string; // Legacy single select - kept for backwards compatibility
   financeTypeOther?: string;
+  // Number of loans (1-50) - triggers EF duplication
   numberOfLoans?: number;
+  // Dynamic loan details array (EF fields)
+  loanDetails?: LoanDetails[];
   lenderReference?: string;
   datesTimeline?: string;
   apr?: number;
   outstandingBalance?: number;
+  // Section 1 additional fields
+  billedInterestCharges?: string;
+  latePaymentCharges?: number;
+  overlimitCharges?: string;
+  creditLimitIncreases?: string;
   dsarReview?: string;
   complaintParagraph?: string;
+  // Section 2: Payment Section
   offerMade?: number;
-  latePaymentCharges?: number;
-  billedFinanceCharges?: number;
   totalRefund?: number;
   totalDebt?: number;
+  balanceDueToClient?: string;
+  ourFeesPlusVat?: string;
+  ourFeesMinusVat?: string;
+  vatAmount?: string;
+  totalFee?: string;
+  outstandingDebt?: string;
+  billedFinanceCharges?: number;
+  // Legacy fee fields (kept for backwards compatibility)
   clientFee?: number;
   ourTotalFee?: number;
   feeWithoutVat?: number;
   vat?: number;
   ourFeeNet?: number;
+  // Section 3: Payment Plan
+  paymentPlan?: PaymentPlan;
   specStatus?: ClaimStatusSpec;
   documents?: Document[];
 }

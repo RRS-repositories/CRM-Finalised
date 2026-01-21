@@ -12,7 +12,7 @@ import {
    Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
-import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails } from '../types';
+import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES } from '../constants';
 import BulkImport from './BulkImport';
 
@@ -219,23 +219,46 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
    const [viewingClaimId, setViewingClaimId] = useState<string | null>(null);
    const [claimFileData, setClaimFileData] = useState<any>(null);
    const [claimFileForm, setClaimFileForm] = useState({
+      // Section 1: Claim Details
       lender: '',
       lenderOther: '',
-      financeType: '',
+      financeTypes: [] as FinanceTypeEntry[], // Multi-select finance types with account numbers
+      financeType: '', // Legacy single select
       financeTypeOther: '',
+      numberOfLoans: '1',
+      loanDetails: [{ loanNumber: 1, valueOfLoan: '', startDate: '', endDate: '', apr: '' }] as LoanDetails[],
+      billedInterestCharges: '',
+      latePaymentCharges: '',
+      overlimitCharges: '',
+      creditLimitIncreases: '',
+      dsarReview: '',
+      complaintParagraph: '',
+      // Section 2: Payment Section
+      offerMade: '',
+      totalRefund: '',
+      totalDebt: '',
+      balanceDueToClient: '',
+      ourFeesPlusVat: '',
+      ourFeesMinusVat: '',
+      vatAmount: '',
+      totalFee: '',
+      outstandingDebt: '',
+      // Section 3: Payment Plan
+      paymentPlan: {
+         clientOutstandingFees: '',
+         planStatus: '' as PaymentPlan['planStatus'],
+         planDate: '',
+         termOfPlan: '',
+         startDate: '',
+         remainingBalance: ''
+      } as PaymentPlan,
+      // Legacy fields (kept for backwards compatibility)
       accountNumber: '',
-      numberOfLoans: '',
       lenderReference: '',
       datesTimeline: '',
       apr: '',
       outstandingBalance: '',
-      dsarReview: '',
-      complaintParagraph: '',
-      offerMade: '',
-      latePaymentCharges: '',
       billedFinanceCharges: '',
-      totalRefund: '',
-      totalDebt: '',
       clientFee: '',
       ourTotalFee: '',
       feeWithoutVat: '',
@@ -546,26 +569,79 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       // Also get the basic claim data from local state
       const basicClaim = claims.find(c => c.id === claimId);
 
+      // Parse JSON fields safely
+      let parsedFinanceTypes: FinanceTypeEntry[] = [];
+      let parsedLoanDetails: LoanDetails[] = [{ loanNumber: 1, valueOfLoan: '', startDate: '', endDate: '', apr: '' }];
+      let parsedPaymentPlan: PaymentPlan = { clientOutstandingFees: '', planStatus: '', planDate: '', termOfPlan: '', startDate: '', remainingBalance: '' };
+
+      try {
+         if (fullClaim?.finance_types) {
+            parsedFinanceTypes = typeof fullClaim.finance_types === 'string'
+               ? JSON.parse(fullClaim.finance_types)
+               : fullClaim.finance_types;
+         }
+      } catch (e) { console.error('Error parsing finance_types:', e); }
+
+      try {
+         if (fullClaim?.loan_details) {
+            parsedLoanDetails = typeof fullClaim.loan_details === 'string'
+               ? JSON.parse(fullClaim.loan_details)
+               : fullClaim.loan_details;
+         }
+      } catch (e) { console.error('Error parsing loan_details:', e); }
+
+      try {
+         if (fullClaim?.payment_plan) {
+            parsedPaymentPlan = typeof fullClaim.payment_plan === 'string'
+               ? JSON.parse(fullClaim.payment_plan)
+               : fullClaim.payment_plan;
+         }
+      } catch (e) { console.error('Error parsing payment_plan:', e); }
+
+      // Ensure loanDetails array matches numberOfLoans
+      const numLoans = parseInt(fullClaim?.number_of_loans?.toString() || '1') || 1;
+      if (parsedLoanDetails.length < numLoans) {
+         for (let i = parsedLoanDetails.length + 1; i <= numLoans; i++) {
+            parsedLoanDetails.push({ loanNumber: i, valueOfLoan: '', startDate: '', endDate: '', apr: '' });
+         }
+      }
+
       // Populate form with fetched data
       if (fullClaim || basicClaim) {
          setClaimFileForm({
+            // Section 1: Claim Details
             lender: fullClaim?.lender || basicClaim?.lender || '',
             lenderOther: fullClaim?.lender_other || '',
+            financeTypes: parsedFinanceTypes,
             financeType: fullClaim?.finance_type || '',
             financeTypeOther: fullClaim?.finance_type_other || '',
+            numberOfLoans: fullClaim?.number_of_loans?.toString() || '1',
+            loanDetails: parsedLoanDetails,
+            billedInterestCharges: fullClaim?.billed_interest_charges || '',
+            latePaymentCharges: fullClaim?.late_payment_charges?.toString() || '',
+            overlimitCharges: fullClaim?.overlimit_charges || '',
+            creditLimitIncreases: fullClaim?.credit_limit_increases || '',
+            dsarReview: fullClaim?.dsar_review || '',
+            complaintParagraph: fullClaim?.complaint_paragraph || '',
+            // Section 2: Payment Section
+            offerMade: fullClaim?.offer_made?.toString() || '',
+            totalRefund: fullClaim?.total_refund?.toString() || '',
+            totalDebt: fullClaim?.total_debt?.toString() || '',
+            balanceDueToClient: fullClaim?.balance_due_to_client || '',
+            ourFeesPlusVat: fullClaim?.our_fees_plus_vat || '',
+            ourFeesMinusVat: fullClaim?.our_fees_minus_vat || '',
+            vatAmount: fullClaim?.vat_amount || '',
+            totalFee: fullClaim?.total_fee || '',
+            outstandingDebt: fullClaim?.outstanding_debt || '',
+            // Section 3: Payment Plan
+            paymentPlan: parsedPaymentPlan,
+            // Legacy fields
             accountNumber: fullClaim?.account_number || basicClaim?.accountNumber || '',
-            numberOfLoans: fullClaim?.number_of_loans?.toString() || '',
             lenderReference: fullClaim?.lender_reference || '',
             datesTimeline: fullClaim?.dates_timeline || '',
             apr: fullClaim?.apr?.toString() || '',
             outstandingBalance: fullClaim?.outstanding_balance?.toString() || '',
-            dsarReview: fullClaim?.dsar_review || '',
-            complaintParagraph: fullClaim?.complaint_paragraph || '',
-            offerMade: fullClaim?.offer_made?.toString() || '',
-            latePaymentCharges: fullClaim?.late_payment_charges?.toString() || '',
             billedFinanceCharges: fullClaim?.billed_finance_charges?.toString() || '',
-            totalRefund: fullClaim?.total_refund?.toString() || '',
-            totalDebt: fullClaim?.total_debt?.toString() || '',
             clientFee: fullClaim?.client_fee?.toString() || '',
             ourTotalFee: fullClaim?.our_total_fee?.toString() || '',
             feeWithoutVat: fullClaim?.fee_without_vat?.toString() || '',
@@ -581,23 +657,46 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       setViewingClaimId(null);
       setClaimFileData(null);
       setClaimFileForm({
+         // Section 1: Claim Details
          lender: '',
          lenderOther: '',
+         financeTypes: [],
          financeType: '',
          financeTypeOther: '',
+         numberOfLoans: '1',
+         loanDetails: [{ loanNumber: 1, valueOfLoan: '', startDate: '', endDate: '', apr: '' }],
+         billedInterestCharges: '',
+         latePaymentCharges: '',
+         overlimitCharges: '',
+         creditLimitIncreases: '',
+         dsarReview: '',
+         complaintParagraph: '',
+         // Section 2: Payment Section
+         offerMade: '',
+         totalRefund: '',
+         totalDebt: '',
+         balanceDueToClient: '',
+         ourFeesPlusVat: '',
+         ourFeesMinusVat: '',
+         vatAmount: '',
+         totalFee: '',
+         outstandingDebt: '',
+         // Section 3: Payment Plan
+         paymentPlan: {
+            clientOutstandingFees: '',
+            planStatus: '',
+            planDate: '',
+            termOfPlan: '',
+            startDate: '',
+            remainingBalance: ''
+         },
+         // Legacy fields
          accountNumber: '',
-         numberOfLoans: '',
          lenderReference: '',
          datesTimeline: '',
          apr: '',
          outstandingBalance: '',
-         dsarReview: '',
-         complaintParagraph: '',
-         offerMade: '',
-         latePaymentCharges: '',
          billedFinanceCharges: '',
-         totalRefund: '',
-         totalDebt: '',
          clientFee: '',
          ourTotalFee: '',
          feeWithoutVat: '',
@@ -614,23 +713,45 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       setClaimFileSaving(true);
       try {
          const dataToSave: Record<string, any> = {
+            // Section 1: Claim Details
             lender: claimFileForm.lender,
             lender_other: claimFileForm.lenderOther,
-            finance_type: claimFileForm.financeType,
+            // Multi-select finance types (stored as JSON)
+            finance_types: JSON.stringify(claimFileForm.financeTypes),
+            finance_type: claimFileForm.financeType, // Legacy
             finance_type_other: claimFileForm.financeTypeOther,
-            account_number: claimFileForm.accountNumber,
-            number_of_loans: claimFileForm.numberOfLoans ? parseInt(claimFileForm.numberOfLoans) : null,
+            account_number: claimFileForm.accountNumber, // Legacy
+            number_of_loans: claimFileForm.numberOfLoans ? parseInt(claimFileForm.numberOfLoans) : 1,
+            // Dynamic loan details (stored as JSON)
+            loan_details: JSON.stringify(claimFileForm.loanDetails),
+            // Charges fields
+            billed_interest_charges: claimFileForm.billedInterestCharges,
+            late_payment_charges: claimFileForm.latePaymentCharges,
+            overlimit_charges: claimFileForm.overlimitCharges,
+            credit_limit_increases: claimFileForm.creditLimitIncreases,
+            dsar_review: claimFileForm.dsarReview,
+            complaint_paragraph: claimFileForm.complaintParagraph,
+
+            // Section 2: Payment Section
+            offer_made: claimFileForm.offerMade,
+            total_refund: claimFileForm.totalRefund,
+            total_debt: claimFileForm.totalDebt,
+            balance_due_to_client: claimFileForm.balanceDueToClient,
+            our_fees_plus_vat: claimFileForm.ourFeesPlusVat,
+            our_fees_minus_vat: claimFileForm.ourFeesMinusVat,
+            vat_amount: claimFileForm.vatAmount,
+            total_fee: claimFileForm.totalFee,
+            outstanding_debt: claimFileForm.outstandingDebt,
+
+            // Section 3: Payment Plan (stored as JSON)
+            payment_plan: JSON.stringify(claimFileForm.paymentPlan),
+
+            // Legacy fields (kept for backwards compatibility)
             lender_reference: claimFileForm.lenderReference,
             dates_timeline: claimFileForm.datesTimeline,
             apr: claimFileForm.apr ? parseFloat(claimFileForm.apr) : null,
             outstanding_balance: claimFileForm.outstandingBalance ? parseFloat(claimFileForm.outstandingBalance) : null,
-            dsar_review: claimFileForm.dsarReview,
-            complaint_paragraph: claimFileForm.complaintParagraph,
-            offer_made: claimFileForm.offerMade ? parseFloat(claimFileForm.offerMade) : null,
-            late_payment_charges: claimFileForm.latePaymentCharges ? parseFloat(claimFileForm.latePaymentCharges) : null,
             billed_finance_charges: claimFileForm.billedFinanceCharges ? parseFloat(claimFileForm.billedFinanceCharges) : null,
-            total_refund: claimFileForm.totalRefund ? parseFloat(claimFileForm.totalRefund) : null,
-            total_debt: claimFileForm.totalDebt ? parseFloat(claimFileForm.totalDebt) : null,
             client_fee: claimFileForm.clientFee ? parseFloat(claimFileForm.clientFee) : null,
             our_total_fee: claimFileForm.ourTotalFee ? parseFloat(claimFileForm.ourTotalFee) : null,
             fee_without_vat: claimFileForm.feeWithoutVat ? parseFloat(claimFileForm.feeWithoutVat) : null,
@@ -1097,7 +1218,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      </>
                   )}
 
-                  {/* INDIVIDUAL CLAIM FILE VIEW */}
+                  {/* INDIVIDUAL CLAIM FILE VIEW - Following crm-claim-spec.md */}
                   {viewingClaimId && (
                      <div className="space-y-6">
                         {/* Header with Back, Save, Delete */}
@@ -1125,45 +1246,161 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            </div>
                         </div>
 
-                        {/* CLAIM STATUS SECTION */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Claim Status</h3>
-                           <div className="flex items-center gap-4">
-                              <label className="text-sm text-gray-600 dark:text-gray-400">Status:</label>
-                              <select
-                                 value={claimFileForm.specStatus}
-                                 onChange={(e) => setClaimFileForm({ ...claimFileForm, specStatus: e.target.value })}
-                                 className="px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 style={{ borderLeftWidth: '4px', borderLeftColor: getSpecStatusColor(claimFileForm.specStatus) }}
-                              >
-                                 <option value="New Claim">New Claim</option>
-                                 <option value="LOA Sent">LOA Sent</option>
-                                 <option value="Awaiting DSAR">Awaiting DSAR</option>
-                                 <option value="DSAR Received">DSAR Received</option>
-                                 <option value="Complaint Submitted">Complaint Submitted</option>
-                                 <option value="FRL Received">FRL Received</option>
-                                 <option value="Counter Submitted">Counter Submitted</option>
-                                 <option value="FOS Referred">FOS Referred</option>
-                                 <option value="Offer Made">Offer Made</option>
-                                 <option value="Accepted">Accepted</option>
-                                 <option value="Payment Received">Payment Received</option>
-                                 <option value="Closed - Won">Closed - Won</option>
-                                 <option value="Closed - Lost">Closed - Lost</option>
-                              </select>
-                           </div>
-                           <p className="text-xs text-gray-400 mt-2">Selection updates claims list view and logs to Action Timeline</p>
-                        </div>
+                        {/* ==================== CLAIM STAGE PIPELINE INDICATOR (Arrow Shape - Read Only) ==================== */}
+                        {(() => {
+                           // Get the actual claim status from the claims list (this is what's shown in the Pipeline)
+                           const currentClaim = claims.find(c => c.id === viewingClaimId);
+                           const actualClaimStatus = currentClaim?.status || '';
 
-                        {/* CLAIM DETAILS SECTION */}
+                           // Complete 48-status pipeline organized by category (matching the status dropdown)
+                           const claimStages = [
+                              {
+                                 id: 'lead-generation',
+                                 label: 'Lead Generation',
+                                 color: '#22c55e', // green
+                                 statuses: ['New Lead', 'Contact Attempted', 'In Conversation', 'Qualification Call', 'Qualified Lead', 'Not Qualified']
+                              },
+                              {
+                                 id: 'onboarding',
+                                 label: 'Onboarding',
+                                 color: '#a855f7', // purple
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Bank Statements Received', 'Onboarding Complete']
+                              },
+                              {
+                                 id: 'dsar-process',
+                                 label: 'DSAR Process',
+                                 color: '#ec4899', // pink
+                                 statuses: ['DSAR Prepared', 'DSAR Sent to Lender', 'DSAR Acknowledged', 'DSAR Follow-up Sent', 'DSAR Response Received', 'DSAR Escalated (ICO)', 'Data Analysis']
+                              },
+                              {
+                                 id: 'complaint',
+                                 label: 'Complaint',
+                                 color: '#f97316', // orange
+                                 statuses: ['Complaint Drafted', 'Client Review', 'Complaint Approved', 'Complaint Submitted', 'Complaint Acknowledged', 'Awaiting Response', 'Response Received', 'Response Under Review']
+                              },
+                              {
+                                 id: 'fos-escalation',
+                                 label: 'FOS Escalation',
+                                 color: '#14b8a6', // teal
+                                 statuses: ['FOS Referral Prepared', 'FOS Submitted', 'FOS Case Number Received', 'FOS Investigation', 'FOS Provisional Decision', 'FOS Final Decision', 'FOS Appeal']
+                              },
+                              {
+                                 id: 'resolution',
+                                 label: 'Resolution',
+                                 color: '#10b981', // emerald green
+                                 statuses: ['Offer Received', 'Offer Under Negotiation', 'Offer Accepted', 'Awaiting Payment', 'Payment Received', 'Fee Deducted', 'Client Paid', 'Claim Successful', 'Claim Unsuccessful', 'Claim Withdrawn']
+                              }
+                           ];
+
+                           // Find which stage the current claim status belongs to
+                           const currentStageIndex = claimStages.findIndex(stage =>
+                              stage.statuses.includes(actualClaimStatus)
+                           );
+
+                           return (
+                              <div className="flex items-center select-none">
+                                 {claimStages.map((stage, index) => {
+                                    const isActive = index === currentStageIndex;
+                                    const isFirst = index === 0;
+                                    const isLast = index === claimStages.length - 1;
+
+                                    return (
+                                       <div
+                                          key={stage.id}
+                                          className="relative flex-1"
+                                          style={{
+                                             marginLeft: index > 0 ? '-10px' : '0',
+                                             zIndex: isActive ? 10 : claimStages.length - index
+                                          }}
+                                       >
+                                          {/* Arrow shape using clip-path */}
+                                          <div
+                                             className="relative transition-all duration-300"
+                                             style={{
+                                                height: isActive ? '52px' : '40px',
+                                                marginTop: isActive ? '0' : '6px',
+                                                marginBottom: isActive ? '0' : '6px',
+                                                opacity: isActive ? 1 : 0.3,
+                                                filter: isActive ? 'drop-shadow(0 4px 8px rgba(0,0,0,0.25))' : 'none',
+                                             }}
+                                          >
+                                             {/* Main arrow body */}
+                                             <div
+                                                className="absolute inset-0 transition-all duration-300"
+                                                style={{
+                                                   backgroundColor: stage.color,
+                                                   clipPath: isFirst
+                                                      ? 'polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%)'
+                                                      : isLast
+                                                         ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 15px 50%)'
+                                                         : 'polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%, 15px 50%)',
+                                                }}
+                                             />
+                                             {/* Label */}
+                                             <div
+                                                className="absolute inset-0 flex flex-col items-center justify-center px-4"
+                                                style={{ paddingLeft: isFirst ? '12px' : '20px', paddingRight: isLast ? '12px' : '20px' }}
+                                             >
+                                                <span
+                                                   className={`font-bold text-white truncate text-center transition-all duration-300 ${isActive ? 'text-xs' : 'text-[10px]'}`}
+                                                   style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)', maxWidth: '100%' }}
+                                                >
+                                                   {stage.label}
+                                                </span>
+                                                {isActive && (
+                                                   <span
+                                                      className="text-[10px] text-white/90 mt-0.5 truncate text-center font-medium"
+                                                      style={{ maxWidth: '100%' }}
+                                                   >
+                                                      {actualClaimStatus}
+                                                   </span>
+                                                )}
+                                             </div>
+                                          </div>
+                                       </div>
+                                    );
+                                 })}
+                              </div>
+                           );
+                        })()}
+
+                        {/* ==================== SECTION 1: CLAIM DETAILS ==================== */}
                         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Claim Details</h3>
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 1: Claim Details</h3>
+
+                           {/* Custom styles for claim form - shorter inputs, bolder fonts, darker placeholders, bigger labels */}
+                           <style>{`
+                              .claim-input {
+                                 max-width: 280px !important;
+                                 font-weight: 600 !important;
+                              }
+                              .claim-input::placeholder {
+                                 color: #6b7280 !important;
+                                 font-weight: 500 !important;
+                              }
+                              .claim-label {
+                                 font-size: 0.875rem !important;
+                                 font-weight: 700 !important;
+                                 color: #1f2937 !important;
+                                 margin-bottom: 0.5rem !important;
+                              }
+                              .dark .claim-label {
+                                 color: #f3f4f6 !important;
+                              }
+                              .dark .claim-input::placeholder {
+                                 color: #9ca3af !important;
+                              }
+                           `}</style>
+
+                           {/* All fields in SINGLE COLUMN layout as per spec */}
+                           <div className="space-y-4">
+                              {/* Lender - Dropdown Single Select */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Lender</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Lender</label>
                                  <select
                                     value={claimFileForm.lender}
                                     onChange={(e) => setClaimFileForm({ ...claimFileForm, lender: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                  >
                                     <option value="">Select Lender...</option>
                                     {SPEC_LENDERS.map(lender => (
@@ -1173,265 +1410,627 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                               </div>
                               {claimFileForm.lender === 'Other (specify)' && (
                                  <div>
-                                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Other Lender (specify)</label>
+                                    <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Other Lender (specify)</label>
                                     <input
                                        type="text"
                                        value={claimFileForm.lenderOther}
                                        onChange={(e) => setClaimFileForm({ ...claimFileForm, lenderOther: e.target.value })}
-                                       className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                        placeholder="Enter lender name"
                                     />
                                  </div>
                               )}
+
+                              {/* Status - Dropdown showing statuses for current stage only */}
+                              {(() => {
+                                 // Get the actual claim status from the claims list
+                                 const currentClaim = claims.find(c => c.id === viewingClaimId);
+                                 const actualClaimStatus = currentClaim?.status || '';
+
+                                 // Complete 48-status pipeline organized by category
+                                 const pipelineStages = [
+                                    {
+                                       id: 'lead-generation',
+                                       label: 'Lead Generation & Initial Contact',
+                                       color: '#22c55e',
+                                       statuses: [
+                                          'New Lead',
+                                          'Contact Attempted',
+                                          'In Conversation',
+                                          'Qualification Call',
+                                          'Qualified Lead',
+                                          'Not Qualified'
+                                       ]
+                                    },
+                                    {
+                                       id: 'onboarding',
+                                       label: 'Client Onboarding',
+                                       color: '#a855f7',
+                                       statuses: [
+                                          'Onboarding Started',
+                                          'ID Verification Pending',
+                                          'ID Verification Complete',
+                                          'Questionnaire Sent',
+                                          'Questionnaire Complete',
+                                          'LOA Sent',
+                                          'LOA Signed',
+                                          'Bank Statements Requested',
+                                          'Bank Statements Received',
+                                          'Onboarding Complete'
+                                       ]
+                                    },
+                                    {
+                                       id: 'dsar-process',
+                                       label: 'DSAR Process',
+                                       color: '#ec4899',
+                                       statuses: [
+                                          'DSAR Prepared',
+                                          'DSAR Sent to Lender',
+                                          'DSAR Acknowledged',
+                                          'DSAR Follow-up Sent',
+                                          'DSAR Response Received',
+                                          'DSAR Escalated (ICO)',
+                                          'Data Analysis'
+                                       ]
+                                    },
+                                    {
+                                       id: 'complaint',
+                                       label: 'Complaint Submission & Processing',
+                                       color: '#f97316',
+                                       statuses: [
+                                          'Complaint Drafted',
+                                          'Client Review',
+                                          'Complaint Approved',
+                                          'Complaint Submitted',
+                                          'Complaint Acknowledged',
+                                          'Awaiting Response',
+                                          'Response Received',
+                                          'Response Under Review'
+                                       ]
+                                    },
+                                    {
+                                       id: 'fos-escalation',
+                                       label: 'FOS Escalation',
+                                       color: '#14b8a6',
+                                       statuses: [
+                                          'FOS Referral Prepared',
+                                          'FOS Submitted',
+                                          'FOS Case Number Received',
+                                          'FOS Investigation',
+                                          'FOS Provisional Decision',
+                                          'FOS Final Decision',
+                                          'FOS Appeal'
+                                       ]
+                                    },
+                                    {
+                                       id: 'resolution',
+                                       label: 'Resolution & Payment',
+                                       color: '#10b981',
+                                       statuses: [
+                                          'Offer Received',
+                                          'Offer Under Negotiation',
+                                          'Offer Accepted',
+                                          'Awaiting Payment',
+                                          'Payment Received',
+                                          'Fee Deducted',
+                                          'Client Paid',
+                                          'Claim Successful',
+                                          'Claim Unsuccessful',
+                                          'Claim Withdrawn'
+                                       ]
+                                    }
+                                 ];
+
+                                 // Find current stage based on actual claim status
+                                 const currentStage = pipelineStages.find(stage =>
+                                    stage.statuses.includes(actualClaimStatus)
+                                 );
+
+                                 // Get statuses for current stage (or all if not found)
+                                 const availableStatuses = currentStage ? currentStage.statuses : [];
+                                 const stageLabel = currentStage ? currentStage.label : 'Select Stage';
+                                 const stageColor = currentStage ? currentStage.color : '#6b7280';
+
+                                 return (
+                                    <div>
+                                       <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">
+                                          Status
+                                          {currentStage && (
+                                             <span
+                                                className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold text-white"
+                                                style={{ backgroundColor: stageColor }}
+                                             >
+                                                {currentStage.label.split(' ')[0]}
+                                             </span>
+                                          )}
+                                       </label>
+                                       <select
+                                          value={actualClaimStatus}
+                                          onChange={(e) => {
+                                             // Update the claim status in the claims list
+                                             const newStatus = e.target.value;
+                                             if (currentClaim) {
+                                                updateClaim({ ...currentClaim, status: newStatus as ClaimStatus });
+                                             }
+                                          }}
+                                          className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                          style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
+                                       >
+                                          {availableStatuses.length > 0 ? (
+                                             availableStatuses.map(status => (
+                                                <option key={status} value={status}>{status}</option>
+                                             ))
+                                          ) : (
+                                             // Show all statuses grouped if no current stage found
+                                             pipelineStages.map(stage => (
+                                                <optgroup key={stage.id} label={stage.label}>
+                                                   {stage.statuses.map(status => (
+                                                      <option key={status} value={status}>{status}</option>
+                                                   ))}
+                                                </optgroup>
+                                             ))
+                                          )}
+                                       </select>
+                                       <p className="text-[10px] text-gray-400 mt-1">
+                                          Showing {availableStatuses.length} statuses for {stageLabel}
+                                       </p>
+                                    </div>
+                                 );
+                              })()}
+
+                              {/* Type of Finance - Multi-Select Dropdown */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type of Finance</label>
-                                 <select
-                                    value={claimFileForm.financeType}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, financeType: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 >
-                                    <option value="">Select Type...</option>
-                                    {FINANCE_TYPES.map(type => (
-                                       <option key={type} value={type}>{type}</option>
-                                    ))}
-                                 </select>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Type of Finance (Multi-Select)</label>
+                                 <div className="border border-gray-200 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700">
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                       {claimFileForm.financeTypes.map((ft, idx) => (
+                                          <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
+                                             {ft.financeType}
+                                             <button
+                                                onClick={() => {
+                                                   const updated = claimFileForm.financeTypes.filter((_, i) => i !== idx);
+                                                   setClaimFileForm({ ...claimFileForm, financeTypes: updated });
+                                                }}
+                                                className="hover:text-red-500"
+                                             >
+                                                <X size={12} />
+                                             </button>
+                                          </span>
+                                       ))}
+                                       {claimFileForm.financeTypes.length === 0 && (
+                                          <span className="text-xs text-gray-400">No finance types selected</span>
+                                       )}
+                                    </div>
+                                    <select
+                                       value=""
+                                       onChange={(e) => {
+                                          if (e.target.value && !claimFileForm.financeTypes.find(ft => ft.financeType === e.target.value)) {
+                                             setClaimFileForm({
+                                                ...claimFileForm,
+                                                financeTypes: [...claimFileForm.financeTypes, { financeType: e.target.value, accountNumber: '' }]
+                                             });
+                                          }
+                                       }}
+                                       className="w-full px-2 py-1 border border-gray-200 dark:border-slate-600 rounded text-sm bg-gray-50 dark:bg-slate-600 text-gray-900 dark:text-white"
+                                    >
+                                       <option value="">+ Add Finance Type...</option>
+                                       {FINANCE_TYPES.filter(type => !claimFileForm.financeTypes.find(ft => ft.financeType === type)).map(type => (
+                                          <option key={type} value={type}>{type}</option>
+                                       ))}
+                                    </select>
+                                 </div>
+                                 <p className="text-xs text-gray-400 mt-1">Select multiple finance types. Each generates an Account Number field below.</p>
                               </div>
-                              {claimFileForm.financeType === 'Other (specify)' && (
-                                 <div>
-                                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Other Finance Type (specify)</label>
-                                    <input
-                                       type="text"
-                                       value={claimFileForm.financeTypeOther}
-                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, financeTypeOther: e.target.value })}
-                                       className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                       placeholder="Enter finance type"
-                                    />
+
+                              {/* Dynamic Account Number fields (EF) - One per finance type */}
+                              {claimFileForm.financeTypes.length > 0 && (
+                                 <div className="pl-4 border-l-2 border-blue-200 dark:border-blue-800 space-y-3">
+                                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Account Numbers (per Finance Type)</p>
+                                    {claimFileForm.financeTypes.map((ft, idx) => (
+                                       <div key={idx}>
+                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">{ft.financeType} - Account Number</label>
+                                          <input
+                                             type="text"
+                                             value={ft.accountNumber || ''}
+                                             onChange={(e) => {
+                                                const updated = [...claimFileForm.financeTypes];
+                                                updated[idx] = { ...updated[idx], accountNumber: e.target.value };
+                                                setClaimFileForm({ ...claimFileForm, financeTypes: updated });
+                                             }}
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
+                                             placeholder={`Account number for ${ft.financeType}`}
+                                          />
+                                       </div>
+                                    ))}
                                  </div>
                               )}
+
+                              {/* No of Loans - Dropdown 1-50 */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Account Number(s)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.accountNumber}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, accountNumber: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
-                                    placeholder="Enter account number(s)"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Number of Loans</label>
-                                 <input
-                                    type="number"
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">No of Loans</label>
+                                 <select
                                     value={claimFileForm.numberOfLoans}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, numberOfLoans: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                    min="0"
-                                 />
+                                    onChange={(e) => {
+                                       const numLoans = parseInt(e.target.value) || 1;
+                                       const currentLoans = claimFileForm.loanDetails || [];
+                                       let newLoanDetails: LoanDetails[] = [];
+
+                                       for (let i = 1; i <= numLoans; i++) {
+                                          if (currentLoans[i - 1]) {
+                                             newLoanDetails.push({ ...currentLoans[i - 1], loanNumber: i });
+                                          } else {
+                                             newLoanDetails.push({ loanNumber: i, valueOfLoan: '', startDate: '', endDate: '', apr: '' });
+                                          }
+                                       }
+
+                                       setClaimFileForm({ ...claimFileForm, numberOfLoans: e.target.value, loanDetails: newLoanDetails });
+                                    }}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                 >
+                                    {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                       <option key={num} value={num}>{num}</option>
+                                    ))}
+                                 </select>
+                                 <p className="text-xs text-gray-400 mt-1">Selecting a number generates loan detail fields below.</p>
                               </div>
-                              <div className="md:col-span-2">
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Lender Reference</label>
+
+                              {/* Dynamic Loan Details (EF fields) - Generated based on No of Loans */}
+                              {claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
+                                 <div className="pl-4 border-l-2 border-green-200 dark:border-green-800 space-y-4">
+                                    <p className="text-xs font-medium text-green-600 dark:text-green-400">Loan Details (per Loan)</p>
+                                    {claimFileForm.loanDetails.map((loan, idx) => (
+                                       <div key={idx} className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4 space-y-4">
+                                          <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Loan {loan.loanNumber}</h4>
+                                          <div className="space-y-4">
+                                             <div>
+                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Value of Loan (£)</label>
+                                                <input
+                                                   type="text"
+                                                   value={loan.valueOfLoan || ''}
+                                                   onChange={(e) => {
+                                                      const updated = [...claimFileForm.loanDetails];
+                                                      updated[idx] = { ...updated[idx], valueOfLoan: e.target.value };
+                                                      setClaimFileForm({ ...claimFileForm, loanDetails: updated });
+                                                   }}
+                                                   className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                   placeholder="0"
+                                                />
+                                             </div>
+                                             <div>
+                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Start Date</label>
+                                                <input
+                                                   type="date"
+                                                   value={loan.startDate || ''}
+                                                   onChange={(e) => {
+                                                      const updated = [...claimFileForm.loanDetails];
+                                                      updated[idx] = { ...updated[idx], startDate: e.target.value };
+                                                      setClaimFileForm({ ...claimFileForm, loanDetails: updated });
+                                                   }}
+                                                   className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                />
+                                             </div>
+                                             <div>
+                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">End Date</label>
+                                                <input
+                                                   type="date"
+                                                   value={loan.endDate || ''}
+                                                   onChange={(e) => {
+                                                      const updated = [...claimFileForm.loanDetails];
+                                                      updated[idx] = { ...updated[idx], endDate: e.target.value };
+                                                      setClaimFileForm({ ...claimFileForm, loanDetails: updated });
+                                                   }}
+                                                   className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                />
+                                             </div>
+                                             <div>
+                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">APR (%)</label>
+                                                <input
+                                                   type="text"
+                                                   value={loan.apr || ''}
+                                                   onChange={(e) => {
+                                                      const updated = [...claimFileForm.loanDetails];
+                                                      updated[idx] = { ...updated[idx], apr: e.target.value };
+                                                      setClaimFileForm({ ...claimFileForm, loanDetails: updated });
+                                                   }}
+                                                   className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                   placeholder="0"
+                                                />
+                                             </div>
+                                          </div>
+                                       </div>
+                                    ))}
+                                 </div>
+                              )}
+
+                              {/* Billed/Interest Charges */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Billed/Interest Charges (£)</label>
                                  <input
                                     type="text"
-                                    value={claimFileForm.lenderReference}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, lenderReference: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
-                                    placeholder="Enter lender reference"
+                                    value={claimFileForm.billedInterestCharges}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, billedInterestCharges: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
-                           </div>
-                        </div>
 
-                        {/* LOAN TIMELINE SECTION */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Loan Timeline</h3>
-                           <div className="space-y-4">
+                              {/* Late Payment Charges */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date(s) / Increased Credit Date(s) / End Date(s)</label>
-                                 <textarea
-                                    value={claimFileForm.datesTimeline}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, datesTimeline: e.target.value })}
-                                    rows={4}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
-                                    placeholder="Enter relevant dates and timeline information..."
-                                 />
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <div>
-                                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">APR (%)</label>
-                                    <input
-                                       type="number"
-                                       value={claimFileForm.apr}
-                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, apr: e.target.value })}
-                                       className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                       placeholder="0.00"
-                                       step="0.01"
-                                    />
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Outstanding Balance (£)</label>
-                                    <input
-                                       type="number"
-                                       value={claimFileForm.outstandingBalance}
-                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, outstandingBalance: e.target.value })}
-                                       className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                       placeholder="0.00"
-                                       step="0.01"
-                                    />
-                                 </div>
-                              </div>
-                           </div>
-                        </div>
-
-                        {/* DSAR REVIEW SECTION */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">DSAR Review</h3>
-                           <textarea
-                              value={claimFileForm.dsarReview}
-                              onChange={(e) => setClaimFileForm({ ...claimFileForm, dsarReview: e.target.value })}
-                              rows={6}
-                              className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
-                              placeholder="Enter DSAR analysis notes..."
-                           />
-                        </div>
-
-                        {/* COMPLAINT PARAGRAPH SECTION */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Complaint Paragraph</h3>
-                           <textarea
-                              value={claimFileForm.complaintParagraph}
-                              onChange={(e) => setClaimFileForm({ ...claimFileForm, complaintParagraph: e.target.value })}
-                              rows={6}
-                              className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
-                              placeholder="Enter complaint narrative..."
-                           />
-                        </div>
-
-                        {/* FINANCIAL SUMMARY SECTION */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Financial Summary</h3>
-                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Offer Made by Lender (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Late Payment Charges (£)</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.offerMade}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, offerMade: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Late Payment Charges (£)</label>
-                                 <input
-                                    type="number"
+                                    type="text"
                                     value={claimFileForm.latePaymentCharges}
                                     onChange={(e) => setClaimFileForm({ ...claimFileForm, latePaymentCharges: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
+
+                              {/* Overlimit Charges */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Billed Finance Charges (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Overlimit Charges (£)</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.billedFinanceCharges}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, billedFinanceCharges: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="text"
+                                    value={claimFileForm.overlimitCharges}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, overlimitCharges: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
+
+                              {/* Credit Limit & Increases - Large Text Field */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Total Refund (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Credit Limit & Increases</label>
+                                 <textarea
+                                    value={claimFileForm.creditLimitIncreases}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, creditLimitIncreases: e.target.value })}
+                                    rows={4}
+                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                    placeholder="Enter credit limit history and any increases..."
+                                 />
+                              </div>
+
+                              {/* DSAR Review - Large Text Field */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">DSAR Review</label>
+                                 <textarea
+                                    value={claimFileForm.dsarReview}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, dsarReview: e.target.value })}
+                                    rows={6}
+                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                    placeholder="Enter DSAR analysis notes..."
+                                 />
+                              </div>
+
+                              {/* Complaint Paragraph - Large Text Field */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Complaint Paragraph</label>
+                                 <textarea
+                                    value={claimFileForm.complaintParagraph}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, complaintParagraph: e.target.value })}
+                                    rows={6}
+                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                    placeholder="Enter complaint narrative..."
+                                 />
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* ==================== SECTION 2: PAYMENT SECTION ==================== */}
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
+                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 2: Payment Section</h3>
+
+                           <div className="space-y-4">
+                              {/* Offer Made */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Offer Made (£)</label>
                                  <input
-                                    type="number"
+                                    type="text"
+                                    value={claimFileForm.offerMade}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, offerMade: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Total Refund */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Refund (£)</label>
+                                 <input
+                                    type="text"
                                     value={claimFileForm.totalRefund}
                                     onChange={(e) => setClaimFileForm({ ...claimFileForm, totalRefund: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
+
+                              {/* Total Debt */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Total Debt (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Debt (£)</label>
                                  <input
-                                    type="number"
+                                    type="text"
                                     value={claimFileForm.totalDebt}
                                     onChange={(e) => setClaimFileForm({ ...claimFileForm, totalDebt: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Balance Due to Client */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Balance Due to Client (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.balanceDueToClient}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, balanceDueToClient: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Our Fees + VAT */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees + VAT (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.ourFeesPlusVat}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesPlusVat: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Our Fees - VAT */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees - VAT (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.ourFeesMinusVat}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesMinusVat: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* VAT */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">VAT (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.vatAmount}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, vatAmount: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Total Fee */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Fee (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.totalFee}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, totalFee: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
+                                 />
+                              </div>
+
+                              {/* Outstanding Debt */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Outstanding Debt (£)</label>
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.outstandingDebt}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, outstandingDebt: e.target.value })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
                            </div>
                         </div>
 
-                        {/* FEE CALCULATION SECTION */}
+                        {/* ==================== SECTION 3: PAYMENT PLAN ==================== */}
                         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Fee Calculation</h3>
-                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 3: Payment Plan</h3>
+
+                           <div className="space-y-4">
+                              {/* Client Outstanding Fees */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Client's Fee (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Client Outstanding Fees (£)</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.clientFee}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, clientFee: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="text"
+                                    value={claimFileForm.paymentPlan.clientOutstandingFees}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, clientOutstandingFees: e.target.value }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
+
+                              {/* Payment Plan Status */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Our Total Fee (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Payment Plan</label>
+                                 <select
+                                    value={claimFileForm.paymentPlan.planStatus}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, planStatus: e.target.value as PaymentPlan['planStatus'] }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                 >
+                                    <option value="">Select Status...</option>
+                                    <option value="Plan Set Up">Plan Set Up</option>
+                                    <option value="Missed Payment">Missed Payment</option>
+                                    <option value="Not Set Up">Not Set Up</option>
+                                    <option value="Settled">Settled</option>
+                                 </select>
+                              </div>
+
+                              {/* Plan Date */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Plan Date</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.ourTotalFee}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourTotalFee: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="date"
+                                    value={claimFileForm.paymentPlan.planDate}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, planDate: e.target.value }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
                                  />
                               </div>
+
+                              {/* Term of the Plan */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fee Without VAT (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Term of the Plan</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.feeWithoutVat}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, feeWithoutVat: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="text"
+                                    value={claimFileForm.paymentPlan.termOfPlan}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, termOfPlan: e.target.value }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="e.g., 12 months"
                                  />
                               </div>
+
+                              {/* Start Date */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">VAT (20%) (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Start Date</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.vat}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, vat: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="date"
+                                    value={claimFileForm.paymentPlan.startDate}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, startDate: e.target.value }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
                                  />
                               </div>
+
+                              {/* Remaining Balance */}
                               <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Our Fee (Net) (£)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Remaining Balance (£)</label>
                                  <input
-                                    type="number"
-                                    value={claimFileForm.ourFeeNet}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeeNet: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0.00"
-                                    step="0.01"
+                                    type="text"
+                                    value={claimFileForm.paymentPlan.remainingBalance}
+                                    onChange={(e) => setClaimFileForm({
+                                       ...claimFileForm,
+                                       paymentPlan: { ...claimFileForm.paymentPlan, remainingBalance: e.target.value }
+                                    })}
+                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="0"
                                  />
                               </div>
                            </div>
                         </div>
 
-                        {/* CLAIM DOCUMENTS SECTION */}
+                        {/* ==================== CLAIM DOCUMENTS SECTION ==================== */}
                         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
                            <div className="flex justify-between items-center mb-4">
                               <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide">Claim Documents</h3>
