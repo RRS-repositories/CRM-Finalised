@@ -48,7 +48,7 @@ export enum ClaimStatus {
   FOS_FINAL_DECISION = "FOS Final Decision",
   FOS_APPEAL = "FOS Appeal",
 
-  // Category 6: Resolution & Payment
+  // Category 6: Payments
   OFFER_RECEIVED = "Offer Received",
   OFFER_NEGOTIATION = "Offer Under Negotiation",
   OFFER_ACCEPTED = "Offer Accepted",
@@ -61,7 +61,7 @@ export enum ClaimStatus {
   CLAIM_WITHDRAWN = "Claim Withdrawn"
 }
 
-export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Resolution";
+export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments";
 
 export interface Address {
   line1: string;
@@ -83,6 +83,17 @@ export interface Claim {
   daysInStage?: number;
 }
 
+export interface PreviousAddressEntry {
+  id: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  county?: string;
+  postalCode: string;
+  movedInDate?: string;
+  movedOutDate?: string;
+}
+
 export interface Contact {
   id: string;
   fullName: string;
@@ -94,6 +105,7 @@ export interface Contact {
   address?: Address;
   previousAddress?: string | Address; // Can be string (legacy) or full Address object
   previousAddressObj?: Address; // Explicit Address object for previous address
+  previousAddresses?: PreviousAddressEntry[]; // Multiple previous addresses
   livedLessThan3Years?: boolean;
 
   // Bank Details (Rowan Rose Specification)
@@ -166,6 +178,7 @@ export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   CONTACTS = 'CONTACTS',
   PIPELINE = 'PIPELINE',
+  CALENDAR = 'CALENDAR',
   // Conversation Sub-modules
   CONVERSATIONS_ALL = 'CONVERSATIONS_ALL',
   CONVERSATIONS_FACEBOOK = 'CONVERSATIONS_FACEBOOK',
@@ -407,6 +420,7 @@ export interface PaymentPlan {
   termOfPlan?: string;
   startDate?: string;
   remainingBalance?: string;
+  monthlyPaymentAgreed?: string;
 }
 
 // Extended Claim fields from specification (updated per crm-claim-spec.md)

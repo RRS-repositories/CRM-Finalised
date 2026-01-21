@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(ls -la \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\\\\src\"\" 2>/dev/null || dir \"c:UsersAdminDocumentsFACAWSCRM-Finalisedsrc\"\")",
+      "Bash(ls -la \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\\\\components\"\" 2>/dev/null || dir \"c:UsersAdminDocumentsFACAWSCRM-Finalisedcomponents\"\")",
+      "Bash(dir \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\\\\components\\\\IntakeForm\")",
+      "Bash(powershell -Command \"Get-Content ''c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\\\\components\\\\Pipeline.tsx'' | Select-Object -Skip 613 -First 5\")",
+      "Bash(powershell -Command \"[System.IO.File]::ReadAllText\\(''c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\\\\components\\\\Pipeline.tsx'', [System.Text.Encoding]::UTF8\\) | Select-String -Pattern ''£\\\\{'' -AllMatches\")"
     ]
   }
 }

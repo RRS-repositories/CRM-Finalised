@@ -76,8 +76,8 @@ export const PIPELINE_CATEGORIES = [
     ],
   },
   {
-    id: 'resolution',
-    title: 'Resolution',
+    id: 'payments',
+    title: 'Payments',
     color: 'border-l-green-500',
     statuses: [
       ClaimStatus.OFFER_RECEIVED,
@@ -247,28 +247,65 @@ export const SPEC_STATUS_COLORS: Record<string, string> = {
 };
 
 // Get status color with fallback for existing 48 statuses
+// Colors match the pipeline stage header colors
 export const getSpecStatusColor = (status: string): string => {
-  // Check spec statuses first
+  // Category 1: Lead Generation - Pink/Magenta (#E91E63)
+  if (status === 'New Lead' || status === 'Contact Attempted' || status === 'In Conversation' ||
+      status === 'Qualification Call' || status === 'Qualified Lead') {
+    return '#E91E63';
+  }
+  if (status === 'Not Qualified') {
+    return '#78909C'; // Muted blue-grey for disqualified
+  }
+
+  // Category 2: Onboarding - Purple (#9C27B0)
+  if (status === 'Onboarding Started' || status === 'ID Verification Pending' || status === 'ID Verification Complete' ||
+      status === 'Questionnaire Sent' || status === 'Questionnaire Complete' || status === 'LOA Sent' ||
+      status === 'LOA Signed' || status === 'Bank Statements Requested' || status === 'Bank Statements Received' ||
+      status === 'Onboarding Complete') {
+    return '#9C27B0';
+  }
+
+  // Category 3: DSAR Process - Orange (#FF9800)
+  if (status === 'DSAR Prepared' || status === 'DSAR Sent to Lender' || status === 'DSAR Acknowledged' ||
+      status === 'DSAR Follow-up Sent' || status === 'DSAR Response Received' || status === 'DSAR Escalated (ICO)' ||
+      status === 'Data Analysis') {
+    return '#FF9800';
+  }
+
+  // Category 4: Complaint - Coral/Pink (#F06292)
+  if (status === 'Complaint Drafted' || status === 'Client Review' || status === 'Complaint Approved' ||
+      status === 'Complaint Submitted' || status === 'Complaint Acknowledged' || status === 'Awaiting Response' ||
+      status === 'Response Received' || status === 'Response Under Review') {
+    return '#F06292';
+  }
+
+  // Category 5: FOS Escalation - Red (#EF5350)
+  if (status === 'FOS Referral Prepared' || status === 'FOS Submitted' || status === 'FOS Case Number Received' ||
+      status === 'FOS Investigation' || status === 'FOS Provisional Decision' || status === 'FOS Final Decision' ||
+      status === 'FOS Appeal') {
+    return '#EF5350';
+  }
+
+  // Category 6: Payments - Green (#4CAF50)
+  if (status === 'Offer Received' || status === 'Offer Under Negotiation' || status === 'Offer Accepted' ||
+      status === 'Awaiting Payment' || status === 'Payment Received' || status === 'Fee Deducted' ||
+      status === 'Client Paid' || status === 'Claim Successful') {
+    return '#4CAF50';
+  }
+
+  // Unsuccessful/Withdrawn - Dark red
+  if (status === 'Claim Unsuccessful' || status === 'Claim Withdrawn') {
+    return '#B71C1C';
+  }
+
+  // Check spec statuses for legacy support
   if (SPEC_STATUS_COLORS[status]) {
     return SPEC_STATUS_COLORS[status];
   }
 
-  // Fallback colors based on status keywords
-  if (status.includes('New') || status.includes('Lead')) return '#6B7280';
-  if (status.includes('LOA')) return '#3B82F6';
-  if (status.includes('DSAR') && !status.includes('Received')) return '#8B5CF6';
-  if (status.includes('DSAR') && status.includes('Received')) return '#06B6D4';
-  if (status.includes('Complaint')) return '#F59E0B';
-  if (status.includes('FRL') || status.includes('Response')) return '#EF4444';
-  if (status.includes('Counter')) return '#EC4899';
-  if (status.includes('FOS')) return '#7C3AED';
-  if (status.includes('Offer')) return '#10B981';
-  if (status.includes('Accept')) return '#059669';
-  if (status.includes('Payment') || status.includes('Paid')) return '#047857';
-  if (status.includes('Successful') || status.includes('Won')) return '#065F46';
-  if (status.includes('Unsuccessful') || status.includes('Lost') || status.includes('Withdrawn')) return '#991B1B';
-
-  return '#6B7280'; // Default grey
+  // Default - Lead Generation pink for unmatched
+  return '#E91E63';
 };
 
 // Lenders from Specification
@@ -296,6 +333,7 @@ export const SPEC_LENDERS = [
 
 // Finance Types from Specification
 export const FINANCE_TYPES = [
+  'Car Finance Claim',
   'Credit Card',
   'Catalogue Credit',
   'Guarantor Loan',

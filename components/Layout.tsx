@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Users, MessageSquare, Target, Building2,
-  FileText, ClipboardList, Settings, Workflow,
+  FileText, ClipboardList, Settings, Workflow, Calendar,
   Bell, Sparkles, Megaphone, Shield, ChevronDown, ChevronRight,
   Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info
 } from 'lucide-react';
@@ -47,6 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     { id: ViewState.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
     { id: ViewState.PIPELINE, label: 'Cases', icon: Target },
     { id: ViewState.CONTACTS, label: 'Contacts', icon: Users },
+    { id: ViewState.CALENDAR, label: 'Calendar', icon: Calendar },
     // Conversations is handled separately due to sub-menu
     { id: ViewState.MARKETING, label: 'Marketing', icon: Megaphone },
     { id: ViewState.DOCUMENTS, label: 'Docs & Templates', icon: FileText },
@@ -102,7 +103,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
         {/* Main Navigation (Scrollable) */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 space-y-1 hide-scrollbar">
-          {mainNavItems.slice(0, 3).map(renderNavItem)}
+          {mainNavItems.slice(0, 4).map(renderNavItem)}
 
           {/* Collapsible Conversations Menu */}
           <div>
@@ -153,7 +154,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
             </div>
           </div>
 
-          {mainNavItems.slice(3).map(renderNavItem)}
+          {mainNavItems.slice(4).map(renderNavItem)}
         </nav>
 
         {/* Bottom Navigation (Fixed) */}

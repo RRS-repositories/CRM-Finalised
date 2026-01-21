@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Contacts from './components/Contacts';
 import Pipeline from './components/Pipeline';
+import Calendar from './components/Calendar';
 import Conversations from './components/Conversations';
 import Documents from './components/Documents';
 import Forms from './components/Forms';
@@ -41,7 +42,8 @@ const AppContent = () => {
         return <Contacts />;
       case ViewState.PIPELINE:
         return <Pipeline />;
-      // ... existing cases ...
+      case ViewState.CALENDAR:
+        return <Calendar />;
       case ViewState.CONVERSATIONS:
       case ViewState.CONVERSATIONS_ALL:
         return <Conversations platformFilter="all" />;

@@ -363,7 +363,7 @@ const CLAUDE_TOOLS = [
             properties: {
                 lender: { type: "string", description: "Filter by lender name" },
                 currentStatus: { type: "string", description: "Filter by current status" },
-                phase: { type: "string", enum: ["Lead Generation", "Onboarding", "DSAR", "Complaint", "FOS", "Resolution"], description: "Filter by pipeline phase" },
+                phase: { type: "string", enum: ["Lead Generation", "Onboarding", "DSAR", "Complaint", "FOS", "Payments"], description: "Filter by pipeline phase" },
                 minDaysInStage: { type: "number", description: "Filter claims stuck for X+ days" },
                 action: { type: "string", enum: ["updateStatus", "assignUser", "addTag"], description: "Action to perform" },
                 newValue: { type: "string", description: "New status/user/tag to apply" }

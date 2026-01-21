@@ -12,7 +12,7 @@ import {
    Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
-import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan } from '../types';
+import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES } from '../constants';
 import BulkImport from './BulkImport';
 
@@ -89,13 +89,51 @@ const INITIAL_FORM_STATE: FormData = {
    status: ClaimStatus.NEW_LEAD
 };
 
-// --- Helper for Status Colors ---
+// --- Helper for Status Colors (matches pipeline stage colors) ---
 const getStatusColor = (status: string) => {
-   if (status.includes('New') || status.includes('Lead')) return 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
-   if (status.includes('Paid') || status.includes('Offer')) return 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-   if (status.includes('Pending') || status.includes('Wait')) return 'bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
-   if (status.includes('Verified')) return 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800';
-   return 'bg-gray-50 text-gray-700 border-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600';
+   // Category 1: Lead Generation - Pink/Magenta (matches pipeline header)
+   if (status === 'New Lead' || status === 'Contact Attempted' || status === 'In Conversation' ||
+       status === 'Qualification Call' || status === 'Qualified Lead') {
+      return 'bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:border-pink-800';
+   }
+   if (status === 'Not Qualified') {
+      return 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border-slate-600';
+   }
+
+   // Category 2: Onboarding - Purple
+   if (status.includes('Onboarding') || status.includes('ID Verification') || status.includes('Questionnaire') ||
+       status === 'LOA Sent' || status === 'LOA Signed' || status.includes('Bank Statements')) {
+      return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800';
+   }
+
+   // Category 3: DSAR Process - Orange
+   if (status.includes('DSAR') || status === 'Data Analysis') {
+      return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800';
+   }
+
+   // Category 4: Complaint - Pink/Coral
+   if (status.includes('Complaint') || status === 'Client Review' || status.includes('Response') || status === 'Awaiting Response') {
+      return 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 dark:border-fuchsia-800';
+   }
+
+   // Category 5: FOS Escalation - Red
+   if (status.includes('FOS')) {
+      return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800';
+   }
+
+   // Category 6: Payments - Green (Offers, Payments, Success)
+   if (status.includes('Offer') || status.includes('Payment') || status === 'Fee Deducted' ||
+       status === 'Client Paid' || status === 'Claim Successful' || status === 'Awaiting Payment') {
+      return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
+   }
+
+   // Unsuccessful/Withdrawn - Dark red
+   if (status === 'Claim Unsuccessful' || status === 'Claim Withdrawn') {
+      return 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700';
+   }
+
+   // Default fallback - Pink for Lead Generation
+   return 'bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:border-pink-800';
 };
 
 // Simple date formatter for timeline
@@ -143,13 +181,11 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
    // Modals & Forms
    const [showAddClaim, setShowAddClaim] = useState(false);
-   const [showEditPersonal, setShowEditPersonal] = useState(false);
    const [showStatusUpdate, setShowStatusUpdate] = useState<string | null>(null);
    const [showUploadModal, setShowUploadModal] = useState(false);
    const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
 
    const [newClaimData, setNewClaimData] = useState<Partial<Claim>>({ claimValue: 0, status: ClaimStatus.NEW_LEAD });
-   const [editPersonalData, setEditPersonalData] = useState<Partial<Contact>>({});
 
    // Note State (Legacy)
    const [newNote, setNewNote] = useState('');
@@ -204,11 +240,29 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       sortCode: '',
       accountNumber: ''
    });
-   const [previousAddress, setPreviousAddress] = useState({
+   const [previousAddresses, setPreviousAddresses] = useState<PreviousAddressEntry[]>([]);
+
+   // Edit modes for each section
+   const [editingPersonalInfo, setEditingPersonalInfo] = useState(false);
+   const [editingCurrentAddress, setEditingCurrentAddress] = useState(false);
+   const [editingBankDetails, setEditingBankDetails] = useState(false);
+   const [editingPreviousAddresses, setEditingPreviousAddresses] = useState(false);
+
+   // Personal info edit form
+   const [personalInfoForm, setPersonalInfoForm] = useState({
+      firstName: '',
+      lastName: '',
+      dateOfBirth: '',
+      phone: '',
+      email: ''
+   });
+
+   // Current address edit form
+   const [currentAddressForm, setCurrentAddressForm] = useState({
       line1: '',
       line2: '',
       city: '',
-      county: '',
+      state_county: '',
       postalCode: ''
    });
 
@@ -305,20 +359,43 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       }
    }, [activeTab, contact?.id]);
 
-   // Initialize bank details and previous address from contact
+   // Initialize bank details, addresses from contact
    useEffect(() => {
       if (contact) {
+         // Initialize personal info form
+         setPersonalInfoForm({
+            firstName: contact.firstName || '',
+            lastName: contact.lastName || '',
+            dateOfBirth: contact.dateOfBirth || '',
+            phone: contact.phone || '',
+            email: contact.email || ''
+         });
          if (contact.bankDetails) {
             setBankDetails(contact.bankDetails);
          }
-         if (contact.previousAddressObj) {
-            setPreviousAddress({
+         // Initialize current address form
+         if (contact.address) {
+            setCurrentAddressForm({
+               line1: contact.address.line1 || '',
+               line2: contact.address.line2 || '',
+               city: contact.address.city || '',
+               state_county: contact.address.state_county || '',
+               postalCode: contact.address.postalCode || ''
+            });
+         }
+         // Initialize previous addresses (new multiple addresses)
+         if (contact.previousAddresses && contact.previousAddresses.length > 0) {
+            setPreviousAddresses(contact.previousAddresses);
+         } else if (contact.previousAddressObj) {
+            // Migrate legacy single previous address to new format
+            setPreviousAddresses([{
+               id: `prev_addr_${Date.now()}`,
                line1: contact.previousAddressObj.line1 || '',
                line2: contact.previousAddressObj.line2 || '',
                city: contact.previousAddressObj.city || '',
                county: contact.previousAddressObj.state_county || '',
                postalCode: contact.previousAddressObj.postalCode || ''
-            });
+            }]);
          }
       }
    }, [contact]);
@@ -400,27 +477,6 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
          updateClaim({ ...claim, status: newStatus });
       }
       setShowStatusUpdate(null);
-   };
-
-   const openEditPersonal = () => {
-      setEditPersonalData({
-         firstName: contact.firstName,
-         lastName: contact.lastName,
-         email: contact.email,
-         phone: contact.phone,
-         dateOfBirth: contact.dateOfBirth,
-         address: contact.address ? { ...contact.address } : { line1: '', line2: '', city: '', postalCode: '' }
-      });
-      setShowEditPersonal(true);
-   };
-
-   const savePersonalDetails = () => {
-      updateContact({
-         ...contact,
-         ...editPersonalData,
-         fullName: `${editPersonalData.firstName} ${editPersonalData.lastName}`
-      });
-      setShowEditPersonal(false);
    };
 
    const scrollToDocuments = () => {
@@ -552,12 +608,62 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
    };
 
    // Extended Details Handlers
-   const handleSaveBankDetails = async () => {
-      await updateContactExtended(contact.id, { bankDetails });
+   const handleSavePersonalInfo = () => {
+      updateContact({
+         ...contact,
+         firstName: personalInfoForm.firstName,
+         lastName: personalInfoForm.lastName,
+         fullName: `${personalInfoForm.firstName} ${personalInfoForm.lastName}`,
+         dateOfBirth: personalInfoForm.dateOfBirth,
+         phone: personalInfoForm.phone,
+         email: personalInfoForm.email
+      });
+      setEditingPersonalInfo(false);
    };
 
-   const handleSavePreviousAddress = async () => {
-      await updateContactExtended(contact.id, { previousAddress });
+   const handleSaveBankDetails = async () => {
+      await updateContactExtended(contact.id, { bankDetails });
+      setEditingBankDetails(false);
+   };
+
+   const handleSaveCurrentAddress = async () => {
+      await updateContactExtended(contact.id, {
+         address: {
+            line1: currentAddressForm.line1,
+            line2: currentAddressForm.line2,
+            city: currentAddressForm.city,
+            state_county: currentAddressForm.state_county,
+            postalCode: currentAddressForm.postalCode
+         }
+      });
+      setEditingCurrentAddress(false);
+   };
+
+   const handleSavePreviousAddresses = async () => {
+      await updateContactExtended(contact.id, { previousAddresses });
+      setEditingPreviousAddresses(false);
+   };
+
+   const handleAddPreviousAddress = () => {
+      const newAddress: PreviousAddressEntry = {
+         id: `prev_addr_${Date.now()}`,
+         line1: '',
+         line2: '',
+         city: '',
+         county: '',
+         postalCode: ''
+      };
+      setPreviousAddresses([...previousAddresses, newAddress]);
+   };
+
+   const handleRemovePreviousAddress = (id: string) => {
+      setPreviousAddresses(previousAddresses.filter(addr => addr.id !== id));
+   };
+
+   const handleUpdatePreviousAddress = (id: string, field: keyof PreviousAddressEntry, value: string) => {
+      setPreviousAddresses(previousAddresses.map(addr =>
+         addr.id === id ? { ...addr, [field]: value } : addr
+      ));
    };
 
    // Open claim file view
@@ -882,54 +988,66 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
    return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 animate-in fade-in duration-200 relative transition-colors">
-         {/* CRM Specification Header - Client ID + Name + Quick Actions */}
+         {/* CRM Specification Header - Client ID (left) + Name (center) + Quick Actions (right) */}
          <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-4 shadow-sm sticky top-0 z-20">
             <div className="flex justify-between items-center">
-               <div className="flex items-center gap-4">
+               {/* Left Section: Back Button + Client ID */}
+               <div className="flex items-center gap-3 min-w-[200px]">
                   <button onClick={onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full text-gray-500 dark:text-gray-400 transition-colors">
                      <ArrowLeft size={20} />
                   </button>
-                  <div className="flex flex-col">
-                     <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                        {contact.clientId || `ID-${contact.id}`}
-                     </span>
-                     <h1 className="text-xl font-bold text-navy-900 dark:text-white">{contact.fullName}</h1>
+                  {/* Client ID Display - Bordered box, subtle highlight */}
+                  <div className="px-3 py-1.5 bg-navy-50 dark:bg-navy-900/30 border-2 border-navy-200 dark:border-navy-700 rounded-lg">
+                     <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Client ID</span>
+                     <p className="text-sm font-bold font-mono text-navy-700 dark:text-navy-300">
+                        {contact.clientId || `RR-${new Date(contact.createdAt || Date.now()).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6)}-${contact.id.slice(-4).toUpperCase()}`}
+                     </p>
                   </div>
                </div>
 
-               {/* Quick Action Buttons (2x2 Grid) */}
-               <div className="grid grid-cols-4 gap-2">
+               {/* Center Section: Client Name - Large, bold typography */}
+               <div className="flex-1 text-center">
+                  <h1 className="text-2xl font-bold text-navy-900 dark:text-white tracking-tight">
+                     {contact.firstName || ''} {contact.lastName || contact.fullName}
+                  </h1>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                     {contact.email} {contact.phone ? `• ${contact.phone}` : ''}
+                  </p>
+               </div>
+
+               {/* Right Section: Quick Action Buttons (2x2 Grid) */}
+               <div className="grid grid-cols-2 gap-2 min-w-[140px]">
                   <button
                      onClick={() => setShowSMSModal(true)}
-                     className="flex flex-col items-center justify-center p-2 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg transition-colors border border-green-100 dark:border-green-800"
+                     className="flex flex-col items-center justify-center p-2.5 bg-transparent hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-600 dark:text-gray-400 hover:text-green-700 dark:hover:text-green-400 rounded-lg transition-all border border-gray-200 dark:border-slate-600 hover:border-green-300 dark:hover:border-green-700 group"
                      title="Send SMS"
                   >
-                     <MessageIcon size={16} />
-                     <span className="text-[10px] font-bold mt-0.5">SMS</span>
+                     <MessageIcon size={18} className="group-hover:scale-110 transition-transform" />
+                     <span className="text-[10px] font-semibold mt-1">SMS</span>
                   </button>
                   <button
                      onClick={() => setShowCallModal(true)}
-                     className="flex flex-col items-center justify-center p-2 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg transition-colors border border-purple-100 dark:border-purple-800"
+                     className="flex flex-col items-center justify-center p-2.5 bg-transparent hover:bg-purple-50 dark:hover:bg-purple-900/20 text-gray-600 dark:text-gray-400 hover:text-purple-700 dark:hover:text-purple-400 rounded-lg transition-all border border-gray-200 dark:border-slate-600 hover:border-purple-300 dark:hover:border-purple-700 group"
                      title="Log Call"
                   >
-                     <PhoneIcon size={16} />
-                     <span className="text-[10px] font-bold mt-0.5">Call</span>
+                     <PhoneIcon size={18} className="group-hover:scale-110 transition-transform" />
+                     <span className="text-[10px] font-semibold mt-1">Call</span>
                   </button>
                   <button
                      onClick={() => setShowEmailModal(true)}
-                     className="flex flex-col items-center justify-center p-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg transition-colors border border-blue-100 dark:border-blue-800"
+                     className="flex flex-col items-center justify-center p-2.5 bg-transparent hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-600 dark:text-gray-400 hover:text-blue-700 dark:hover:text-blue-400 rounded-lg transition-all border border-gray-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-700 group"
                      title="Send Email"
                   >
-                     <MailIcon size={16} />
-                     <span className="text-[10px] font-bold mt-0.5">Email</span>
+                     <MailIcon size={18} className="group-hover:scale-110 transition-transform" />
+                     <span className="text-[10px] font-semibold mt-1">Email</span>
                   </button>
                   <button
                      onClick={() => setShowWhatsAppModal(true)}
-                     className="flex flex-col items-center justify-center p-2 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800"
+                     className="flex flex-col items-center justify-center p-2.5 bg-transparent hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-gray-600 dark:text-gray-400 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-all border border-gray-200 dark:border-slate-600 hover:border-emerald-300 dark:hover:border-emerald-700 group"
                      title="WhatsApp"
                   >
-                     <MessageIcon size={16} />
-                     <span className="text-[10px] font-bold mt-0.5">WhatsApp</span>
+                     <MessageIcon size={18} className="group-hover:scale-110 transition-transform" />
+                     <span className="text-[10px] font-semibold mt-1">WhatsApp</span>
                   </button>
                </div>
             </div>
@@ -941,7 +1059,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      key={tab.id}
                      onClick={() => setActiveTab(tab.id)}
                      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id
-                        ? 'border-brand-orange text-navy-900 dark:text-white'
+                        ? 'border-navy-600 text-navy-900 dark:text-white'
                         : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-300'
                         }`}
                   >
@@ -961,182 +1079,424 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   {/* Personal Information */}
                   <div className="col-span-12 lg:col-span-6">
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex justify-between items-center">
-                           <h3 className="font-bold text-navy-900 dark:text-white text-sm">Personal Information</h3>
-                           <button onClick={openEditPersonal} className="text-xs text-blue-600 dark:text-blue-400 hover:underline border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20">Edit</button>
+                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-blue-500 to-indigo-600 flex justify-between items-center">
+                           <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                              <User size={14} /> Personal Information
+                           </h3>
+                           <button
+                              onClick={() => setEditingPersonalInfo(!editingPersonalInfo)}
+                              className="text-xs text-white hover:text-blue-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                           >
+                              {editingPersonalInfo ? 'Cancel' : 'Edit'}
+                           </button>
                         </div>
-                        <div className="p-4 space-y-4">
-                           <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">First Name</p>
-                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.firstName || '-'}</p>
+                        <div className="p-4">
+                           {editingPersonalInfo ? (
+                              <div className="space-y-3">
+                                 <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">First Name</label>
+                                       <input
+                                          type="text"
+                                          value={personalInfoForm.firstName}
+                                          onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, firstName: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Last Name</label>
+                                       <input
+                                          type="text"
+                                          value={personalInfoForm.lastName}
+                                          onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, lastName: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date of Birth</label>
+                                       <input
+                                          type="date"
+                                          value={personalInfoForm.dateOfBirth ? personalInfoForm.dateOfBirth.split('T')[0] : ''}
+                                          onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, dateOfBirth: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Phone</label>
+                                       <input
+                                          type="tel"
+                                          value={personalInfoForm.phone}
+                                          onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, phone: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div className="col-span-2">
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Email</label>
+                                       <input
+                                          type="email"
+                                          value={personalInfoForm.email}
+                                          onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, email: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                 </div>
+                                 <div className="flex justify-end pt-2">
+                                    <button
+                                       onClick={handleSavePersonalInfo}
+                                       className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                                    >
+                                       Save
+                                    </button>
+                                 </div>
                               </div>
-                              <div>
-                                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Last Name</p>
-                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.lastName || '-'}</p>
+                           ) : (
+                              <div className="grid grid-cols-2 gap-4">
+                                 <div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">First Name</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.firstName || '-'}</p>
+                                 </div>
+                                 <div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Last Name</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.lastName || '-'}</p>
+                                 </div>
+                                 <div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Date of Birth</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{formatDateOfBirth(contact.dateOfBirth)}</p>
+                                 </div>
+                                 <div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Phone</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.phone || '-'}</p>
+                                 </div>
+                                 <div className="col-span-2">
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Email</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.email || '-'}</p>
+                                 </div>
                               </div>
-                              <div>
-                                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Date of Birth</p>
-                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{formatDateOfBirth(contact.dateOfBirth)}</p>
-                              </div>
-                              <div>
-                                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Phone</p>
-                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.phone || '-'}</p>
-                              </div>
-                              <div className="col-span-2">
-                                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Email</p>
-                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{contact.email || '-'}</p>
-                              </div>
-                           </div>
+                           )}
                         </div>
                      </div>
 
                      {/* Current Address */}
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden mt-6">
-                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
-                           <h3 className="font-bold text-navy-900 dark:text-white text-sm flex items-center gap-2">
+                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-cyan-500 to-teal-600 flex justify-between items-center">
+                           <h3 className="font-bold text-white text-sm flex items-center gap-2">
                               <MapPin size={14} /> Current Address
                            </h3>
+                           <button
+                              onClick={() => setEditingCurrentAddress(!editingCurrentAddress)}
+                              className="text-xs text-white hover:text-cyan-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                           >
+                              {editingCurrentAddress ? 'Cancel' : 'Edit'}
+                           </button>
                         </div>
                         <div className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                           {contact.address && (contact.address.line1 || contact.address.city || contact.address.postalCode) ? (
-                              <div className="space-y-1">
-                                 <p className="font-medium text-gray-900 dark:text-white">{contact.address.line1}</p>
-                                 {contact.address.line2 && <p>{contact.address.line2}</p>}
-                                 <p>{contact.address.city}</p>
-                                 <p>{contact.address.state_county}</p>
-                                 <p className="font-mono">{contact.address.postalCode}</p>
+                           {editingCurrentAddress ? (
+                              <div className="space-y-3">
+                                 <div className="grid grid-cols-2 gap-3">
+                                    <div className="col-span-2">
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 1</label>
+                                       <input
+                                          type="text"
+                                          value={currentAddressForm.line1}
+                                          onChange={(e) => setCurrentAddressForm({ ...currentAddressForm, line1: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div className="col-span-2">
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 2</label>
+                                       <input
+                                          type="text"
+                                          value={currentAddressForm.line2}
+                                          onChange={(e) => setCurrentAddressForm({ ...currentAddressForm, line2: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">City</label>
+                                       <input
+                                          type="text"
+                                          value={currentAddressForm.city}
+                                          onChange={(e) => setCurrentAddressForm({ ...currentAddressForm, city: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">County</label>
+                                       <input
+                                          type="text"
+                                          value={currentAddressForm.state_county}
+                                          onChange={(e) => setCurrentAddressForm({ ...currentAddressForm, state_county: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Postcode</label>
+                                       <input
+                                          type="text"
+                                          value={currentAddressForm.postalCode}
+                                          onChange={(e) => setCurrentAddressForm({ ...currentAddressForm, postalCode: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div className="flex items-end">
+                                       <button
+                                          onClick={handleSaveCurrentAddress}
+                                          className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                                       >
+                                          Save
+                                       </button>
+                                    </div>
+                                 </div>
                               </div>
-                           ) : <p className="text-gray-400 italic">No address provided</p>}
+                           ) : (
+                              contact.address && (contact.address.line1 || contact.address.city || contact.address.postalCode) ? (
+                                 <div className="space-y-1">
+                                    <p className="font-medium text-gray-900 dark:text-white">{contact.address.line1}</p>
+                                    {contact.address.line2 && <p className="text-gray-600 dark:text-gray-300">{contact.address.line2}</p>}
+                                    <p className="text-gray-600 dark:text-gray-300">{contact.address.city}</p>
+                                    {contact.address.state_county && <p className="text-gray-600 dark:text-gray-300">{contact.address.state_county}</p>}
+                                    <p className="font-mono text-gray-700 dark:text-gray-200 font-medium">{contact.address.postalCode}</p>
+                                 </div>
+                              ) : <p className="text-gray-400 italic text-center py-4">No address provided</p>
+                           )}
                         </div>
                      </div>
                   </div>
 
                   {/* Previous Address & Bank Details */}
                   <div className="col-span-12 lg:col-span-6 space-y-6">
-                     {/* Previous Address */}
+                     {/* Previous Addresses (Multiple) */}
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex justify-between items-center">
-                           <h3 className="font-bold text-navy-900 dark:text-white text-sm flex items-center gap-2">
-                              <History size={14} /> Previous Address
+                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-violet-500 to-purple-600 flex justify-between items-center">
+                           <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                              <History size={14} /> Previous Address{previousAddresses.length > 1 ? 'es' : ''}
+                              {previousAddresses.length > 0 && (
+                                 <span className="text-xs bg-white/20 text-white px-1.5 py-0.5 rounded-full">
+                                    {previousAddresses.length}
+                                 </span>
+                              )}
                            </h3>
+                           <button
+                              onClick={() => {
+                                 if (!editingPreviousAddresses) {
+                                    // Entering edit mode - add a blank address if none exist
+                                    if (previousAddresses.length === 0) {
+                                       const newAddress: PreviousAddressEntry = {
+                                          id: `prev_addr_${Date.now()}`,
+                                          line1: '',
+                                          line2: '',
+                                          city: '',
+                                          county: '',
+                                          postalCode: ''
+                                       };
+                                       setPreviousAddresses([newAddress]);
+                                    }
+                                 }
+                                 setEditingPreviousAddresses(!editingPreviousAddresses);
+                              }}
+                              className="text-xs text-white hover:text-violet-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                           >
+                              {editingPreviousAddresses ? 'Cancel' : 'Edit'}
+                           </button>
                         </div>
-                        <div className="p-4 space-y-3">
-                           <div className="grid grid-cols-2 gap-3">
-                              <div className="col-span-2">
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 1</label>
-                                 <input
-                                    type="text"
-                                    value={previousAddress.line1}
-                                    onChange={(e) => setPreviousAddress({ ...previousAddress, line1: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div className="col-span-2">
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 2</label>
-                                 <input
-                                    type="text"
-                                    value={previousAddress.line2}
-                                    onChange={(e) => setPreviousAddress({ ...previousAddress, line2: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">City</label>
-                                 <input
-                                    type="text"
-                                    value={previousAddress.city}
-                                    onChange={(e) => setPreviousAddress({ ...previousAddress, city: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">County</label>
-                                 <input
-                                    type="text"
-                                    value={previousAddress.county}
-                                    onChange={(e) => setPreviousAddress({ ...previousAddress, county: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Postcode</label>
-                                 <input
-                                    type="text"
-                                    value={previousAddress.postalCode}
-                                    onChange={(e) => setPreviousAddress({ ...previousAddress, postalCode: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div className="flex items-end">
-                                 <button
-                                    onClick={handleSavePreviousAddress}
-                                    className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
-                                 >
-                                    Save
-                                 </button>
-                              </div>
-                           </div>
+                        <div className="p-4 space-y-4">
+                           {editingPreviousAddresses ? (
+                              <>
+                                 {previousAddresses.map((addr, index) => (
+                                    <div key={addr.id} className="border border-gray-200 dark:border-slate-600 rounded-lg p-3 relative">
+                                       <div className="flex justify-between items-center mb-3">
+                                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
+                                             Previous Address {index + 1}
+                                          </span>
+                                          {previousAddresses.length > 1 && (
+                                             <button
+                                                onClick={() => handleRemovePreviousAddress(addr.id)}
+                                                className="text-red-500 hover:text-red-700 p-1"
+                                                title="Remove this address"
+                                             >
+                                                <Trash2 size={14} />
+                                             </button>
+                                          )}
+                                       </div>
+                                       <div className="grid grid-cols-2 gap-3">
+                                          <div className="col-span-2">
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 1</label>
+                                             <input
+                                                type="text"
+                                                value={addr.line1}
+                                                onChange={(e) => handleUpdatePreviousAddress(addr.id, 'line1', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             />
+                                          </div>
+                                          <div className="col-span-2">
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 2</label>
+                                             <input
+                                                type="text"
+                                                value={addr.line2 || ''}
+                                                onChange={(e) => handleUpdatePreviousAddress(addr.id, 'line2', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             />
+                                          </div>
+                                          <div>
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">City</label>
+                                             <input
+                                                type="text"
+                                                value={addr.city}
+                                                onChange={(e) => handleUpdatePreviousAddress(addr.id, 'city', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             />
+                                          </div>
+                                          <div>
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">County</label>
+                                             <input
+                                                type="text"
+                                                value={addr.county || ''}
+                                                onChange={(e) => handleUpdatePreviousAddress(addr.id, 'county', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             />
+                                          </div>
+                                          <div>
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Postcode</label>
+                                             <input
+                                                type="text"
+                                                value={addr.postalCode}
+                                                onChange={(e) => handleUpdatePreviousAddress(addr.id, 'postalCode', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             />
+                                          </div>
+                                       </div>
+                                    </div>
+                                 ))}
+                                 <div className="flex justify-between items-center pt-2">
+                                    <button
+                                       onClick={handleAddPreviousAddress}
+                                       className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                                    >
+                                       <Plus size={16} /> Add Another Address
+                                    </button>
+                                    <button
+                                       onClick={handleSavePreviousAddresses}
+                                       className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                                    >
+                                       Save All
+                                    </button>
+                                 </div>
+                              </>
+                           ) : (
+                              previousAddresses.length > 0 ? (
+                                 <div className="space-y-3">
+                                    {previousAddresses.map((addr, index) => (
+                                       <div key={addr.id} className="border border-gray-200 dark:border-slate-600 rounded-lg p-3">
+                                          {previousAddresses.length > 1 && (
+                                             <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2 font-medium">Address {index + 1}</p>
+                                          )}
+                                          <div className="space-y-0.5">
+                                             <p className="font-medium text-gray-900 dark:text-white text-sm">{addr.line1}</p>
+                                             {addr.line2 && <p className="text-sm text-gray-600 dark:text-gray-300">{addr.line2}</p>}
+                                             <p className="text-sm text-gray-600 dark:text-gray-300">{addr.city}</p>
+                                             {addr.county && <p className="text-sm text-gray-600 dark:text-gray-300">{addr.county}</p>}
+                                             <p className="text-sm font-mono text-gray-700 dark:text-gray-200 font-medium">{addr.postalCode}</p>
+                                          </div>
+                                       </div>
+                                    ))}
+                                 </div>
+                              ) : (
+                                 <p className="text-gray-400 italic text-sm text-center py-4">No previous addresses</p>
+                              )
+                           )}
                         </div>
                      </div>
 
                      {/* Bank Details */}
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
-                           <h3 className="font-bold text-navy-900 dark:text-white text-sm flex items-center gap-2">
+                        <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-emerald-500 to-green-600 flex justify-between items-center">
+                           <h3 className="font-bold text-white text-sm flex items-center gap-2">
                               <Building2 size={14} /> Bank Details
                            </h3>
+                           <button
+                              onClick={() => setEditingBankDetails(!editingBankDetails)}
+                              className="text-xs text-white hover:text-emerald-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                           >
+                              {editingBankDetails ? 'Cancel' : 'Edit'}
+                           </button>
                         </div>
                         <div className="p-4 space-y-3">
-                           <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bank Name</label>
-                                 <input
-                                    type="text"
-                                    value={bankDetails.bankName}
-                                    onChange={(e) => setBankDetails({ ...bankDetails, bankName: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Account Name</label>
-                                 <input
-                                    type="text"
-                                    value={bankDetails.accountName}
-                                    onChange={(e) => setBankDetails({ ...bankDetails, accountName: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sort Code (XX-XX-XX)</label>
-                                 <input
-                                    type="text"
-                                    value={bankDetails.sortCode}
-                                    onChange={(e) => setBankDetails({ ...bankDetails, sortCode: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
-                                    placeholder="XX-XX-XX"
-                                    maxLength={8}
-                                 />
-                              </div>
-                              <div>
-                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Account Number (8 digits)</label>
-                                 <input
-                                    type="text"
-                                    value={bankDetails.accountNumber}
-                                    onChange={(e) => setBankDetails({ ...bankDetails, accountNumber: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
-                                    maxLength={8}
-                                 />
-                              </div>
-                           </div>
-                           <div className="flex justify-end mt-3">
-                              <button
-                                 onClick={handleSaveBankDetails}
-                                 className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
-                              >
-                                 Save Bank Details
-                              </button>
-                           </div>
+                           {editingBankDetails ? (
+                              <>
+                                 <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bank Name</label>
+                                       <input
+                                          type="text"
+                                          value={bankDetails.bankName}
+                                          onChange={(e) => setBankDetails({ ...bankDetails, bankName: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Account Name</label>
+                                       <input
+                                          type="text"
+                                          value={bankDetails.accountName}
+                                          onChange={(e) => setBankDetails({ ...bankDetails, accountName: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sort Code (XX-XX-XX)</label>
+                                       <input
+                                          type="text"
+                                          value={bankDetails.sortCode}
+                                          onChange={(e) => setBankDetails({ ...bankDetails, sortCode: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
+                                          placeholder="XX-XX-XX"
+                                          maxLength={8}
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Account Number (8 digits)</label>
+                                       <input
+                                          type="text"
+                                          value={bankDetails.accountNumber}
+                                          onChange={(e) => setBankDetails({ ...bankDetails, accountNumber: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono"
+                                          maxLength={8}
+                                       />
+                                    </div>
+                                 </div>
+                                 <div className="flex justify-end mt-3">
+                                    <button
+                                       onClick={handleSaveBankDetails}
+                                       className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                                    >
+                                       Save Bank Details
+                                    </button>
+                                 </div>
+                              </>
+                           ) : (
+                              (bankDetails.bankName || bankDetails.accountNumber) ? (
+                                 <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                       <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Bank Name</p>
+                                       <p className="text-sm font-medium text-gray-900 dark:text-white">{bankDetails.bankName || '-'}</p>
+                                    </div>
+                                    <div>
+                                       <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Account Name</p>
+                                       <p className="text-sm font-medium text-gray-900 dark:text-white">{bankDetails.accountName || '-'}</p>
+                                    </div>
+                                    <div>
+                                       <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Sort Code</p>
+                                       <p className="text-sm font-medium font-mono text-gray-900 dark:text-white">{bankDetails.sortCode || '-'}</p>
+                                    </div>
+                                    <div>
+                                       <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Account Number</p>
+                                       <p className="text-sm font-medium font-mono text-gray-900 dark:text-white">{bankDetails.accountNumber || '-'}</p>
+                                    </div>
+                                 </div>
+                              ) : (
+                                 <p className="text-gray-400 italic text-sm text-center py-4">No bank details provided</p>
+                              )
+                           )}
                         </div>
                      </div>
                   </div>
@@ -1149,13 +1509,19 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   {/* CLAIMS LIST VIEW (when not viewing a specific claim) */}
                   {!viewingClaimId && (
                      <>
-                        <div className="flex justify-between items-center mb-4">
-                           <h2 className="text-lg font-bold text-navy-900 dark:text-white">ACTIVE CLAIMS</h2>
+                        {/* Clean Header */}
+                        <div className="flex justify-between items-center">
                            <div className="flex items-center gap-3">
+                              <h2 className="text-lg font-bold text-navy-900 dark:text-white">Active Claims</h2>
+                              <span className="px-2.5 py-1 bg-navy-100 dark:bg-navy-900/50 text-navy-700 dark:text-navy-300 text-xs font-semibold rounded-full">
+                                 {contactClaims.length}
+                              </span>
+                           </div>
+                           <div className="flex items-center gap-2">
                               <button
                                  onClick={handleGenerateLoaLink}
                                  disabled={generatingLoaLink}
-                                 className="text-xs font-bold bg-brand-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+                                 className="text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50"
                               >
                                  {generatingLoaLink ? (
                                     <>
@@ -1164,54 +1530,79 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                     </>
                                  ) : (
                                     <>
-                                       <FileCheck size={14} /> Generate LOA Link
+                                       <FileCheck size={16} /> Generate LOA
                                     </>
                                  )}
                               </button>
                               <button
                                  onClick={() => setShowAddClaim(true)}
-                                 className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                                 className="text-sm font-medium bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                               >
-                                 <Plus size={14} /> New Claim
+                                 <Plus size={16} /> New Claim
                               </button>
                            </div>
                         </div>
 
-                        <div className="space-y-3">
-                           {contactClaims.map((claim) => (
-                              <div key={claim.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden hover:shadow-md transition-shadow">
-                                 <div className="p-4">
-                                    <div className="flex items-center justify-between">
-                                       <div>
-                                          <h3 className="font-bold text-navy-900 dark:text-white text-base">{claim.lender}</h3>
-                                          <div className="flex items-center gap-4 mt-2">
-                                             <div
-                                                className="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
-                                                style={{ backgroundColor: `${getSpecStatusColor(claim.status)}20`, color: getSpecStatusColor(claim.status) }}
-                                             >
-                                                <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: getSpecStatusColor(claim.status) }}></span>
-                                                {claim.status}
-                                             </div>
-                                             <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                                                Reference: {claim.caseNumber || claim.id}
-                                             </span>
-                                          </div>
-                                       </div>
-                                       <button
-                                          onClick={() => handleOpenClaimFile(claim.id)}
-                                          className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-2"
-                                       >
-                                          Open File <ArrowLeft size={14} className="rotate-180" />
-                                       </button>
-                                    </div>
+                        {/* Claims Table */}
+                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+                           {/* Table Header */}
+                           <div className="grid grid-cols-12 gap-4 px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                              <div className="col-span-4">Lender</div>
+                              <div className="col-span-2">Reference</div>
+                              <div className="col-span-2">Created</div>
+                              <div className="col-span-2 text-center">Status</div>
+                              <div className="col-span-2 text-right">Action</div>
+                           </div>
+
+                           {/* Table Body */}
+                           {contactClaims.map((claim, index) => (
+                              <div
+                                 key={claim.id}
+                                 className={`grid grid-cols-12 gap-4 px-5 py-4 border-b border-gray-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600/50 transition-colors items-center ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}
+                              >
+                                 <div className="col-span-4">
+                                    <p className="font-semibold text-navy-900 dark:text-white">{claim.lender}</p>
+                                 </div>
+                                 <div className="col-span-2">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">
+                                       {claim.caseNumber || claim.id}
+                                    </span>
+                                 </div>
+                                 <div className="col-span-2">
+                                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                                       {claim.createdAt ? new Date(claim.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
+                                    </span>
+                                 </div>
+                                 <div className="col-span-2 flex justify-center">
+                                    <span
+                                       className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+                                       style={{ backgroundColor: `${getSpecStatusColor(claim.status)}15`, color: getSpecStatusColor(claim.status) }}
+                                    >
+                                       <span className="w-1.5 h-1.5 rounded-full mr-1.5" style={{ backgroundColor: getSpecStatusColor(claim.status) }}></span>
+                                       {claim.status}
+                                    </span>
+                                 </div>
+                                 <div className="col-span-2 flex justify-end">
+                                    <button
+                                       onClick={() => handleOpenClaimFile(claim.id)}
+                                       className="px-4 py-1.5 text-sm font-medium bg-navy-600 hover:bg-navy-700 text-white rounded-lg shadow-sm hover:shadow transition-all flex items-center gap-1.5 dark:bg-navy-500 dark:hover:bg-navy-600"
+                                    >
+                                       Open File <ArrowLeft size={14} className="rotate-180" />
+                                    </button>
                                  </div>
                               </div>
                            ))}
 
                            {contactClaims.length === 0 && (
-                              <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl">
-                                 <Briefcase size={48} className="mx-auto mb-3 opacity-20" />
-                                 <p>No claims found. Add one to get started.</p>
+                              <div className="text-center py-12">
+                                 <Briefcase size={40} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                                 <p className="text-gray-500 dark:text-gray-400 mb-3">No claims yet</p>
+                                 <button
+                                    onClick={() => setShowAddClaim(true)}
+                                    className="text-sm font-medium text-navy-600 hover:text-navy-800 dark:text-navy-400"
+                                 >
+                                    + Add first claim
+                                 </button>
                               </div>
                            )}
                         </div>
@@ -1222,10 +1613,10 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   {viewingClaimId && (
                      <div className="space-y-6">
                         {/* Header with Back, Save, Delete */}
-                        <div className="flex items-center justify-between border-b border-gray-200 dark:border-slate-700 pb-4">
+                        <div className="flex items-center justify-between border-b border-gray-300 dark:border-slate-700 pb-4">
                            <button
                               onClick={handleCloseClaimFile}
-                              className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-navy-700 dark:hover:text-white transition-colors"
+                              className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-navy-700 dark:hover:text-white transition-colors"
                            >
                               <ArrowLeft size={16} /> Back to Claims
                            </button>
@@ -1285,8 +1676,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  statuses: ['FOS Referral Prepared', 'FOS Submitted', 'FOS Case Number Received', 'FOS Investigation', 'FOS Provisional Decision', 'FOS Final Decision', 'FOS Appeal']
                               },
                               {
-                                 id: 'resolution',
-                                 label: 'Resolution',
+                                 id: 'payments',
+                                 label: 'Payments',
                                  color: '#10b981', // emerald green
                                  statuses: ['Offer Received', 'Offer Under Negotiation', 'Offer Accepted', 'Awaiting Payment', 'Payment Received', 'Fee Deducted', 'Client Paid', 'Claim Successful', 'Claim Unsuccessful', 'Claim Withdrawn']
                               }
@@ -1298,9 +1689,10 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            );
 
                            return (
-                              <div className="flex items-center select-none">
+                              <div className="flex items-center select-none bg-gradient-to-r from-slate-100 via-white to-slate-100 dark:from-slate-800 dark:via-slate-700 dark:to-slate-800 rounded-xl p-3 shadow-inner border border-slate-200 dark:border-slate-600">
                                  {claimStages.map((stage, index) => {
                                     const isActive = index === currentStageIndex;
+                                    const isPast = index < currentStageIndex;
                                     const isFirst = index === 0;
                                     const isLast = index === claimStages.length - 1;
 
@@ -1309,47 +1701,53 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                           key={stage.id}
                                           className="relative flex-1"
                                           style={{
-                                             marginLeft: index > 0 ? '-10px' : '0',
+                                             marginLeft: index > 0 ? '-8px' : '0',
                                              zIndex: isActive ? 10 : claimStages.length - index
                                           }}
                                        >
-                                          {/* Arrow shape using clip-path */}
+                                          {/* Arrow shape */}
                                           <div
                                              className="relative transition-all duration-300"
                                              style={{
-                                                height: isActive ? '52px' : '40px',
+                                                height: isActive ? '58px' : '46px',
                                                 marginTop: isActive ? '0' : '6px',
                                                 marginBottom: isActive ? '0' : '6px',
-                                                opacity: isActive ? 1 : 0.3,
-                                                filter: isActive ? 'drop-shadow(0 4px 8px rgba(0,0,0,0.25))' : 'none',
+                                                filter: isActive ? 'drop-shadow(0 4px 12px rgba(0,0,0,0.25))' : 'none',
+                                                transform: isActive ? 'scale(1.02)' : 'scale(1)',
                                              }}
                                           >
-                                             {/* Main arrow body */}
+                                             {/* Main arrow body with gradient */}
                                              <div
                                                 className="absolute inset-0 transition-all duration-300"
                                                 style={{
-                                                   backgroundColor: stage.color,
+                                                   background: isActive
+                                                      ? `linear-gradient(180deg, ${stage.color} 0%, ${stage.color}ee 100%)`
+                                                      : `linear-gradient(180deg, ${stage.color}90 0%, ${stage.color}70 100%)`,
                                                    clipPath: isFirst
-                                                      ? 'polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%)'
+                                                      ? 'polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%)'
                                                       : isLast
-                                                         ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 15px 50%)'
-                                                         : 'polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%, 15px 50%)',
+                                                         ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 16px 50%)'
+                                                         : 'polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%)',
+                                                   filter: isActive ? 'saturate(1.2) brightness(1.05)' : 'saturate(0.7)',
                                                 }}
                                              />
                                              {/* Label */}
                                              <div
-                                                className="absolute inset-0 flex flex-col items-center justify-center px-4"
-                                                style={{ paddingLeft: isFirst ? '12px' : '20px', paddingRight: isLast ? '12px' : '20px' }}
+                                                className="absolute inset-0 flex flex-col items-center justify-center px-2"
+                                                style={{ paddingLeft: isFirst ? '8px' : '20px', paddingRight: isLast ? '8px' : '20px' }}
                                              >
                                                 <span
-                                                   className={`font-bold text-white truncate text-center transition-all duration-300 ${isActive ? 'text-xs' : 'text-[10px]'}`}
-                                                   style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)', maxWidth: '100%' }}
+                                                   className={`font-bold truncate text-center transition-all duration-300 text-white ${isActive ? 'text-[13px]' : 'text-[11px]'}`}
+                                                   style={{
+                                                      textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                                                      maxWidth: '100%'
+                                                   }}
                                                 >
                                                    {stage.label}
                                                 </span>
                                                 {isActive && (
                                                    <span
-                                                      className="text-[10px] text-white/90 mt-0.5 truncate text-center font-medium"
+                                                      className="text-[10px] text-white/95 mt-1 truncate text-center font-semibold bg-black/25 px-2 py-0.5 rounded-full backdrop-blur-sm"
                                                       style={{ maxWidth: '100%' }}
                                                    >
                                                       {actualClaimStatus}
@@ -1364,9 +1762,12 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            );
                         })()}
 
+                        {/* Sections Container with darker background for depth */}
+                        <div className="bg-slate-200 dark:bg-slate-950 rounded-xl p-5 space-y-5">
+
                         {/* ==================== SECTION 1: CLAIM DETAILS ==================== */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 1: Claim Details</h3>
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-300 dark:border-slate-600 p-5">
+                           <h3 className="text-xl font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Claim Details</h3>
 
                            {/* Custom styles for claim form - shorter inputs, bolder fonts, darker placeholders, bigger labels */}
                            <style>{`
@@ -1503,8 +1904,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                        ]
                                     },
                                     {
-                                       id: 'resolution',
-                                       label: 'Resolution & Payment',
+                                       id: 'payments',
+                                       label: 'Payments',
                                        color: '#10b981',
                                        statuses: [
                                           'Offer Received',
@@ -1553,7 +1954,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                                 updateClaim({ ...currentClaim, status: newStatus as ClaimStatus });
                                              }
                                           }}
-                                          className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                          className="claim-input w-full px-3 py-2 border-2 border-gray-400 dark:border-slate-500 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
                                           style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
                                        >
                                           {availableStatuses.length > 0 ? (
@@ -1580,7 +1981,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
                               {/* Type of Finance - Multi-Select Dropdown */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Type of Finance (Multi-Select)</label>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 text-center">Type of Finance (Multi-Select)</label>
                                  <div className="border border-gray-200 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700">
                                     <div className="flex flex-wrap gap-2 mb-2">
                                        {claimFileForm.financeTypes.map((ft, idx) => (
@@ -1676,25 +2077,28 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
                               {/* Dynamic Loan Details (EF fields) - Generated based on No of Loans */}
                               {claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
-                                 <div className="pl-4 border-l-2 border-green-200 dark:border-green-800 space-y-4">
-                                    <p className="text-xs font-medium text-green-600 dark:text-green-400">Loan Details (per Loan)</p>
+                                 <div className="pl-4 border-l-4 border-blue-400 dark:border-blue-600 space-y-4">
+                                    <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Loan Details (per Loan)</p>
                                     {claimFileForm.loanDetails.map((loan, idx) => (
-                                       <div key={idx} className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4 space-y-4">
+                                       <div key={idx} className="bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-4 border border-gray-300 dark:border-slate-500 shadow-sm">
                                           <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Loan {loan.loanNumber}</h4>
                                           <div className="space-y-4">
                                              <div>
-                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Value of Loan (£)</label>
-                                                <input
-                                                   type="text"
-                                                   value={loan.valueOfLoan || ''}
-                                                   onChange={(e) => {
-                                                      const updated = [...claimFileForm.loanDetails];
-                                                      updated[idx] = { ...updated[idx], valueOfLoan: e.target.value };
-                                                      setClaimFileForm({ ...claimFileForm, loanDetails: updated });
-                                                   }}
-                                                   className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                                   placeholder="0"
-                                                />
+                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Value of Loan</label>
+                                                <div className="flex items-center gap-2">
+                                                   <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                                   <input
+                                                      type="text"
+                                                      value={loan.valueOfLoan || ''}
+                                                      onChange={(e) => {
+                                                         const updated = [...claimFileForm.loanDetails];
+                                                         updated[idx] = { ...updated[idx], valueOfLoan: e.target.value };
+                                                         setClaimFileForm({ ...claimFileForm, loanDetails: updated });
+                                                      }}
+                                                      className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                      placeholder="0"
+                                                   />
+                                                </div>
                                              </div>
                                              <div>
                                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Start Date</label>
@@ -1744,38 +2148,47 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
                               {/* Billed/Interest Charges */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Billed/Interest Charges (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.billedInterestCharges}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, billedInterestCharges: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Billed/Interest Charges</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.billedInterestCharges}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, billedInterestCharges: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Late Payment Charges */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Late Payment Charges (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.latePaymentCharges}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, latePaymentCharges: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Late Payment Charges</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.latePaymentCharges}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, latePaymentCharges: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Overlimit Charges */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Overlimit Charges (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.overlimitCharges}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, overlimitCharges: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Overlimit Charges</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.overlimitCharges}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, overlimitCharges: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Credit Limit & Increases - Large Text Field */}
@@ -1817,138 +2230,168 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                         </div>
 
                         {/* ==================== SECTION 2: PAYMENT SECTION ==================== */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 2: Payment Section</h3>
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-300 dark:border-slate-600 p-5">
+                           <h3 className="text-xl font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Payment</h3>
 
                            <div className="space-y-4">
                               {/* Offer Made */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Offer Made (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.offerMade}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, offerMade: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Offer Made</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.offerMade}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, offerMade: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Total Refund */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Refund (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.totalRefund}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, totalRefund: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Refund</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.totalRefund}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, totalRefund: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Total Debt */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Debt (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.totalDebt}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, totalDebt: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Debt</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.totalDebt}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, totalDebt: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Balance Due to Client */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Balance Due to Client (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.balanceDueToClient}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, balanceDueToClient: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Balance Due to Client</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.balanceDueToClient}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, balanceDueToClient: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Our Fees + VAT */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees + VAT (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.ourFeesPlusVat}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesPlusVat: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees + VAT</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.ourFeesPlusVat}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesPlusVat: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Our Fees - VAT */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees - VAT (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.ourFeesMinusVat}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesMinusVat: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Our Fees - VAT</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.ourFeesMinusVat}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, ourFeesMinusVat: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* VAT */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">VAT (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.vatAmount}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, vatAmount: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">VAT</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.vatAmount}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, vatAmount: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Total Fee */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Fee (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.totalFee}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, totalFee: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Total Fee</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.totalFee}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, totalFee: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Outstanding Debt */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Outstanding Debt (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.outstandingDebt}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, outstandingDebt: e.target.value })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Outstanding Debt</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.outstandingDebt}
+                                       onChange={(e) => setClaimFileForm({ ...claimFileForm, outstandingDebt: e.target.value })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
                            </div>
                         </div>
 
                         {/* ==================== SECTION 3: PAYMENT PLAN ==================== */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
-                           <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Section 3: Payment Plan</h3>
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-300 dark:border-slate-600 p-5">
+                           <h3 className="text-xl font-bold text-navy-900 dark:text-white uppercase tracking-wide mb-4">Payment Plan</h3>
 
                            <div className="space-y-4">
                               {/* Client Outstanding Fees */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Client Outstanding Fees (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.paymentPlan.clientOutstandingFees}
-                                    onChange={(e) => setClaimFileForm({
-                                       ...claimFileForm,
-                                       paymentPlan: { ...claimFileForm.paymentPlan, clientOutstandingFees: e.target.value }
-                                    })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Client Outstanding Fees</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.paymentPlan.clientOutstandingFees}
+                                       onChange={(e) => setClaimFileForm({
+                                          ...claimFileForm,
+                                          paymentPlan: { ...claimFileForm.paymentPlan, clientOutstandingFees: e.target.value }
+                                       })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
 
                               {/* Payment Plan Status */}
@@ -2015,23 +2458,44 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
                               {/* Remaining Balance */}
                               <div>
-                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Remaining Balance (£)</label>
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.paymentPlan.remainingBalance}
-                                    onChange={(e) => setClaimFileForm({
-                                       ...claimFileForm,
-                                       paymentPlan: { ...claimFileForm.paymentPlan, remainingBalance: e.target.value }
-                                    })}
-                                    className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="0"
-                                 />
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Remaining Balance</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.paymentPlan.remainingBalance}
+                                       onChange={(e) => setClaimFileForm({
+                                          ...claimFileForm,
+                                          paymentPlan: { ...claimFileForm.paymentPlan, remainingBalance: e.target.value }
+                                       })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
+                              </div>
+
+                              {/* Monthly Payment Agreed */}
+                              <div>
+                                 <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Monthly Payment Agreed</label>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                    <input
+                                       type="text"
+                                       value={claimFileForm.paymentPlan.monthlyPaymentAgreed || ''}
+                                       onChange={(e) => setClaimFileForm({
+                                          ...claimFileForm,
+                                          paymentPlan: { ...claimFileForm.paymentPlan, monthlyPaymentAgreed: e.target.value }
+                                       })}
+                                       className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="0"
+                                    />
+                                 </div>
                               </div>
                            </div>
                         </div>
 
                         {/* ==================== CLAIM DOCUMENTS SECTION ==================== */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-5">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-300 dark:border-slate-600 p-5">
                            <div className="flex justify-between items-center mb-4">
                               <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide">Claim Documents</h3>
                               <button
@@ -2070,6 +2534,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                               )}
                            </div>
                         </div>
+
+                        </div>{/* End of Sections Container */}
 
                         {/* Delete Confirmation Modal */}
                         {showDeleteClaimConfirm && (
@@ -2450,19 +2916,19 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      </select>
                   </div>
 
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-6">
-                     <div className="space-y-6 relative pl-4">
-                        <div className="absolute left-5 top-2 bottom-2 w-px bg-gray-200 dark:bg-slate-700"></div>
-                        {filteredActionLogs.length > 0 ? filteredActionLogs.map((log) => (
-                           <div key={log.id} className="relative flex items-start gap-4 pl-4">
-                              <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${log.actionCategory === 'claims' ? 'bg-indigo-500 border-indigo-100' :
-                                 log.actionCategory === 'communication' ? 'bg-green-500 border-green-100' :
-                                    log.actionCategory === 'documents' ? 'bg-blue-500 border-blue-100' :
-                                       log.actionCategory === 'notes' ? 'bg-yellow-500 border-yellow-100' :
-                                          log.actionCategory === 'workflows' ? 'bg-purple-500 border-purple-100' :
-                                             'bg-gray-400 border-gray-100'
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+                     <div className="relative">
+                        <div className="absolute left-7 top-0 bottom-0 w-px bg-gray-200 dark:bg-slate-600"></div>
+                        {filteredActionLogs.length > 0 ? filteredActionLogs.map((log, index) => (
+                           <div key={log.id} className={`relative flex items-start gap-4 px-5 py-4 ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}>
+                              <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${log.actionCategory === 'claims' ? 'bg-indigo-500 border-indigo-300' :
+                                 log.actionCategory === 'communication' ? 'bg-green-500 border-green-300' :
+                                    log.actionCategory === 'documents' ? 'bg-blue-500 border-blue-300' :
+                                       log.actionCategory === 'notes' ? 'bg-yellow-500 border-yellow-300' :
+                                          log.actionCategory === 'workflows' ? 'bg-purple-500 border-purple-300' :
+                                             'bg-gray-400 border-gray-300'
                                  }`}></div>
-                              <div className="flex-1 pb-4">
+                              <div className="flex-1">
                                  <div className="flex justify-between items-start">
                                     <div>
                                        <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{log.actionType}</p>
@@ -2477,14 +2943,14 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            </div>
                         )) : (
                            // Fall back to legacy timeline if no CRM action logs
-                           legacyTimeline.map((item) => (
-                              <div key={item.id} className="relative flex items-start gap-4 pl-4">
-                                 <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${item.type === 'creation' ? 'bg-green-500 border-green-100' :
-                                    item.type === 'status_change' ? 'bg-blue-500 border-blue-100' :
-                                       item.type === 'communication' ? 'bg-purple-500 border-purple-100' :
-                                          'bg-gray-400 border-gray-100'
+                           legacyTimeline.map((item, index) => (
+                              <div key={item.id} className={`relative flex items-start gap-4 px-5 py-4 ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}>
+                                 <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${item.type === 'creation' ? 'bg-green-500 border-green-300' :
+                                    item.type === 'status_change' ? 'bg-blue-500 border-blue-300' :
+                                       item.type === 'communication' ? 'bg-purple-500 border-purple-300' :
+                                          'bg-gray-400 border-gray-300'
                                     }`}></div>
-                                 <div className="flex-1 pb-4">
+                                 <div className="flex-1">
                                     <div className="flex justify-between items-start">
                                        <div>
                                           <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{item.title}</p>
@@ -2766,13 +3232,16 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                         )}
                      </div>
                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Estimated Value (£) per claim</label>
-                        <input
-                           type="number"
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                           value={newClaimData.claimValue}
-                           onChange={e => setNewClaimData({ ...newClaimData, claimValue: Number(e.target.value) })}
-                        />
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Estimated Value per claim</label>
+                        <div className="flex items-center gap-2">
+                           <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                           <input
+                              type="number"
+                              className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                              value={newClaimData.claimValue}
+                              onChange={e => setNewClaimData({ ...newClaimData, claimValue: Number(e.target.value) })}
+                           />
+                        </div>
                      </div>
                   </div>
                   <div className="flex justify-end gap-3 mt-6">
@@ -2780,48 +3249,6 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                      <button onClick={handleAddClaim} className="px-4 py-2 bg-navy-700 text-white rounded-lg hover:bg-navy-800">
                         Create {selectedLenders.length > 1 ? `${selectedLenders.length} Claims` : 'Claim'}
                      </button>
-                  </div>
-               </div>
-            </div>
-         )}
-
-         {/* Edit Personal Details Modal */}
-         {showEditPersonal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-slate-700">
-                  <h3 className="font-bold text-lg mb-4 text-navy-900 dark:text-white">Edit Personal Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                     <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">First Name</label>
-                        <input
-                           type="text"
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                           value={editPersonalData.firstName || ''}
-                           onChange={e => setEditPersonalData({ ...editPersonalData, firstName: e.target.value })}
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Last Name</label>
-                        <input
-                           type="text"
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                           value={editPersonalData.lastName || ''}
-                           onChange={e => setEditPersonalData({ ...editPersonalData, lastName: e.target.value })}
-                        />
-                     </div>
-                     <div className="col-span-2">
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                        <input
-                           type="email"
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                           value={editPersonalData.email || ''}
-                           onChange={e => setEditPersonalData({ ...editPersonalData, email: e.target.value })}
-                        />
-                     </div>
-                  </div>
-                  <div className="flex justify-end gap-3 mt-6">
-                     <button onClick={() => setShowEditPersonal(false)} className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm">Cancel</button>
-                     <button onClick={savePersonalDetails} className="px-4 py-2 bg-navy-700 text-white rounded-lg hover:bg-navy-800 text-sm">Save Changes</button>
                   </div>
                </div>
             </div>
@@ -3280,10 +3707,10 @@ const Contacts: React.FC = () => {
    );
 
    return (
-      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors">
+      <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors">
          {/* Header */}
-         <div className="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 flex-shrink-0">
-            <h1 className="text-xl font-bold text-navy-900 dark:text-white">Contacts Directory</h1>
+         <div className="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 flex-shrink-0 shadow-sm">
+            <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
             <div className="flex gap-3">
                <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -3312,49 +3739,67 @@ const Contacts: React.FC = () => {
 
          {/* List */}
          <div className="flex-1 overflow-y-auto p-6">
-            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-visible min-h-[400px]">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden min-h-[400px]">
                <table className="w-full text-left">
-                  <thead className="bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600 rounded-t-xl">
+                  <thead className="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-700 dark:to-slate-800 border-b-2 border-gray-200 dark:border-slate-600">
                      <tr>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider rounded-tl-xl">Name</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Lender</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Est. Value</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Last Activity</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider text-right rounded-tr-xl">Action</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Name</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Lender</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Est. Value</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Last Activity</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider text-right">Action</th>
                      </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                     {filteredContacts.map(contact => (
-                        <tr key={contact.id} onClick={() => handleContactClick(contact.id)} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group">
+                  <tbody>
+                     {filteredContacts.map((contact, index) => (
+                        <tr
+                           key={contact.id}
+                           onClick={() => handleContactClick(contact.id)}
+                           className={`
+                              ${index % 2 === 0
+                                 ? 'bg-white dark:bg-slate-800'
+                                 : 'bg-slate-50/80 dark:bg-slate-750 dark:bg-slate-700/50'
+                              }
+                              hover:bg-blue-50 dark:hover:bg-slate-600
+                              transition-all duration-150 cursor-pointer group
+                              border-b border-gray-100 dark:border-slate-700/50
+                              hover:shadow-md hover:scale-[1.005] hover:z-10 relative
+                           `}
+                        >
                            <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
-                                 <div className="w-8 h-8 rounded-full bg-navy-100 dark:bg-navy-800 text-navy-700 dark:text-white flex items-center justify-center font-bold text-xs">
-                                    {contact.fullName.charAt(0)}
+                                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+                                    {contact.fullName.charAt(0).toUpperCase()}
                                  </div>
                                  <div>
-                                    <div className="font-medium text-navy-900 dark:text-white text-sm">{contact.fullName}</div>
+                                    <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName}</div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400">{contact.email}</div>
                                  </div>
                               </div>
                            </td>
                            <td className="px-6 py-4">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStatusColor(contact.status)}`}>
+                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${getStatusColor(contact.status)}`}>
+                                 <span className="w-2 h-2 rounded-full mr-2 bg-current opacity-70"></span>
                                  {contact.status}
                               </span>
                            </td>
-                           <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{contact.lender}</td>
-                           <td className="px-6 py-4 text-sm font-medium text-green-600 dark:text-green-400">£{(contact.claimValue || 0).toLocaleString()}</td>
-                           <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{contact.lastActivity}</td>
+                           <td className="px-6 py-4 text-sm font-medium text-gray-700 dark:text-gray-300">{contact.lender || '—'}</td>
+                           <td className="px-6 py-4">
+                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded-lg">
+                                 £{(contact.claimValue || 0).toLocaleString()}
+                              </span>
+                           </td>
+                           <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{contact.lastActivity || 'Active'}</td>
                            <td className="px-6 py-4 text-right relative">
                               <button
                                  onClick={(e) => {
                                     e.stopPropagation();
                                     setActiveActionMenu(activeActionMenu === contact.id ? null : contact.id);
                                  }}
-                                 className="text-gray-400 hover:text-navy-600 dark:hover:text-white p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors"
+                                 className="text-gray-400 hover:text-indigo-600 dark:hover:text-white p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-600 transition-all hover:shadow-sm"
                               >
-                                 <MoreHorizontal size={18} />
+                                 <MoreHorizontal size={20} />
                               </button>
                               {activeActionMenu === contact.id && (
                                  <div

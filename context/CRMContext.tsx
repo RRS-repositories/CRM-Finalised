@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails } from '../types';
+import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
@@ -82,6 +82,8 @@ interface CRMContextType {
 
   // Calendar
   addAppointment: (appt: Partial<Appointment>) => { success: boolean; message: string; id: string };
+  updateAppointment: (appt: Appointment) => { success: boolean; message: string };
+  deleteAppointment: (id: string) => { success: boolean; message: string };
 
   // Document Methods
   addDocument: (doc: Partial<Document>, file?: File) => Promise<{ success: boolean; message: string; id?: string }>;
@@ -125,9 +127,16 @@ interface CRMContextType {
   actionLogs: ActionLogEntry[];
   fetchActionLogs: (clientId: string) => Promise<void>;
 
-  // Extended Contact Fields (Bank Details, Previous Address)
+  // Extended Contact Fields (Bank Details, Addresses)
   updateContactExtended: (contactId: string, data: {
     bankDetails?: BankDetails;
+    address?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      state_county?: string;
+      postalCode?: string;
+    };
     previousAddress?: {
       line1?: string;
       line2?: string;
@@ -135,6 +144,14 @@ interface CRMContextType {
       county?: string;
       postalCode?: string;
     };
+    previousAddresses?: Array<{
+      id: string;
+      line1: string;
+      line2?: string;
+      city: string;
+      county?: string;
+      postalCode: string;
+    }>;
     clientId?: string;
   }) => Promise<{ success: boolean; message: string }>;
 
@@ -939,6 +956,25 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Appointment scheduled', id: newAppt.id };
   };
 
+  const updateAppointment = (appt: Appointment) => {
+    setAppointments(prev => prev.map(a => a.id === appt.id ? appt : a));
+    if (appt.contactId) {
+      logActivity(appt.contactId, 'Appointment Updated', `"${appt.title}" updated`, 'communication');
+    }
+    addNotification('success', 'Appointment updated');
+    return { success: true, message: 'Appointment updated' };
+  };
+
+  const deleteAppointment = (id: string) => {
+    const appt = appointments.find(a => a.id === id);
+    setAppointments(prev => prev.filter(a => a.id !== id));
+    if (appt?.contactId) {
+      logActivity(appt.contactId, 'Appointment Cancelled', `"${appt.title}" was cancelled`, 'communication');
+    }
+    addNotification('success', 'Appointment deleted');
+    return { success: true, message: 'Appointment deleted' };
+  };
+
   // --- Document Logic ---
   const addDocument = async (docData: Partial<Document>, file?: File) => {
     let url = docData.url;
@@ -1396,6 +1432,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // --- Extended Contact Fields ---
   const updateContactExtended = async (contactId: string, data: {
     bankDetails?: BankDetails;
+    address?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      state_county?: string;
+      postalCode?: string;
+    };
     previousAddress?: {
       line1?: string;
       line2?: string;
@@ -1403,6 +1446,14 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       county?: string;
       postalCode?: string;
     };
+    previousAddresses?: Array<{
+      id: string;
+      line1: string;
+      line2?: string;
+      city: string;
+      county?: string;
+      postalCode: string;
+    }>;
     clientId?: string;
   }): Promise<{ success: boolean; message: string }> => {
     try {
@@ -1415,12 +1466,24 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         requestBody.bank_account_number = data.bankDetails.accountNumber;
       }
 
+      if (data.address) {
+        requestBody.address_line_1 = data.address.line1;
+        requestBody.address_line_2 = data.address.line2;
+        requestBody.city = data.address.city;
+        requestBody.state_county = data.address.state_county;
+        requestBody.postal_code = data.address.postalCode;
+      }
+
       if (data.previousAddress) {
         requestBody.previous_address_line_1 = data.previousAddress.line1;
         requestBody.previous_address_line_2 = data.previousAddress.line2;
         requestBody.previous_city = data.previousAddress.city;
         requestBody.previous_county = data.previousAddress.county;
         requestBody.previous_postal_code = data.previousAddress.postalCode;
+      }
+
+      if (data.previousAddresses) {
+        requestBody.previous_addresses = JSON.stringify(data.previousAddresses);
       }
 
       if (data.clientId) {
@@ -1444,6 +1507,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           return {
             ...c,
             bankDetails: data.bankDetails || c.bankDetails,
+            address: data.address ? {
+              line1: data.address.line1 || '',
+              line2: data.address.line2,
+              city: data.address.city || '',
+              state_county: data.address.state_county || '',
+              postalCode: data.address.postalCode || ''
+            } : c.address,
             previousAddressObj: data.previousAddress ? {
               line1: data.previousAddress.line1 || '',
               line2: data.previousAddress.line2,
@@ -1451,6 +1521,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               state_county: data.previousAddress.county || '',
               postalCode: data.previousAddress.postalCode || ''
             } : c.previousAddressObj,
+            previousAddresses: data.previousAddresses || c.previousAddresses,
             clientId: data.clientId || c.clientId
           };
         }
@@ -1509,7 +1580,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       currentView, setCurrentView,
       updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
       addClaim, updateClaim, updateClaimStatus, bulkUpdateClaims,
-      addAppointment, addDocument, updateDocument,
+      addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
       addTemplate, updateTemplate,
       addForm, updateForm, deleteForm,
       addNote, theme, toggleTheme,

@@ -253,7 +253,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ isOpen, onClose }) => {
           'DSAR': claims.filter(c => c.status.includes('DSAR') || c.status === 'Data Analysis').length,
           'Complaint': claims.filter(c => c.status.includes('Complaint') || c.status.includes('Response') || c.status === 'Client Review').length,
           'FOS': claims.filter(c => c.status.includes('FOS')).length,
-          'Resolution': claims.filter(c => c.status.includes('Offer') || c.status.includes('Payment') || c.status.includes('Fee') || c.status.includes('Client Paid') || c.status.includes('Claim ')).length
+          'Payments': claims.filter(c => c.status.includes('Offer') || c.status.includes('Payment') || c.status.includes('Fee') || c.status.includes('Client Paid') || c.status.includes('Claim ')).length
         };
 
         return {
@@ -563,7 +563,7 @@ Submitted by FastAction Claims on behalf of ${clientName}`;
               'DSAR': claims.filter(c => c.status.includes('DSAR')).length,
               'Complaint': claims.filter(c => c.status.includes('Complaint')).length,
               'FOS': claims.filter(c => c.status.includes('FOS')).length,
-              'Resolution': claims.filter(c => c.status.includes('Offer') || c.status.includes('Payment')).length
+              'Payments': claims.filter(c => c.status.includes('Offer') || c.status.includes('Payment')).length
             }
           },
           lender_performance: {
