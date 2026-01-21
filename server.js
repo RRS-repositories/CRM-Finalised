@@ -46,10 +46,11 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     port: process.env.DB_PORT,
-    // Only use SSL if DB_SSL is set to 'true' in .env
-    ssl: process.env.DB_SSL === 'true' ? {
+    // AWS RDS requires SSL - always enable it
+    ssl: {
+        require: true,
         rejectUnauthorized: false
-    } : false
+    }
 });
 
 const upload = multer({
@@ -747,8 +748,8 @@ async function generateTermsHTML(clientData, logoBase64) {
 
     const fullName = `${first_name} ${last_name}`;
     const streetCombined = [street_address, address_line_2].filter(Boolean).join(', ');
-    const addressParts = [street_address, address_line_2, city, state_county].filter(Boolean);
-    const fullAddress = `${addressParts.join(', ')} | ${postal_code}`;
+    const addressParts = [streetCombined, city, state_county, postal_code].filter(Boolean);
+    const fullAddress = addressParts.join(', ');
 
     // Get current date/time
     const now = new Date();
@@ -863,9 +864,37 @@ async function generateTermsHTML(clientData, logoBase64) {
             text-decoration: none;
         }
         
-        .document-date {
-            font-size: 10pt;
-            color: #334155;
+        .client-info {
+            margin-top: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .client-date {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 10px;
+        }
+        
+        .client-name {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 10px;
+        }
+        
+        .client-address {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+        
+        .tc-heading {
+            font-size: 11pt;
+            font-weight: bold;
+            color: #1e293b;
             margin-top: 15px;
             margin-bottom: 20px;
         }
@@ -1009,9 +1038,15 @@ async function generateTermsHTML(clientData, logoBase64) {
             </div>
         </div>
         
-        <div class="document-date">Date: ${today}</div>
-        
-        <h1>Terms and Conditions of Engagement</h1>
+        <div class="client-info">
+            <div class="client-date">${today}</div>
+            
+            <div class="client-name">${fullName}</div>
+            
+            <div class="client-address">${fullAddress}</div>
+            
+            <div class="tc-heading">Terms and Conditions of Engagement</div>
+        </div>
         
         <div class="content">
             ${populatedHtml}
@@ -1026,6 +1061,214 @@ async function generateTermsHTML(clientData, logoBase64) {
         <div class="footer">
             This document is electronically signed and legally binding.
         </div>
+    </div>
+</body>
+</html>
+    `;
+}
+
+// --- HELPER FUNCTION: Generate HTML Template for LOA PDF ---
+async function generateLOAHTML(clientData, lenderName, logoBase64, signatureBase64) {
+    const {
+        first_name,
+        last_name,
+        address_line_1,
+        address_line_2,
+        city,
+        state_county,
+        postal_code,
+        dob
+    } = clientData;
+
+    const fullName = `${first_name} ${last_name}`;
+
+    // Format address - just the street address
+    const streetAddress = [address_line_1, address_line_2].filter(Boolean).join(', ');
+
+    // Format DOB to DD/MM/YYYY if it exists
+    let formattedDOB = '';
+    if (dob) {
+        try {
+            const dobDate = new Date(dob);
+            formattedDOB = dobDate.toLocaleDateString('en-GB');
+        } catch (e) {
+            formattedDOB = dob;
+        }
+    }
+
+    // Get current date
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+
+    // Create full HTML document for LOA
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Letter of Authority - ${lenderName}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 9pt;
+            line-height: 1.3;
+            color: #000;
+            background: white;
+            padding: 10mm;
+        }
+        
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #000;
+        }
+        
+        .logo {
+            flex: 0 0 auto;
+        }
+        
+        .logo img {
+            max-width: 120px;
+            height: auto;
+        }
+        
+        .contact-info {
+            flex: 1;
+            text-align: right;
+            font-size: 8pt;
+            padding-left: 20px;
+        }
+        
+        .title {
+            text-align: center;
+            font-size: 14pt;
+            font-weight: bold;
+            margin: 15px 0 10px 0;
+            text-decoration: underline;
+        }
+        
+        .respect-of {
+            margin-bottom: 15px;
+            font-size: 10pt;
+        }
+        
+        .client-info-table {
+            width: 100%;
+            margin: 15px 0;
+            border-collapse: collapse;
+        }
+        
+        .client-info-table td {
+            padding: 5px 10px;
+            border: 1px solid #000;
+            font-size: 9pt;
+        }
+        
+        .client-info-table td:first-child {
+            font-weight: bold;
+            width: 150px;
+        }
+        
+        .authorization-text {
+            text-align: justify;
+            margin: 15px 0;
+            font-size: 8pt;
+            line-height: 1.2;
+        }
+        
+        .authorization-text p {
+            margin-bottom: 6px;
+        }
+        
+        .signature-box {
+            border: 2px solid #000;
+            padding: 15px;
+            margin: 15px 0;
+            min-height: 100px;
+            text-align: center;
+        }
+        
+        .signature-image {
+            max-width: 250px;
+            max-height: 60px;
+            margin: 5px 0;
+        }
+        
+        .footer-text {
+            margin: 10px 0;
+            font-size: 7pt;
+            line-height: 1.3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-row">
+        <div class="logo">
+            ${logoBase64 ? `<img src="${logoBase64}" alt="Fast Action Claims" />` : ''}
+        </div>
+        <div class="contact-info">
+            Email: Info@fastactionclaims.co.uk<br/>
+            Tel: 0161 533 1706<br/>
+            Address: 1.03, Boat Shed, 12 Exchange Quay,<br/>
+            Salford, M5 3EQ
+        </div>
+    </div>
+    
+    <div class="title">LETTER OF AUTHORITY</div>
+    
+    <div class="respect-of">In respect of: ${lenderName}</div>
+    
+    <table class="client-info-table">
+        <tr>
+            <td>Full Name:</td>
+            <td>${fullName}</td>
+        </tr>
+        <tr>
+            <td>Address:</td>
+            <td>${streetAddress}</td>
+        </tr>
+        <tr>
+            <td>Postcode:</td>
+            <td>${postal_code || ''}</td>
+        </tr>
+        <tr>
+            <td>Date of Birth:</td>
+            <td>${formattedDOB}</td>
+        </tr>
+        <tr>
+            <td>Previous Address:</td>
+            <td></td>
+        </tr>
+    </table>
+    
+    <div class="authorization-text">
+        <p>I/We hereby Authorise and instruct: You (The Bank/Door Step Lender/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/Pension Provider/Catalogue Loans provider/Mortgage Broker/HMRC) to: -</p>
+        
+        <p>1. Liaise exclusively with Fast Action Claims in respect of all aspects of my/our potential complaint/claim for compensation as stated above.</p>
+        
+        <p>2. Immediately release to Fast Action Claims any information/documentation relating to all my/our loans/credit cards/overdrafts/Store Cards/Car Finance/Packaged Bank Account/ to include all Broker Commissions, Tax deductions which may be requested. This includes information in response to a request made under Sections 77-78 of the Consumer Credit Act 1974 and/or Section 45 of the Data Protection Act 2018 and Article 15 GDPR (General Data Protection Regulations).</p>
+        
+        <p>3. Contact Fast Action Claims whenever they need to send me/us information or contact me/us in connection with this matter.</p>
+        
+        <p>I/We authorise Fast Action Claims of 1.03, 12 Exchange Quay, Salford, M5 3EQ as my/our sole representatives to deal with my potential complaint/claim for compensation in relation to all loans/credit cards/car finance/overdrafts/Packaged Bank Accounts/Store Cards/Packaged Bank Account. I/We confirm that Fast Action Claims are instructed to pursue all aspects they consider necessary in relation to my/our dealings with your organisation. This letter of authority relates to ALL products and accounts I/We have or have had with you. I/We have read, understand and agree to Fast Action Claims' Terms and Conditions. I/We give them full authority, in accordance with the FCA's Dispute Resolution Guidelines, to act on my/our behalf as my/our to pursue all aspects they deem necessary in relation to all my/our financial affairs/tax affairs with the aforementioned Provider(s). I/We authorise you to accept any signatures on documents sent to you by Fast Action Claims which have been obtained electronically (e-signed). I/We confirm that in the event that you need to contact a third party to progress my/our case for any reason, I/we hereby give my/our authority and consent for the third party to provide Fast Action Claims with any information they request and may require to pursue my/our claim/complaint. I/We understand that, in addition to the present Letter of Authority I/We will need to provide further information when raising an expression of dissatisfaction to you (The Bank/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/HMRC), about the underlying products), service(s) and where known, specific account number(s) being complained about. I hereby authorise Fast Action Claims to submit my claim for irresponsible lending.</p>
+    </div>
+    
+    <div class="signature-box">
+        <strong>Signature:</strong><br/>
+        ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-image" alt="Signature" />` : ''}
+    </div>
+    
+    <div class="footer-text">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. Rowan Rose Solicitors is a limited company registered in England and Wales (Company No. 12916452)
     </div>
 </body>
 </html>
@@ -2681,6 +2924,18 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             font-size: 20px;
             color: #1f2937;
         }
+        .error-message {
+            display: none;
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #fca5a5;
+            font-size: 18px;
+            font-weight: 500;
+            text-align: center;
+        }
 
         /* Mobile Responsiveness */
         @media (max-width: 768px) {
@@ -2774,6 +3029,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             Millions has been claimed from lenders for irresponsible lending so it's well worth taking a careful look!<br><br>
             If you need any help or have questions, don't hesitate to get in touch.
         </div>
+        <div id="errorMessage" class="error-message"></div>
         <form id="lenderForm">
             <div id="lenderCategories"></div>
             <div class="questions">
@@ -2856,12 +3112,18 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('success').style.display = 'block';
                 } else {
-                    alert('Error: ' + result.message);
+                    const errorDiv = document.getElementById('errorMessage');
+                    errorDiv.textContent = result.message;
+                    errorDiv.style.display = 'block';
                     document.getElementById('lenderForm').style.display = 'block';
                     document.getElementById('loading').style.display = 'none';
+                    // Scroll to error message
+                    errorDiv.scrollIntoView({ behavior: 'smooth' });
                 }
             } catch (error) {
-                alert('Error submitting form. Please try again.');
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = 'Error submitting form. Please try again.';
+                errorDiv.style.display = 'block';
                 document.getElementById('lenderForm').style.display = 'block';
                 document.getElementById('loading').style.display = 'none';
             }
@@ -2885,9 +3147,11 @@ app.post('/api/submit-loa-form', async (req, res) => {
     }
 
     try {
-        // Find contact by unique link
+        // Find contact by unique link and fetch complete data
         const contactRes = await pool.query(
-            'SELECT id, first_name, last_name FROM contacts WHERE unique_form_link = $1',
+            `SELECT id, first_name, last_name, address_line_1, address_line_2, 
+                    city, state_county, postal_code, dob, loa_submitted 
+             FROM contacts WHERE unique_form_link = $1`,
             [uniqueId]
         );
 
@@ -2896,6 +3160,16 @@ app.post('/api/submit-loa-form', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
+
+        // Check if LOA form has already been submitted
+        if (contact.loa_submitted) {
+            return res.status(400).json({
+                success: false,
+                message: 'This link has already been used. Please contact us at contact@rowanrose.co.uk or visit https://www.rowanrose.co.uk/',
+                alreadySubmitted: true
+            });
+        }
+
         const contactId = contact.id;
         const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
 
@@ -2924,7 +3198,80 @@ app.post('/api/submit-loa-form', async (req, res) => {
             [contactId, 'Signature_2.png', 'image', 'Legal', signature2Url, 'Auto-generated', ['Signature', 'LOA Form']]
         );
 
-        // 4. Create one claim per selected lender
+        // 4. Load logo for PDFs
+        let logoBase64 = null;
+        try {
+            const logoPath = path.join(__dirname, 'public', 'fac.png');
+            const logoBuffer = await fs.promises.readFile(logoPath);
+            logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+        } catch (e) {
+            console.warn('Logo not found, PDFs will be generated without logo');
+        }
+
+        // Convert signature URL to base64 for embedding in PDF
+        let signatureBase64 = null;
+        try {
+            signatureBase64 = `data:image/png;base64,${signatureBufferWithTimestamp.toString('base64')}`;
+        } catch (e) {
+            console.warn('Could not convert signature to base64');
+        }
+
+        // 5. Generate LOA PDFs for each selected lender
+        const pdfGenerationPromises = selectedLenders.map(async (lender) => {
+            try {
+                // Generate HTML for this lender
+                const htmlContent = await generateLOAHTML(contact, lender, logoBase64, signatureBase64);
+
+                // Generate PDF using Puppeteer
+                const browser = await puppeteer.launch({
+                    headless: 'new',
+                    args: ['--no-sandbox', '--disable-setuid-sandbox']
+                });
+                const page = await browser.newPage();
+                await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+                const pdfBuffer = await page.pdf({
+                    format: 'A4',
+                    printBackground: true,
+                    margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
+                });
+                await browser.close();
+
+                // Sanitize lender name for filename (remove special characters, replace spaces with underscores)
+                const sanitizedLenderName = lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+                const pdfFileName = `${sanitizedLenderName}_letter_of_authority.pdf`;
+                const pdfKey = `${folderPath}LOA/${pdfFileName}`;
+
+                // Upload PDF to S3
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: pdfKey,
+                    Body: pdfBuffer,
+                    ContentType: 'application/pdf',
+                    ACL: 'public-read'
+                }));
+
+                const pdfUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfKey}`;
+
+                // Save PDF to documents table
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, pdfFileName, 'pdf', 'LOA', pdfUrl, 'Auto-generated', ['LOA', lender]]
+                );
+
+                console.log(`Generated LOA PDF for ${lender}: ${pdfFileName}`);
+                return { lender, success: true, pdfUrl };
+            } catch (error) {
+                console.error(`Error generating LOA PDF for ${lender}:`, error);
+                return { lender, success: false, error: error.message };
+            }
+        });
+
+        // Wait for all PDFs to be generated
+        const pdfResults = await Promise.all(pdfGenerationPromises);
+        const successfulPDFs = pdfResults.filter(r => r.success).length;
+
+        // 6. Create one claim per selected lender
         const claimPromises = selectedLenders.map(lender => {
             return pool.query(
                 `INSERT INTO cases (contact_id, lender, status, claim_value, created_at)
@@ -2935,7 +3282,10 @@ app.post('/api/submit-loa-form', async (req, res) => {
 
         await Promise.all(claimPromises);
 
-        // 5. Create action log entry for form submission
+        // 7. Mark LOA as submitted for this contact
+        await pool.query('UPDATE contacts SET loa_submitted = true WHERE id = $1', [contactId]);
+
+        // 8. Create action log entry for form submission
         await pool.query(
             `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -2946,21 +3296,25 @@ app.post('/api/submit-loa-form', async (req, res) => {
                 `${contact.first_name} ${contact.last_name}`,
                 'loa_form_submitted',
                 'claims',
-                `LOA form submitted - ${selectedLenders.length} lender(s) selected`,
+                `LOA form submitted - ${selectedLenders.length} lender(s) selected, ${successfulPDFs} PDF(s) generated`,
                 JSON.stringify({
                     selectedLenders,
                     hadCCJ,
                     victimOfScam,
                     problematicGambling,
-                    claimsCreated: selectedLenders.length
+                    claimsCreated: selectedLenders.length,
+                    pdfsGenerated: successfulPDFs,
+                    pdfResults
                 })
             ]
         );
 
         res.json({
             success: true,
-            message: `Successfully created ${selectedLenders.length} claim(s)`,
-            claimsCreated: selectedLenders.length
+            message: `Successfully created ${selectedLenders.length} claim(s) and ${successfulPDFs} LOA PDF(s)`,
+            claimsCreated: selectedLenders.length,
+            pdfsGenerated: successfulPDFs,
+            pdfResults
         });
     } catch (error) {
         console.error('Error submitting LOA form:', error);
