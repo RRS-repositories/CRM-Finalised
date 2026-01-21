@@ -2456,13 +2456,14 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
             background: #f8f9fa; 
             padding: 20px; 
-            line-height: 1.6;
+            line-height: 1.8;
+            font-size: 18px;
         }
         .container { 
             max-width: 900px; 
             margin: 0 auto; 
             background: white; 
-            padding: 50px 60px; 
+            padding: 40px 50px; 
             border-radius: 12px; 
             box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
         }
@@ -2470,7 +2471,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             text-align: center; 
             margin-bottom: 40px; 
             padding-bottom: 30px; 
-            border-bottom: 2px solid #e5e7eb; 
+            border-bottom: 3px solid #e5e7eb; 
         }
         .logo-container {
             margin-bottom: 20px;
@@ -2482,43 +2483,55 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             margin: 0 auto;
         }
         .contact-info { 
-            font-size: 14px; 
-            color: #6b7280; 
+            font-size: 16px; 
+            color: #4b5563; 
             margin: 20px 0;
-            line-height: 1.8;
+            line-height: 2;
             text-align: center;
+            font-weight: 500;
         }
         .contact-info a {
-            color: #3b82f6;
+            color: #2563eb;
             text-decoration: none;
+            font-weight: 600;
         }
         .contact-info a:hover {
             text-decoration: underline;
         }
         .greeting { 
-            font-size: 28px; 
+            font-size: 32px; 
             font-weight: 700; 
             color: #111827; 
             margin: 30px 0 20px 0; 
             text-align: left;
         }
         .intro { 
-            font-size: 17px; 
-            color: #374151; 
-            line-height: 1.9; 
-            margin-bottom: 30px; 
+            font-size: 19px; 
+            color: #1f2937; 
+            line-height: 2; 
+            margin-bottom: 35px; 
             text-align: left;
         }
         .intro strong {
             font-weight: 700;
             color: #111827;
         }
-        .category { margin: 35px 0; }
+        .category { 
+            margin: 40px 0; 
+            padding: 25px;
+            border-radius: 10px;
+        }
+        .category:nth-child(odd) {
+            background: #ffffff;
+        }
+        .category:nth-child(even) {
+            background: #f3f4f6;
+        }
         .category-title { 
-            font-size: 15px; 
+            font-size: 18px; 
             font-weight: 700; 
             color: #111827; 
-            margin-bottom: 18px; 
+            margin-bottom: 20px; 
             text-transform: uppercase; 
             letter-spacing: 0.5px;
             font-style: italic;
@@ -2526,80 +2539,90 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         .lender-item { 
             display: flex; 
             align-items: center; 
-            padding: 12px 15px; 
-            margin: 6px 0; 
-            border-radius: 6px; 
-            transition: background 0.2s; 
+            padding: 16px 18px; 
+            margin: 8px 0; 
+            border-radius: 8px; 
+            transition: background 0.2s;
+            min-height: 56px;
         }
-        .lender-item:hover { background: #f9fafb; }
+        .lender-item:hover { background: #e5e7eb; }
         .lender-item input[type="checkbox"] { 
-            width: 22px; 
-            height: 22px; 
-            margin-right: 14px; 
+            width: 32px; 
+            height: 32px; 
+            margin-right: 18px; 
             cursor: pointer; 
-            accent-color: #3b82f6; 
+            accent-color: #2563eb;
+            flex-shrink: 0;
         }
         .lender-item label { 
-            font-size: 15px; 
-            color: #374151; 
+            font-size: 18px; 
+            color: #1f2937; 
             cursor: pointer; 
             user-select: none; 
-            font-weight: 500;
+            font-weight: 600;
+            line-height: 1.6;
         }
         .questions { 
             margin: 45px 0; 
-            padding: 25px; 
+            padding: 30px; 
             background: #fef3c7; 
-            border-radius: 10px; 
-            border: 2px solid #fbbf24;
+            border-radius: 12px; 
+            border: 3px solid #fbbf24;
         }
         .question-item { 
             display: flex; 
             align-items: center; 
-            margin: 18px 0; 
+            margin: 22px 0;
+            min-height: 56px;
         }
         .question-item input[type="checkbox"] { 
-            width: 22px; 
-            height: 22px; 
-            margin-right: 14px; 
+            width: 32px; 
+            height: 32px; 
+            margin-right: 18px; 
             cursor: pointer; 
-            accent-color: #f59e0b; 
+            accent-color: #f59e0b;
+            flex-shrink: 0;
         }
         .question-item label { 
-            font-size: 15px; 
-            font-weight: 600; 
-            color: #92400e; 
-            cursor: pointer; 
+            font-size: 18px; 
+            font-weight: 700; 
+            color: #78350f; 
+            cursor: pointer;
+            line-height: 1.6;
         }
         .signature-section { margin: 45px 0; }
         .signature-title { 
-            font-size: 18px; 
+            font-size: 22px; 
             font-weight: 700; 
             color: #111827; 
-            margin-bottom: 15px; 
+            margin-bottom: 18px; 
         }
         .signature-canvas { 
-            border: 2px solid #d1d5db; 
-            border-radius: 10px; 
+            border: 3px solid #9ca3af; 
+            border-radius: 12px; 
             cursor: crosshair; 
             display: block; 
-            margin: 15px 0; 
-            background: white; 
+            margin: 18px 0; 
+            background: white;
+            width: 100%;
+            max-width: 700px;
+            height: 200px;
         }
         .signature-buttons { 
             display: flex; 
-            gap: 12px; 
-            margin: 15px 0; 
+            gap: 15px; 
+            margin: 18px 0; 
         }
         .btn { 
-            padding: 12px 24px; 
+            padding: 16px 28px; 
             border: none; 
-            border-radius: 8px; 
-            font-size: 15px; 
-            font-weight: 600; 
+            border-radius: 10px; 
+            font-size: 18px; 
+            font-weight: 700; 
             cursor: pointer; 
             transition: all 0.2s; 
             font-family: 'Inter', sans-serif;
+            min-height: 56px;
         }
         .btn-clear { 
             background: #ef4444; 
@@ -2610,18 +2633,19 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             transform: translateY(-1px);
         }
         .btn-submit { 
-            background: #3b82f6; 
+            background: #2563eb; 
             color: white; 
-            padding: 18px 50px; 
-            font-size: 18px; 
+            padding: 22px 60px; 
+            font-size: 22px; 
             font-weight: 700;
             width: 100%; 
-            margin-top: 35px; 
+            margin-top: 40px;
+            min-height: 64px;
         }
         .btn-submit:hover { 
-            background: #2563eb; 
+            background: #1d4ed8; 
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
         }
         .btn-submit:disabled { 
             background: #9ca3af; 
@@ -2629,28 +2653,103 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             transform: none;
         }
         .disclaimer { 
-            font-size: 12px; 
-            color: #6b7280; 
+            font-size: 14px; 
+            color: #4b5563; 
             margin-top: 25px; 
-            padding: 18px; 
+            padding: 20px; 
             background: #f9fafb; 
-            border-radius: 8px; 
-            line-height: 1.6; 
+            border-radius: 10px; 
+            line-height: 1.8; 
         }
         .loading { 
             display: none; 
             text-align: center; 
-            padding: 30px; 
+            padding: 40px;
+            font-size: 20px;
         }
         .success-message { 
             display: none; 
             text-align: center; 
-            padding: 50px; 
+            padding: 60px; 
         }
         .success-message h2 { 
             color: #10b981; 
-            margin-bottom: 15px; 
-            font-size: 28px;
+            margin-bottom: 20px; 
+            font-size: 32px;
+        }
+        .success-message p {
+            font-size: 20px;
+            color: #1f2937;
+        }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+                font-size: 18px;
+            }
+            .container {
+                padding: 30px 20px;
+            }
+            .greeting {
+                font-size: 28px;
+            }
+            .intro {
+                font-size: 18px;
+            }
+            .category {
+                padding: 20px 15px;
+                margin: 30px 0;
+            }
+            .category-title {
+                font-size: 17px;
+            }
+            .lender-item {
+                padding: 14px 12px;
+                min-height: 60px;
+            }
+            .lender-item label {
+                font-size: 17px;
+            }
+            .question-item {
+                min-height: 60px;
+            }
+            .question-item label {
+                font-size: 17px;
+            }
+            .signature-canvas {
+                height: 180px;
+            }
+            .btn {
+                font-size: 17px;
+                padding: 14px 24px;
+            }
+            .btn-submit {
+                font-size: 20px;
+                padding: 20px 40px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 25px 15px;
+            }
+            .greeting {
+                font-size: 24px;
+            }
+            .intro {
+                font-size: 17px;
+            }
+            .category-title {
+                font-size: 16px;
+            }
+            .lender-item label,
+            .question-item label {
+                font-size: 16px;
+            }
+            .signature-title {
+                font-size: 20px;
+            }
         }
     </style>
 </head>

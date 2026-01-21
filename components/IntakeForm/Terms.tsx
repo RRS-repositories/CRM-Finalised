@@ -90,16 +90,40 @@ const Terms: React.FC<TermsProps> = ({ formData }) => {
               M5 3EQ
             </p>
             <p className="mt-2">
-              <a href="mailto:info@fastactionclaims.co.uk" className="text-blue-600 hover:underline">
-                info@fastactionclaims.co.uk
+              <a href="mailto:irl@rowanrose.co.uk" className="text-blue-600 hover:underline">
+                irl@rowanrose.co.uk
               </a>
             </p>
           </div>
         </div>
 
-        {/* Date */}
-        <div className="mb-8 text-sm text-slate-700">
-          Date: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+        {/* Client Information Section - Highlighted */}
+        <div className="mb-8 space-y-3">
+          {/* Date - Highlighted */}
+          <div className="text-lg font-semibold text-slate-900">
+            {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+          </div>
+
+          {/* Client Name - Highlighted */}
+          <div className="text-lg font-semibold text-slate-900">
+            {formData?.first_name || ''} {formData?.last_name || ''}
+          </div>
+
+          {/* Client Address - Highlighted */}
+          <div className="text-lg font-semibold text-slate-800">
+            {[
+              [formData?.address_line_1, formData?.address_line_2].filter(Boolean).join(', '),
+              formData?.city,
+              formData?.state_county,
+              formData?.postal_code
+            ].filter(Boolean).join(', ')}
+          </div>
+          <br></br>
+
+          {/* Terms and Conditions of Engagement Heading */}
+          <div className="text-base font-bold text-slate-800 mt-4">
+            Terms and Conditions of Engagement
+          </div>
         </div>
 
         {/* The Professionally Formatted Content from Docx */}
