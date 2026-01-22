@@ -1508,11 +1508,10 @@ app.post('/api/submit-page1', async (req, res) => {
             Bucket: BUCKET_NAME,
             Key: signatureKey,
             Body: signatureBufferWithTimestamp,
-            ContentType: 'image/png',
-            ACL: 'public-read'
+            ContentType: 'image/png'
         }));
 
-        const signatureUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${signatureKey}`;
+        const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
 
         // 4. Generate T&C PDF using Puppeteer (HTML to PDF)
         let logoBase64 = null;
@@ -1567,8 +1566,7 @@ app.post('/api/submit-page1', async (req, res) => {
             Bucket: BUCKET_NAME,
             Key: tcKey,
             Body: pdfBuffer,
-            ContentType: 'application/pdf',
-            ACL: 'public-read'
+            ContentType: 'application/pdf'
         }));
 
         // Update signature URL in DB
@@ -1582,7 +1580,7 @@ app.post('/api/submit-page1', async (req, res) => {
         );
 
         // Save T&C PDF to documents table
-        const tcUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${tcKey}`;
+        const tcUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: tcKey }), { expiresIn: 604800 });
         await pool.query(
             `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -1679,11 +1677,10 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             Bucket: BUCKET_NAME,
             Key: key,
             Body: file.buffer,
-            ContentType: file.mimetype,
-            ACL: 'public-read'
+            ContentType: file.mimetype
         }));
 
-        const s3Url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
 
         const { rows } = await pool.query(
             `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
@@ -1711,11 +1708,10 @@ app.post('/api/upload-manual', upload.single('document'), async (req, res) => {
             Bucket: BUCKET_NAME,
             Key: fileKey,
             Body: file.buffer,
-            ContentType: file.mimetype,
-            ACL: 'public-read'
+            ContentType: file.mimetype
         }));
 
-        const url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+        const url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey }), { expiresIn: 604800 });
 
         // Save to DB
         await pool.query(
@@ -3182,11 +3178,12 @@ app.post('/api/submit-loa-form', async (req, res) => {
             Bucket: BUCKET_NAME,
             Key: signature2Key,
             Body: signatureBufferWithTimestamp,
-            ContentType: 'image/png',
-            ACL: 'public-read'
+            ContentType: 'image/png'
+            // ACL removed - using bucket policy or presigned URLs instead
         }));
 
-        const signature2Url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${signature2Key}`;
+        // Generate presigned URL for signature
+        const signature2Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signature2Key }), { expiresIn: 604800 });
 
         // 2. Update contact with signature 2 URL
         await pool.query('UPDATE contacts SET signature_2_url = $1 WHERE id = $2', [signature2Url, contactId]);
@@ -3246,11 +3243,17 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     Bucket: BUCKET_NAME,
                     Key: pdfKey,
                     Body: pdfBuffer,
-                    ContentType: 'application/pdf',
-                    ACL: 'public-read'
+                    ContentType: 'application/pdf'
+                    // ACL removed - most S3 buckets have ACLs disabled
+                    // File access will be managed via S3 bucket policy or presigned URLs
                 }));
 
-                const pdfUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfKey}`;
+                // Generate presigned URL (valid for 7 days) instead of public URL
+                const getObjectParams = {
+                    Bucket: BUCKET_NAME,
+                    Key: pdfKey
+                };
+                const pdfUrl = await getSignedUrl(s3Client, new GetObjectCommand(getObjectParams), { expiresIn: 604800 }); // 7 days
 
                 // Save PDF to documents table
                 await pool.query(
@@ -3262,7 +3265,13 @@ app.post('/api/submit-loa-form', async (req, res) => {
                 console.log(`Generated LOA PDF for ${lender}: ${pdfFileName}`);
                 return { lender, success: true, pdfUrl };
             } catch (error) {
-                console.error(`Error generating LOA PDF for ${lender}:`, error);
+                console.error(`❌ Error generating LOA PDF for ${lender}:`, error);
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack,
+                    lender: lender,
+                    contactId: contactId
+                });
                 return { lender, success: false, error: error.message };
             }
         });
@@ -3317,8 +3326,17 @@ app.post('/api/submit-loa-form', async (req, res) => {
             pdfResults
         });
     } catch (error) {
-        console.error('Error submitting LOA form:', error);
-        res.status(500).json({ success: false, message: 'Server error' });
+        console.error('❌ Error submitting LOA form:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            uniqueId: req.body.uniqueId
+        });
+        res.status(500).json({
+            success: false,
+            message: 'Server error while processing LOA form. Please contact support.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
