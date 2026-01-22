@@ -14,8 +14,8 @@ import {
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES } from '../constants';
+import { API_BASE_URL } from '../src/config';
 import BulkImport from './BulkImport';
-import { API_ENDPOINTS } from '../config';
 
 // Tab definitions for the 7-tab structure
 type ContactTab = 'personal' | 'claims' | 'communication' | 'subworkflow' | 'notes' | 'documents' | 'timeline';
@@ -936,8 +936,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
       setGeneratingLoaLink(true);
       try {
-         // Use full backend URL (port 5000) instead of relative path
-         const apiUrl = `${API_ENDPOINTS.contacts}/${contact.id}/generate-loa-link`;
+         // Use dynamic API base URL - works both locally and on EC2
+         const apiUrl = `${API_BASE_URL}/api/contacts/${contact.id}/generate-loa-link`;
          console.log('Calling API:', apiUrl);
 
          const response = await fetch(apiUrl, {
