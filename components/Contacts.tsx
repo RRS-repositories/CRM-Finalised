@@ -164,7 +164,7 @@ const formatTimeAgo = (dateString: string | undefined | null) => {
 // --- Sub-Component: Contact Detail View (7-Tab Structure) ---
 const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: () => void }) => {
    const {
-      contacts, documents, claims, activityLogs: legacyActivityLogs, addClaim, updateClaim, updateContact, setActiveContext, addNote, addDocument,
+      contacts, documents, claims, activityLogs: legacyActivityLogs, addClaim, updateClaim, deleteClaim, updateContact, setActiveContext, addNote, addDocument,
       // CRM Specification Methods
       communications, fetchCommunications, addCommunication,
       workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
@@ -305,7 +305,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
          planDate: '',
          termOfPlan: '',
          startDate: '',
-         remainingBalance: ''
+         remainingBalance: '',
+         monthlyPaymentAgreed: ''
       } as PaymentPlan,
       // Legacy fields (kept for backwards compatibility)
       accountNumber: '',
@@ -679,7 +680,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       // Parse JSON fields safely
       let parsedFinanceTypes: FinanceTypeEntry[] = [];
       let parsedLoanDetails: LoanDetails[] = [{ loanNumber: 1, valueOfLoan: '', startDate: '', endDate: '', apr: '' }];
-      let parsedPaymentPlan: PaymentPlan = { clientOutstandingFees: '', planStatus: '', planDate: '', termOfPlan: '', startDate: '', remainingBalance: '' };
+      let parsedPaymentPlan: PaymentPlan = { clientOutstandingFees: '', planStatus: '', planDate: '', termOfPlan: '', startDate: '', remainingBalance: '', monthlyPaymentAgreed: '' };
 
       try {
          if (fullClaim?.finance_types) {
@@ -715,9 +716,12 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
       // Populate form with fetched data
       if (fullClaim || basicClaim) {
+         const rawLender = fullClaim?.lender || basicClaim?.lender || '';
+         const mappedLender = SPEC_LENDERS.find(l => l.toLowerCase() === rawLender.toLowerCase()) || rawLender;
+
          setClaimFileForm({
             // Section 1: Claim Details
-            lender: fullClaim?.lender || basicClaim?.lender || '',
+            lender: mappedLender,
             lenderOther: fullClaim?.lender_other || '',
             financeTypes: parsedFinanceTypes,
             financeType: fullClaim?.finance_type || '',
@@ -795,7 +799,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
             planDate: '',
             termOfPlan: '',
             startDate: '',
-            remainingBalance: ''
+            remainingBalance: '',
+            monthlyPaymentAgreed: ''
          },
          // Legacy fields
          accountNumber: '',
@@ -880,10 +885,10 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
    };
 
    // Delete claim handler
+   // Delete claim handler
    const handleDeleteClaim = async () => {
       if (!viewingClaimId) return;
-      // TODO: Add actual delete API call when available
-      // For now just close the view
+      await deleteClaim(viewingClaimId);
       setShowDeleteClaimConfirm(false);
       handleCloseClaimFile();
    };
@@ -1520,22 +1525,6 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            </div>
                            <div className="flex items-center gap-2">
                               <button
-                                 onClick={handleGenerateLoaLink}
-                                 disabled={generatingLoaLink}
-                                 className="text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50"
-                              >
-                                 {generatingLoaLink ? (
-                                    <>
-                                       <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                       Generating...
-                                    </>
-                                 ) : (
-                                    <>
-                                       <FileCheck size={16} /> Generate LOA
-                                    </>
-                                 )}
-                              </button>
-                              <button
                                  onClick={() => setShowAddClaim(true)}
                                  className="text-sm font-medium bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                               >
@@ -1656,7 +1645,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  id: 'onboarding',
                                  label: 'Onboarding',
                                  color: '#a855f7', // purple
-                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Bank Statements Received', 'Onboarding Complete']
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'LENDER SELECTION FORM COMPLETED', 'Bank Statements Received', 'Onboarding Complete']
                               },
                               {
                                  id: 'dsar-process',
@@ -1857,6 +1846,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                              'LOA Sent',
                                              'LOA Signed',
                                              'Bank Statements Requested',
+                                             'LENDER SELECTION FORM COMPLETED',
                                              'Bank Statements Received',
                                              'Onboarding Complete'
                                           ]
@@ -2507,32 +2497,46 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  </button>
                               </div>
                               <div className="space-y-2">
-                                 {contactDocs.filter(doc => doc.category && doc.category !== 'Other').length > 0 ? (
-                                    contactDocs.map((doc) => (
-                                       <div key={doc.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
-                                          <div className="flex items-center gap-3">
-                                             <FileIcon size={16} className="text-gray-400" />
-                                             <div>
-                                                <p className="text-sm font-medium text-gray-900 dark:text-white">{doc.name}</p>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                   {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('en-GB') : 'No date'} - {doc.category || 'Uncategorized'}
-                                                </p>
+                                 {(() => {
+                                    const currentLender = claimFileForm.lender;
+                                    const filteredClaimsDocs = contactDocs.filter(doc => {
+                                       // Filter for PDF documents related to this specific lender
+                                       if (doc.type !== 'pdf') return false;
+
+                                       const tags = doc.tags || [];
+                                       const matchesTag = tags.some(t => t.toLowerCase() === currentLender.toLowerCase());
+                                       const matchesName = doc.name.toLowerCase().includes(currentLender.toLowerCase());
+
+                                       return matchesTag || matchesName;
+                                    });
+
+                                    return filteredClaimsDocs.length > 0 ? (
+                                       filteredClaimsDocs.map((doc) => (
+                                          <div key={doc.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
+                                             <div className="flex items-center gap-3">
+                                                <FileIcon size={16} className="text-gray-400" />
+                                                <div>
+                                                   <p className="text-sm font-medium text-gray-900 dark:text-white">{doc.name}</p>
+                                                   <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                      {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('en-GB') : 'No date'} - {doc.category || 'Uncategorized'}
+                                                   </p>
+                                                </div>
                                              </div>
+                                             <button
+                                                onClick={() => setPreviewDoc(doc)}
+                                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                             >
+                                                View
+                                             </button>
                                           </div>
-                                          <button
-                                             onClick={() => setPreviewDoc(doc)}
-                                             className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                                          >
-                                             View
-                                          </button>
+                                       ))
+                                    ) : (
+                                       <div className="text-center py-8 text-gray-400 border border-dashed border-gray-200 dark:border-slate-600 rounded-lg">
+                                          <FileIcon size={24} className="mx-auto mb-2 opacity-50" />
+                                          <p className="text-sm">No {currentLender} documents found</p>
                                        </div>
-                                    ))
-                                 ) : (
-                                    <div className="text-center py-8 text-gray-400 border border-dashed border-gray-200 dark:border-slate-600 rounded-lg">
-                                       <FileIcon size={24} className="mx-auto mb-2 opacity-50" />
-                                       <p className="text-sm">No documents uploaded yet</p>
-                                    </div>
-                                 )}
+                                    );
+                                 })()}
                               </div>
                            </div>
 

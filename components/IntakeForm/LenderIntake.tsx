@@ -6,12 +6,17 @@ import Terms from './Terms';
 import ErrorBoundary from './ErrorBoundary';
 import { Page1Response } from '../../types';
 
-const ClientIntake: React.FC = () => {
+interface VanquisIntakeProps {
+    lenderType?: 'VANQUIS' | 'LOANS2GO' | 'GAMBLING';
+}
+
+const VanquisIntake: React.FC<VanquisIntakeProps> = ({ lenderType = 'VANQUIS' }) => {
     const [step, setStep] = useState<number>(1);
     const [clientData, setClientData] = useState<any>(null);
     const [view, setView] = useState<'form' | 'terms'>('form');
     const [formData, setFormData] = useState<any>({
-        country_code: '+44'
+        country_code: '+44',
+        lender_type: lenderType // Add lender type to form data
     });
 
     // Simple Hash Router for Terms page
@@ -43,6 +48,16 @@ const ClientIntake: React.FC = () => {
         return <Terms formData={formData} />;
     }
 
+    // Get lender display name
+    const getLenderName = () => {
+        switch (lenderType) {
+            case 'VANQUIS': return 'VANQUIS';
+            case 'LOANS2GO': return 'LOANS2GO';
+            case 'GAMBLING': return 'GAMBLING';
+            default: return 'VANQUIS';
+        }
+    };
+
     return (
         <ErrorBoundary>
             <div className="min-h-screen w-full bg-slate-50 font-sans flex flex-col md:flex-row">
@@ -50,7 +65,10 @@ const ClientIntake: React.FC = () => {
                 {/* MOBILE HEADER - Visible only on mobile */}
                 <div className="md:hidden bg-[#0f172a] p-6 flex items-center gap-3 shrink-0">
                     <img src="/rr-logo.png" alt="Logo" className="w-12 h-12 rounded-full shadow-lg" />
-                    <h1 className="font-serif text-2xl tracking-wide text-white">Rowan Rose Solicitors</h1>
+                    <div>
+                        <h1 className="font-serif text-xl tracking-wide text-white">Rowan Rose Solicitors</h1>
+                        <p className="text-brand-orange text-sm font-semibold">{getLenderName()}</p>
+                    </div>
                 </div>
 
                 {/* LEFT PANEL - Branding & Context */}
@@ -61,9 +79,12 @@ const ClientIntake: React.FC = () => {
 
                     <div className="relative z-10 h-full flex flex-col p-8 md:p-12">
                         {/* Desktop Logo (Hidden on Mobile) */}
-                        <div className="hidden md:flex items-center gap-3 mb-8 shrink-0">
-                            <img src="/rr-logo.png" alt="Logo" className="w-16 h-16 rounded-full shadow-lg" />
-                            <h1 className="font-serif text-3xl tracking-wide">Rowan Rose Solicitors</h1>
+                        <div className="hidden md:flex flex-col items-start gap-2 mb-8 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <img src="/rr-logo.png" alt="Logo" className="w-16 h-16 rounded-full shadow-lg" />
+                                <h1 className="font-serif text-2xl tracking-wide">Rowan Rose Solicitors</h1>
+                            </div>
+                            <h2 className="text-3xl font-bold text-brand-orange tracking-tight">{getLenderName()}</h2>
                         </div>
 
                         <div className="flex-1">
@@ -195,4 +216,4 @@ const ClientIntake: React.FC = () => {
     );
 };
 
-export default ClientIntake;
+export default VanquisIntake;

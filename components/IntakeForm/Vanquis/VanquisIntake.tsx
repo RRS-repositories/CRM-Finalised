@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import StepOne from './StepOne';
-import PreviousAddress from './PreviousAddress';
-import StepTwo from './StepTwo';
+import StepOne from './VanquisForm'; // Assuming VanquisForm is the StepOne for Vanquis
+import PreviousAddress from '../PreviousAddress';
+import StepTwo from '../StepTwo'; // Assuming StepTwo is shared from parent
 import Terms from './Terms';
-import ErrorBoundary from './ErrorBoundary';
-import { Page1Response } from '../../types';
+import ErrorBoundary from '../ErrorBoundary';
+import { Page1Response } from '../../../types';
 
 const ClientIntake: React.FC = () => {
     const [step, setStep] = useState<number>(1);

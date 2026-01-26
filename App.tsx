@@ -14,6 +14,8 @@ import AIAssistant from './components/AIAssistant';
 import AdminPanel from './components/AdminPanel'; // Renamed conceptually to Management Panel inside the file
 import Settings from './components/Settings'; // Added Import
 import ClientIntake from './components/IntakeForm/ClientIntake';
+import LenderIntake from './components/IntakeForm/LenderIntake';
+import LoaSelectionForm from './components/LoaSelectionForm';
 import Login from './components/Login';
 import { ViewState } from './types';
 import { CRMProvider, useCRM } from './context/CRMContext';
@@ -23,10 +25,29 @@ const AppContent = () => {
   const [isAIOpen, setIsAIOpen] = useState(false);
 
   // Standalone Route Check (Public)
-  const isIntakePath = window.location.pathname.toLowerCase().replace(/\/$/, '') === '/intake';
-  if (isIntakePath) {
-    return <ClientIntake />;
+  const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
+
+  // Lender-specific intake forms
+  if (pathname === '/intake/vanquis') {
+    return <LenderIntake lenderType="VANQUIS" />;
   }
+  if (pathname === '/intake/loans2go') {
+    return <LenderIntake lenderType="LOANS2GO" />;
+  }
+  if (pathname === '/intake/gambling') {
+    return <LenderIntake lenderType="GAMBLING" />;
+  }
+
+  // Original intake form (keep for backward compatibility)
+  // LOA Selection form (One-time link)
+  if (pathname.startsWith('/loa-form/')) {
+    return <LoaSelectionForm />;
+  }
+
+  // Original intake form (keep for backward compatibility)
+  // if (pathname === '/intake') {
+  //   return <ClientIntake />;
+  // }
 
   // If not logged in, show Login Screen (which handles Sign Up too)
   if (!currentUser) {

@@ -145,6 +145,7 @@ export interface ClientFormData {
   state_county: string;
   postal_code: string;
   signature_data: string;
+  lender_type?: string;
 }
 
 export interface Page1Response {

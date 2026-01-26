@@ -77,6 +77,7 @@ interface CRMContextType {
   // Claims
   addClaim: (claim: Partial<Claim>) => Promise<{ success: boolean; message: string; id?: string }>;
   updateClaim: (claim: Claim) => { success: boolean; message: string };
+  deleteClaim: (claimId: string) => Promise<{ success: boolean; message: string }>;
   updateClaimStatus: (claimId: string, newStatus: string) => { success: boolean; message: string };
   bulkUpdateClaims: (criteria: { lender?: string; status?: string; minDaysInStage?: number }, newStatus: string) => { success: boolean; count: number; message: string };
 
@@ -322,7 +323,15 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           city: c.city,
           state_county: c.state_county,
           postalCode: c.postal_code
-        }
+        },
+        previousAddresses: c.previous_addresses_list ? c.previous_addresses_list.map((pa: any) => ({
+          id: pa.id.toString(),
+          line1: pa.address_line_1,
+          line2: pa.address_line_2,
+          city: pa.city,
+          county: pa.county,
+          postalCode: pa.postal_code
+        })) : []
       }));
       setContacts(mappedContacts);
 
@@ -796,11 +805,35 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const deleteContacts = (ids: string[]) => {
-    setContacts(prev => prev.filter(c => !ids.includes(c.id)));
-    setClaims(prev => prev.filter(c => !ids.includes(c.contactId)));
-    addNotification('success', `${ids.length} contact(s) deleted successfully`);
-    return { success: true, message: `Deleted ${ids.length} contacts` };
+  const deleteContacts = async (ids: string[]) => {
+    try {
+      // Delete each contact via API
+      const deletePromises = ids.map(async (id) => {
+        const response = await fetch(`${API_BASE_URL}/contacts/${id}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to delete contact');
+        }
+
+        return response.json();
+      });
+
+      await Promise.all(deletePromises);
+
+      // Update local state
+      setContacts(prev => prev.filter(c => !ids.includes(c.id)));
+      setClaims(prev => prev.filter(c => !ids.includes(c.contactId)));
+
+      addNotification('success', `${ids.length} contact(s) deleted successfully`);
+      return { success: true, message: `Deleted ${ids.length} contacts` };
+    } catch (e: any) {
+      console.error('Error deleting contacts:', e);
+      addNotification('error', `Failed to delete contacts: ${e.message}`);
+      return { success: false, message: e.message };
+    }
   };
 
   const getContactDetails = (nameOrId: string) => {
@@ -909,6 +942,31 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     addNotification('success', 'Claim status updated');
     return { success: true, message: 'Status updated' };
+  };
+
+  const deleteClaim = async (claimId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/cases/${claimId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete claim');
+      }
+
+      const result = await response.json();
+
+      // Update local state
+      setClaims(prev => prev.filter(c => c.id !== claimId));
+
+      addNotification('success', 'Claim deleted successfully');
+      return { success: true, message: result.message || 'Claim deleted' };
+    } catch (e: any) {
+      console.error('Error deleting claim:', e);
+      addNotification('error', `Failed to delete claim: ${e.message}`);
+      return { success: false, message: e.message };
+    }
   };
 
   // NEW: Bulk Update Logic
@@ -1579,7 +1637,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       activeContext, setActiveContext,
       currentView, setCurrentView,
       updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
-      addClaim, updateClaim, updateClaimStatus, bulkUpdateClaims,
+      addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaims,
       addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
       addTemplate, updateTemplate,
       addForm, updateForm, deleteForm,

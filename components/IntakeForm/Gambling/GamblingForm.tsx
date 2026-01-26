@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ClientFormData, Page1Response } from '../../types';
-import { submitPage1 } from '../../services/intakeApi';
+import { ClientFormData, Page1Response } from '../../../types';
+import { submitPage1 } from '../../../services/intakeApi';
 import SignaturePad from './SignaturePad';
 import ErrorPage from './ErrorPage';
 
@@ -333,7 +333,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
 
     setLoading(true);
     try {
-      const submissionData: ClientFormData = {
+      const submissionData: any = {
         first_name: formData.first_name || '',
         last_name: formData.last_name || '',
         phone: `${countryCode} ${formData.phone || ''}`.trim(),
@@ -346,7 +346,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
         state_county: formData.state_county || '',
         postal_code: formData.postal_code || '',
         signature_data: signatureData || '',
-        lender_type: formData.lender_type // Include lender_type from parent component
+        lender_type: 'Gambling',
       };
 
       const result = await submitPage1(submissionData);

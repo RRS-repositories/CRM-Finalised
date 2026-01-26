@@ -300,6 +300,21 @@ async function initDb() {
       );
     `);
 
+    // Create Previous Addresses Table
+    console.log('Creating previous_addresses table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS previous_addresses (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        address_line_1 TEXT,
+        address_line_2 TEXT,
+        city VARCHAR(100),
+        county VARCHAR(100),
+        postal_code VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Create Notes Table
     console.log('Creating notes table...');
     await pool.query(`
