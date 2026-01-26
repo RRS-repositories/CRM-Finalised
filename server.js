@@ -1656,13 +1656,19 @@ app.post('/api/submit-previous-address', async (req, res) => {
 
                     console.log(`✅ [Background] Previous Addresses PDF uploaded successfully to: ${fileName}`);
 
+                    // Generate Signed URL for access
+                    const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+                        Bucket: process.env.S3_BUCKET_NAME,
+                        Key: fileName
+                    }), { expiresIn: 604800 }); // 7 days
+
                     // 4. Save to Documents Table for CRM Display
                     const fileSizeKB = (pdfBuffer.length / 1024).toFixed(1) + ' KB';
 
                     await pool.query(
                         `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
                          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                        [clientId, `Previous_Addresses_${timestamp}.pdf`, 'pdf', 'Client', fileName, fileSizeKB, ['Previous Address']]
+                        [clientId, `Previous_Addresses_${timestamp}.pdf`, 'pdf', 'Client', signedUrl, fileSizeKB, ['Previous Address']]
                     );
 
                     console.log(`✅ [Background] Document record inserted into DB (Key stored for permanent access).`);
@@ -2078,7 +2084,7 @@ app.post('/api/submit-page1', async (req, res) => {
                 }));
 
                 // Update signature URL in DB
-                await pool.query('UPDATE contacts SET signature_url = $1 WHERE id = $2', [signatureUrl, contactId]);
+                await pool.query('UPDATE contacts SET signature_url = $1, signature_2_url = $1 WHERE id = $2', [signatureUrl, contactId]);
 
                 // Insert Signature into documents table
                 await pool.query(
@@ -2102,7 +2108,7 @@ app.post('/api/submit-page1', async (req, res) => {
                     const claimRes = await pool.query(
                         `INSERT INTO cases (contact_id, lender, status, loa_generated)
                                         VALUES ($1, $2, $3, $4) RETURNING id`,
-                        [contactId, finalLender, 'LOA Sent', false]
+                        [contactId, finalLender, 'LENDER SELECTION FORM COMPLETED', false]
                     );
                     const claimId = claimRes.rows[0].id;
 
@@ -4101,22 +4107,37 @@ app.post('/api/submit-loa-form', async (req, res) => {
                         if (contact.intake_lender && standardizeLender(contact.intake_lender) === standardizedLenderName) {
                             initialStatus = 'LENDER SELECTION FORM COMPLETED';
                         }
-                        // Also check if user manually selected the intake lender in the list
 
-                        // Wait, per user request: "only chnage the main one (1st loa - vanquis/loans2go/gambling) to LENDER SELECTION FORM COMPLETED rest all New Lead"
-                        // The contact.intake_lender holds the "1st loa".
-
-                        // Create/Ensure Case Exists for this lender
-                        await pool.query(
-                            `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated)
-                             VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false)`,
-                            [contactId, standardizedLenderName, initialStatus]
+                        // CHECK FOR EXISTING CASE FIRST
+                        const existingCaseRes = await pool.query(
+                            `SELECT id, status FROM cases WHERE contact_id = $1 AND lower(lender) = lower($2)`,
+                            [contactId, standardizedLenderName]
                         );
 
-                        console.log(`[Background LOA] Created Case for ${lender} with status ${initialStatus} (PDF Generation Pending)`);
-                        return { lender, success: true };
+                        if (existingCaseRes.rows.length > 0) {
+                            // Case exists - update status if it's the intake lender, otherwise leave as is (or update if needed)
+                            console.log(`[Background LOA] Case already exists for ${lender}. Updating status if needed.`);
+
+                            if (initialStatus === 'LENDER SELECTION FORM COMPLETED') {
+                                await pool.query(
+                                    `UPDATE cases SET status = $1 WHERE id = $2`,
+                                    [initialStatus, existingCaseRes.rows[0].id]
+                                );
+                            }
+                            return { lender, success: true, status: 'updated' };
+                        } else {
+                            // Case does not exist - create new
+                            await pool.query(
+                                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated)
+                                 VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false)`,
+                                [contactId, standardizedLenderName, initialStatus]
+                            );
+
+                            console.log(`[Background LOA] Created Case for ${lender} with status ${initialStatus} (PDF Generation Pending)`);
+                            return { lender, success: true, status: 'created' };
+                        }
                     } catch (error) {
-                        console.error(`[Background LOA] ❌ Error creating case for ${lender}:`, error);
+                        console.error(`[Background LOA] ❌ Error processing case for ${lender}:`, error);
                         return { lender, success: false, error: error.message };
                     }
                 });
