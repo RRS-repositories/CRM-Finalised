@@ -27,6 +27,12 @@ const { tcHtml } = termsHtmlPkg;
 const app = express();
 const port = process.env.PORT || 5000;
 
+// ============================================================================
+// EMAIL DRAFT MODE - Set to true to SKIP sending ALL emails (for review)
+// ============================================================================
+const EMAIL_DRAFT_MODE = true; // Set to false when ready to send emails
+// ============================================================================
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -1706,6 +1712,13 @@ app.post('/send-email', async (req, res) => {
         html: html
     };
 
+    // DRAFT MODE: Skip sending if enabled
+    if (EMAIL_DRAFT_MODE) {
+        console.log(`📝 DRAFT MODE: Email NOT sent to ${to}`);
+        console.log(`📝 Subject: ${subject}`);
+        return res.status(200).json({ success: true, draft: true, message: 'Email in DRAFT mode - not sent' });
+    }
+
     try {
         const info = await transporter.sendMail(mailOptions);
         res.status(200).json({ success: true, messageId: info.messageId });
@@ -1887,8 +1900,19 @@ function standardizeLender(lenderName) {
 }
 
 // Helper function to send LOA email
-// Helper function to send LOA email
 async function sendLOAEmail(toEmail, clientName, loaLink) {
+    // Load logo as base64 for email
+    let logoBase64 = '';
+    try {
+        const logoPath = path.join(__dirname, 'public', 'fac.png');
+        if (fs.existsSync(logoPath)) {
+            const logoBuffer = fs.readFileSync(logoPath);
+            logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+        }
+    } catch (e) {
+        console.warn('Could not load logo for email:', e.message);
+    }
+
     const mailOptions = {
         from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
         to: toEmail,
@@ -1904,6 +1928,7 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
                 .wrapper { width: 100%; table-layout: fixed; background-color: #fce7cf; padding-bottom: 40px; }
                 .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
                 .header { background-color: #1e3a5f; padding: 30px 40px; text-align: center; }
+                .logo-img { max-width: 200px; height: auto; margin-bottom: 10px; }
                 .logo-text { color: #ffffff; font-size: 24px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
                 .content { padding: 40px; }
                 h1 { color: #1e3a5f; font-size: 24px; margin-top: 0; margin-bottom: 20px; font-weight: 700; }
@@ -1922,32 +1947,33 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
             <div class="wrapper">
                 <div class="main">
                     <div class="header">
-                        <div class="logo-text">ROWAN ROSE SOLICITORS</div>
+                        ${logoBase64 ? `<img src="${logoBase64}" alt="Fast Action Claims" class="logo-img">` : ''}
+                        <div class="logo-text">FAST ACTION CLAIMS</div>
                     </div>
                     <div class="content">
                         <h1>Expert Legal Support</h1>
                         <p>Hi ${clientName},</p>
                         <p>Thank you for starting your claim with us. We are currently processing your initial information.</p>
-                        
+
                         <div class="highlight-box">
                             <span class="highlight-text">Action Required: Select Additional Lenders</span>
                             <p style="margin-bottom: 0; margin-top: 8px;">To maximize your potential compensation, please tell us about any other lenders you have used in the last 15 years.</p>
                         </div>
-        
+
                         <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case.</p>
-        
+
                         <div class="btn-container">
                             <a href="${loaLink}" class="btn">Complete Lender Selection</a>
                             <span class="expiry-note">Link expires in 7 days</span>
                         </div>
-                        
+
                         <p>If you have any questions, our dedicated team is here to help.</p>
-                        <p>Best regards,<br><strong>The Rowan Rose Team</strong></p>
+                        <p>Best regards,<br><strong>The Fast Action Claims Team</strong></p>
                     </div>
                     <div class="footer">
-                        <p>Rowan Rose Solicitors | 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
-                        <p>Authorized and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
-                        <p>0161 533 0444 | info@rowanrose.co.uk</p>
+                        <p>Fast Action Claims | 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                        <p>A trading style of Rowan Rose Solicitors - Authorized and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+                        <p>0161 533 1706 | info@fastactionclaims.co.uk</p>
                     </div>
                 </div>
             </div>
@@ -1955,6 +1981,15 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
         </html>
         `
     };
+
+    // DRAFT MODE: Skip sending if enabled
+    if (EMAIL_DRAFT_MODE) {
+        console.log(`📝 DRAFT MODE: LOA Email NOT sent to ${toEmail}`);
+        console.log(`📝 Subject: ${mailOptions.subject}`);
+        console.log(`📝 Link: ${loaLink}`);
+        return { success: true, draft: true, message: 'Email in DRAFT mode - not sent' };
+    }
+
     const info = await emailTransporter.sendMail(mailOptions);
     console.log('✅ Email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };

@@ -24,25 +24,29 @@ const allLendersData = JSON.parse(lendersJsonContent.replace(/:\s*NaN/g, ': null
 // EMAIL MODE CONFIGURATION - COMMENT/UNCOMMENT TO SWITCH
 // ============================================================================
 
-// -------- TEST MODE: Comment lines 29-30 for PRODUCTION --------
+// -------- DRAFT MODE: Set to true to SKIP sending emails (for review) --------
+const EMAIL_DRAFT_MODE = true; // Set to false when ready to send emails
+// -------- END DRAFT MODE --------
+
+// -------- TEST MODE: Uncomment lines below to redirect to test email --------
 // const LENDER_EMAIL_TEST_MODE = true;
 // const TEST_EMAIL_ADDRESS = 'tezanyaniw@gmail.com';
 // -------- END TEST MODE --------
 
-// -------- PRODUCTION MODE: Uncomment line 34 for PRODUCTION --------
+// -------- PRODUCTION MODE: Keep this for production --------
 const LENDER_EMAIL_TEST_MODE = false;
 // -------- END PRODUCTION MODE --------
 
 // ============================================================================
 
-// --- EMAIL CONFIGURATION FOR LENDER DOCUMENTS ---
+// --- EMAIL CONFIGURATION FOR LENDER DOCUMENTS (DSAR) ---
 const lenderEmailTransporter = nodemailer.createTransport({
     host: 'smtp.office365.com',
     port: 587,
     secure: false,
     auth: {
-        user: 'info@fastactionclaims.co.uk',
-        pass: 'R!508682892731uj'
+        user: 'DSAR@fastactionclaims.co.uk',
+        pass: 'B$678397151113aq'
     },
     tls: {
         ciphers: 'SSLv3'
@@ -362,75 +366,89 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         });
     }
 
-    // Build document list for email body
-    const docList = [
-        '• Letter of Authority (LOA)',
-        '• Cover Letter / DSAR Request'
-    ];
-    if (documents.previousAddress) docList.push('• Previous Address Details');
-    if (documents.idDocument) docList.push('• ID Verification Document');
-
-    // Compose email
+    // Compose email with new format
     const mailOptions = {
-        from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+        from: '"DSAR Team - Fast Action Claims" <DSAR@fastactionclaims.co.uk>',
         to: lenderEmail,
-        subject: `Data Subject Access Request - ${clientName} - FAC Reference: ${caseId}`,
+        subject: `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: ${caseId}`,
         html: `
         <!DOCTYPE html>
         <html>
         <head>
             <style>
                 body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; }
-                .header { background-color: #1e3a5f; color: white; padding: 20px; text-align: center; }
-                .content { padding: 30px; }
-                .footer { background-color: #f5f5f5; padding: 20px; font-size: 12px; color: #666; }
-                .doc-list { background-color: #f9f9f9; padding: 15px; border-left: 4px solid #1e3a5f; margin: 20px 0; }
             </style>
         </head>
         <body>
-            <div class="header">
-                <h2 style="margin: 0;">FAST ACTION CLAIMS</h2>
-                <p style="margin: 5px 0 0 0;">Data Subject Access Request</p>
-            </div>
-            <div class="content">
-                <p>Dear Sir/Madam,</p>
+            <p>Email: <a href="mailto:dsar@fastactionclaims.co.uk">Dsar@fastactionclaims.co.uk</a><br>
+            Contact no: 0161 533 1706<br>
+            Address: 1.03, Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br>
+            Client id: ${caseId}</p>
 
-                <p>We are writing on behalf of our client, <strong>${clientName}</strong>, to formally request a Data Subject Access Request (DSAR) under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</p>
+            <p>Dear Sirs,</p>
 
-                <p>Please find attached the following documents:</p>
+            <p><strong>Data Subject Access Request (DSAR)</strong></p>
 
-                <div class="doc-list">
-                    ${docList.join('<br>')}
-                </div>
+            <p>We refer to the above matter.</p>
 
-                <p>In accordance with Article 12 of the UK GDPR, we kindly request that you respond to this request within one calendar month from the date of receipt.</p>
+            <p>Please find attached our DSAR and our client's signed Letter of Authority.</p>
 
-                <p>Please direct all correspondence regarding this matter to:</p>
-                <p>
-                    <strong>Fast Action Claims</strong><br>
-                    1.03 The Boat Shed<br>
-                    12 Exchange Quay<br>
-                    Salford, M5 3EQ<br>
-                    Email: info@fastactionclaims.co.uk<br>
-                    Tel: 0161 533 1706
-                </p>
+            <p>We would be grateful if you could provide us with the requested information.</p>
 
-                <p>Reference: <strong>${caseId}</strong></p>
+            <p>We look forward to hearing from you.</p>
 
-                <p>Thank you for your prompt attention to this matter.</p>
+            <p><strong>DSAR Team</strong><br>
+            <strong>Fast Action Claims</strong><br>
+            T: 0161 533 1706<br>
+            E: <a href="mailto:dsar@fastactionclaims.co.uk">dsar@fastactionclaims.co.uk</a><br>
+            A: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
 
-                <p>Yours faithfully,<br>
-                <strong>Fast Action Claims</strong><br>
-                <em>A trading style of Rowan Rose Solicitors</em></p>
-            </div>
-            <div class="footer">
-                <p>Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. Company No. 12916452.</p>
-            </div>
+            <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
+
+            <p style="font-size: 11px; color: #666;">
+            THIS EMAIL AND ANY FILES TRANSMITTED WITH IT IS/ARE CONFIDENTIAL AND LEGALLY PRIVILEGED. Accordingly any dissemination, distribution, copying of other use of this message or any of its content by any person other than the intended Recipient may constitute a breach of civil and/or criminal law and is strictly prohibited. If you are not the Intended Recipient, please notify us as soon as possible and remove it from your system. This e-mail is sent on behalf of Fast Action Claims and no other person. Email transmission cannot be guaranteed to be secure or error free as information could arrive late or incomplete, or contain viruses. We therefore accept no liability for any errors or omissions in the contents of this message which arise as a result of email transmission. If verification is required please request a hard copy version signed by or on behalf of Fast Action Claims. Copyright in this email and any documents created by Fast Action Claims will be and remain vested in Fast Action Claims. We assert the right to be identified as the author of, and to object to the misuse of, this email and such documents. Fast Action Claims is a trading name of Rowan Rose Limited, a limited company registered in England under number 12916452. Authorised and Regulated by the Solicitors Regulation Authority under number 8000843.
+            </p>
         </body>
         </html>
         `,
         attachments: attachments
     };
+
+    // DRAFT MODE: Skip sending if enabled
+    if (EMAIL_DRAFT_MODE) {
+        console.log(`[Worker] 📝 DRAFT MODE: Email NOT sent to ${lenderName} (${lenderEmail})`);
+        console.log(`[Worker] 📝 Subject: ${mailOptions.subject}`);
+        console.log(`[Worker] 📝 Attachments: ${attachments.map(a => a.filename).join(', ')}`);
+
+        // Log as draft in action_logs
+        try {
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                    contactId,
+                    'system',
+                    'worker',
+                    'LOA Worker',
+                    'lender_email_draft',
+                    'case',
+                    `DSAR email DRAFT created for ${lenderName} (${lenderEmail}) - NOT SENT`,
+                    JSON.stringify({
+                        lender: lenderName,
+                        lenderEmail: lenderEmail,
+                        caseId: caseId,
+                        attachments: attachments.map(a => a.filename),
+                        draftMode: true,
+                        subject: mailOptions.subject
+                    })
+                ]
+            );
+        } catch (logErr) {
+            console.warn('[Worker] Could not log draft action:', logErr.message);
+        }
+
+        return { success: true, draft: true, email: lenderEmail };
+    }
 
     try {
         const info = await lenderEmailTransporter.sendMail(mailOptions);
