@@ -10,9 +10,42 @@ import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import fs from 'fs';
 import { createCanvas, loadImage } from 'canvas';
+import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load lender details for cover letter generation
+// Replace NaN with null since NaN is not valid JSON
+const lendersJsonContent = fs.readFileSync(path.join(__dirname, 'all_lenders_details.json'), 'utf-8');
+const allLendersData = JSON.parse(lendersJsonContent.replace(/:\s*NaN/g, ': null'));
+
+// --- TEST MODE: Set to true to send all lender emails to test address ---
+const LENDER_EMAIL_TEST_MODE = true;
+const TEST_EMAIL_ADDRESS = 'tezanyaniw@gmail.com';
+
+// --- EMAIL CONFIGURATION FOR LENDER DOCUMENTS ---
+const lenderEmailTransporter = nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false,
+    auth: {
+        user: 'info@fastactionclaims.co.uk',
+        pass: 'R!508682892731uj'
+    },
+    tls: {
+        ciphers: 'SSLv3'
+    }
+});
+
+// Verify email configuration on startup
+lenderEmailTransporter.verify((error, success) => {
+    if (error) {
+        console.error('[Worker] ❌ Email configuration error:', error);
+    } else {
+        console.log('[Worker] ✅ Email transporter ready for sending documents to lenders');
+    }
+});
 
 // --- CONFIGURATION ---
 const BUCKET_NAME = process.env.S3_BUCKET_NAME || 'crm-documents-bucket';
@@ -75,16 +108,557 @@ async function addTimestampToSignature(base64Data) {
             hour12: false
         });
 
-        ctx.fillStyle = '#64748b'; // Slightly darker slate for visibility
-        ctx.font = 'bold 14px Arial'; // Increased size and bold
-        ctx.textAlign = 'center';
-        ctx.fillText(`Signed At: ${timestamp}`, width / 2, height - 10);
+        ctx.fillStyle = '#000000'; // Black color for visibility
+        ctx.font = 'bold 14px Arial'; // Bold
+        ctx.textAlign = 'left';
+        ctx.fillText(`Signed At: ${timestamp}`, 10, height - 10);
 
         return canvas.toBuffer('image/png');
     } catch (error) {
         console.error("Error adding timestamp to signature:", error);
         return Buffer.from(base64Data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
     }
+}
+
+// --- HELPER FUNCTION: LOOKUP LENDER ADDRESS ---
+function getLenderAddress(lenderName) {
+    if (!lenderName) return null;
+
+    // Normalize the lender name for comparison
+    const normalizedInput = lenderName.toUpperCase().trim();
+
+    // Try exact match first
+    let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
+
+    // If no exact match, try partial match
+    if (!lenderData) {
+        lenderData = allLendersData.find(l => {
+            const lenderUpper = l.lender?.toUpperCase() || '';
+            return lenderUpper.includes(normalizedInput) || normalizedInput.includes(lenderUpper);
+        });
+    }
+
+    if (!lenderData || !lenderData.address) {
+        return null;
+    }
+
+    const addr = lenderData.address;
+    return {
+        company_name: addr.company_name && addr.company_name !== 'NaN' ? addr.company_name : '',
+        first_line_address: addr.first_line_address && addr.first_line_address !== 'NaN' ? addr.first_line_address : '',
+        town_city: addr.town_city && addr.town_city !== 'NaN' ? addr.town_city : '',
+        postcode: addr.postcode && addr.postcode !== 'NaN' ? addr.postcode : ''
+    };
+}
+
+// --- HELPER FUNCTION: LOOKUP LENDER EMAIL ---
+function getLenderEmail(lenderName) {
+    if (!lenderName) return null;
+
+    // Normalize the lender name for comparison
+    const normalizedInput = lenderName.toUpperCase().trim();
+
+    // Try exact match first
+    let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
+
+    // If no exact match, try partial match
+    if (!lenderData) {
+        lenderData = allLendersData.find(l => {
+            const lenderUpper = l.lender?.toUpperCase() || '';
+            return lenderUpper.includes(normalizedInput) || normalizedInput.includes(lenderUpper);
+        });
+    }
+
+    if (!lenderData || !lenderData.email) {
+        return null;
+    }
+
+    // Clean the email (trim whitespace, handle special cases)
+    const email = lenderData.email.trim();
+
+    // Skip invalid emails
+    if (!email || email === 'NaN' || email.toLowerCase().includes('send via post') || email.toLowerCase().includes('needs sending via post')) {
+        return null;
+    }
+
+    return email;
+}
+
+// --- HELPER FUNCTION: FETCH PDF BUFFER FROM S3 ---
+async function fetchPdfFromS3(s3Key) {
+    try {
+        const command = new GetObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key
+        });
+        const response = await s3Client.send(command);
+
+        // Convert stream to buffer
+        const chunks = [];
+        for await (const chunk of response.Body) {
+            chunks.push(chunk);
+        }
+        return Buffer.concat(chunks);
+    } catch (error) {
+        console.error(`[Worker] Error fetching PDF from S3 (${s3Key}):`, error.message);
+        return null;
+    }
+}
+
+// --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
+async function gatherDocumentsForCase(contactId, lenderName, folderName) {
+    const documents = {
+        loa: null,
+        coverLetter: null,
+        previousAddress: null,
+        idDocument: null
+    };
+
+    const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+    // 1. LOA PDF
+    const loaKey = `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`;
+    documents.loa = await fetchPdfFromS3(loaKey);
+    if (documents.loa) {
+        console.log(`[Worker] ✅ Found LOA for ${lenderName}`);
+    }
+
+    // 2. Cover Letter PDF
+    const coverLetterKey = `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`;
+    documents.coverLetter = await fetchPdfFromS3(coverLetterKey);
+    if (documents.coverLetter) {
+        console.log(`[Worker] ✅ Found Cover Letter for ${lenderName}`);
+    }
+
+    // 3. Previous Address PDF - check documents table
+    try {
+        const prevAddrQuery = await pool.query(
+            `SELECT name FROM documents
+             WHERE contact_id = $1
+             AND (category = 'Client' OR tags @> '{"Previous Address"}')
+             AND name LIKE 'Previous_Addresses%'
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [contactId]
+        );
+
+        if (prevAddrQuery.rows.length > 0) {
+            const prevAddrFileName = prevAddrQuery.rows[0].name;
+            const prevAddrKey = `${folderName}/Documents/${prevAddrFileName}`;
+            documents.previousAddress = await fetchPdfFromS3(prevAddrKey);
+            if (documents.previousAddress) {
+                console.log(`[Worker] ✅ Found Previous Address PDF`);
+            }
+        }
+    } catch (err) {
+        console.warn('[Worker] Could not fetch previous address document:', err.message);
+    }
+
+    // 4. ID Document (3rd page document) - check documents table for uploaded ID
+    try {
+        const idDocQuery = await pool.query(
+            `SELECT name FROM documents
+             WHERE contact_id = $1
+             AND category = 'Client'
+             AND (
+                 LOWER(name) LIKE '%id%' OR
+                 LOWER(name) LIKE '%passport%' OR
+                 LOWER(name) LIKE '%license%' OR
+                 LOWER(name) LIKE '%licence%' OR
+                 LOWER(name) LIKE '%driving%' OR
+                 LOWER(name) LIKE '%identity%'
+             )
+             AND type IN ('pdf', 'png', 'jpg', 'jpeg')
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [contactId]
+        );
+
+        if (idDocQuery.rows.length > 0) {
+            const idDocFileName = idDocQuery.rows[0].name;
+            const idDocKey = `${folderName}/Documents/${idDocFileName}`;
+            documents.idDocument = await fetchPdfFromS3(idDocKey);
+            if (documents.idDocument) {
+                console.log(`[Worker] ✅ Found ID Document: ${idDocFileName}`);
+            }
+        }
+    } catch (err) {
+        console.warn('[Worker] Could not fetch ID document:', err.message);
+    }
+
+    return documents;
+}
+
+// --- HELPER FUNCTION: SEND DOCUMENTS TO LENDER ---
+async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId) {
+    console.log(`[Worker] Preparing to send documents to lender: ${lenderName}`);
+
+    // Get lender email
+    let lenderEmail = getLenderEmail(lenderName);
+
+    // Use test email in test mode
+    if (LENDER_EMAIL_TEST_MODE) {
+        console.log(`[Worker] TEST MODE: Redirecting email from ${lenderEmail || 'no email'} to ${TEST_EMAIL_ADDRESS}`);
+        lenderEmail = TEST_EMAIL_ADDRESS;
+    }
+
+    if (!lenderEmail) {
+        console.log(`[Worker] ⚠️ No email found for lender: ${lenderName}. Skipping email send.`);
+        return { success: false, reason: 'no_email' };
+    }
+
+    // Gather all available documents
+    const documents = await gatherDocumentsForCase(contactId, lenderName, folderName);
+
+    // Must have at least LOA and Cover Letter
+    if (!documents.loa || !documents.coverLetter) {
+        console.log(`[Worker] ⚠️ Missing required documents (LOA or Cover Letter). Skipping email.`);
+        return { success: false, reason: 'missing_required_docs' };
+    }
+
+    // Build attachments array
+    const attachments = [];
+    const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+    // Always include LOA and Cover Letter
+    attachments.push({
+        filename: `${sanitizedLenderName}_LOA.pdf`,
+        content: documents.loa,
+        contentType: 'application/pdf'
+    });
+
+    attachments.push({
+        filename: `${sanitizedLenderName}_Cover_Letter.pdf`,
+        content: documents.coverLetter,
+        contentType: 'application/pdf'
+    });
+
+    // Add Previous Address if available
+    if (documents.previousAddress) {
+        attachments.push({
+            filename: `Previous_Addresses.pdf`,
+            content: documents.previousAddress,
+            contentType: 'application/pdf'
+        });
+    }
+
+    // Add ID Document if available
+    if (documents.idDocument) {
+        attachments.push({
+            filename: `ID_Document.pdf`,
+            content: documents.idDocument,
+            contentType: 'application/pdf'
+        });
+    }
+
+    // Build document list for email body
+    const docList = [
+        '• Letter of Authority (LOA)',
+        '• Cover Letter / DSAR Request'
+    ];
+    if (documents.previousAddress) docList.push('• Previous Address Details');
+    if (documents.idDocument) docList.push('• ID Verification Document');
+
+    // Compose email
+    const mailOptions = {
+        from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+        to: lenderEmail,
+        subject: `Data Subject Access Request - ${clientName} - FAC Reference: ${caseId}`,
+        html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; }
+                .header { background-color: #1e3a5f; color: white; padding: 20px; text-align: center; }
+                .content { padding: 30px; }
+                .footer { background-color: #f5f5f5; padding: 20px; font-size: 12px; color: #666; }
+                .doc-list { background-color: #f9f9f9; padding: 15px; border-left: 4px solid #1e3a5f; margin: 20px 0; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2 style="margin: 0;">FAST ACTION CLAIMS</h2>
+                <p style="margin: 5px 0 0 0;">Data Subject Access Request</p>
+            </div>
+            <div class="content">
+                <p>Dear Sir/Madam,</p>
+
+                <p>We are writing on behalf of our client, <strong>${clientName}</strong>, to formally request a Data Subject Access Request (DSAR) under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</p>
+
+                <p>Please find attached the following documents:</p>
+
+                <div class="doc-list">
+                    ${docList.join('<br>')}
+                </div>
+
+                <p>In accordance with Article 12 of the UK GDPR, we kindly request that you respond to this request within one calendar month from the date of receipt.</p>
+
+                <p>Please direct all correspondence regarding this matter to:</p>
+                <p>
+                    <strong>Fast Action Claims</strong><br>
+                    1.03 The Boat Shed<br>
+                    12 Exchange Quay<br>
+                    Salford, M5 3EQ<br>
+                    Email: info@fastactionclaims.co.uk<br>
+                    Tel: 0161 533 1706
+                </p>
+
+                <p>Reference: <strong>${caseId}</strong></p>
+
+                <p>Thank you for your prompt attention to this matter.</p>
+
+                <p>Yours faithfully,<br>
+                <strong>Fast Action Claims</strong><br>
+                <em>A trading style of Rowan Rose Solicitors</em></p>
+            </div>
+            <div class="footer">
+                <p>Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. Company No. 12916452.</p>
+            </div>
+        </body>
+        </html>
+        `,
+        attachments: attachments
+    };
+
+    try {
+        const info = await lenderEmailTransporter.sendMail(mailOptions);
+        console.log(`[Worker] ✅ Email sent to lender ${lenderName} (${lenderEmail}). MessageId: ${info.messageId}`);
+
+        // Log the email send to action_logs
+        try {
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                    contactId,
+                    'system',
+                    'worker',
+                    'LOA Worker',
+                    'lender_email_sent',
+                    'case',
+                    `DSAR documents emailed to ${lenderName} (${lenderEmail})`,
+                    JSON.stringify({
+                        lender: lenderName,
+                        lenderEmail: lenderEmail,
+                        caseId: caseId,
+                        attachments: attachments.map(a => a.filename),
+                        messageId: info.messageId,
+                        testMode: LENDER_EMAIL_TEST_MODE
+                    })
+                ]
+            );
+        } catch (logErr) {
+            console.warn('[Worker] Could not log email send action:', logErr.message);
+        }
+
+        return { success: true, messageId: info.messageId, email: lenderEmail };
+    } catch (error) {
+        console.error(`[Worker] ❌ Failed to send email to ${lenderName}:`, error.message);
+        return { success: false, reason: 'send_failed', error: error.message };
+    }
+}
+
+// --- HELPER FUNCTION: GENERATE COVER LETTER HTML ---
+async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
+    const { first_name, last_name } = contact;
+    const fullName = `${first_name} ${last_name}`;
+
+    // Get today's date
+    const today = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+    });
+
+    // Get lender address
+    const lenderAddress = getLenderAddress(lender);
+    const addressLine1 = lenderAddress?.company_name || lender;
+    const addressLine2 = lenderAddress?.first_line_address || '';
+    const addressLine3 = lenderAddress?.town_city || '';
+    const addressLine4 = lenderAddress?.postcode || '';
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 11pt;
+            color: #000;
+            line-height: 1.5;
+            margin: 0;
+            padding: 25px;
+        }
+        .header-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+        }
+        .logo-cell {
+            width: 40%;
+            vertical-align: top;
+            text-align: left;
+        }
+        .company-cell {
+            width: 60%;
+            vertical-align: top;
+            text-align: right;
+            font-size: 10pt;
+            line-height: 1.6;
+        }
+        .logo-img {
+            width: 160px;
+            height: auto;
+        }
+        .date-line {
+            margin: 25px 0 20px 0;
+            font-size: 11pt;
+        }
+        .address-block {
+            margin-bottom: 20px;
+            font-size: 11pt;
+            line-height: 1.6;
+        }
+        .reference-block {
+            margin-bottom: 20px;
+            font-size: 11pt;
+            line-height: 1.8;
+        }
+        .subject-line {
+            font-weight: bold;
+            margin-bottom: 20px;
+            font-size: 11pt;
+        }
+        .greeting {
+            margin-bottom: 15px;
+        }
+        .body-text {
+            text-align: justify;
+            margin-bottom: 12px;
+            font-size: 11pt;
+            line-height: 1.6;
+        }
+        .body-text p {
+            margin-bottom: 12px;
+        }
+        .bullet-list {
+            margin: 15px 0 15px 25px;
+            padding-left: 0;
+        }
+        .bullet-list li {
+            margin-bottom: 8px;
+            font-size: 11pt;
+            line-height: 1.5;
+        }
+        .signature-block {
+            margin-top: 25px;
+            font-size: 11pt;
+            line-height: 1.6;
+        }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            font-size: 7pt;
+            text-align: center;
+            color: #555;
+            padding: 5px 15mm;
+            border-top: 1px solid #ddd;
+            background: #fff;
+            line-height: 1.3;
+        }
+        .page-content {
+            padding-bottom: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div class="page-content">
+        <table class="header-table">
+            <tr>
+                <td class="logo-cell">
+                    ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" />` : '<div style="font-size: 18px; font-weight: bold; color: #b45f06;">FAST ACTION CLAIMS</div>'}
+                </td>
+                <td class="company-cell">
+                    <strong>Fast Action Claims</strong><br>
+                    Tel: 0161 5331706<br>
+                    1.03 The Boat Shed<br>
+                    12 Exchange Quay<br>
+                    Salford, M5 3EQ<br>
+                    irl@rowanrose.co.uk
+                </td>
+            </tr>
+        </table>
+
+        <div class="date-line">
+            <strong>Date:</strong> ${today}
+        </div>
+
+        <div class="address-block">
+            ${addressLine1 ? `${addressLine1}<br>` : ''}
+            ${addressLine2 ? `${addressLine2}<br>` : ''}
+            ${addressLine3 ? `${addressLine3}<br>` : ''}
+            ${addressLine4 ? `${addressLine4}` : ''}
+        </div>
+
+        <div class="reference-block">
+            <strong>Our Reference:</strong> ${caseId}<br>
+            <strong>Client Name:</strong> ${fullName}<br>
+            <strong>Lender:</strong> ${lender}
+        </div>
+
+        <div class="subject-line">
+            Subject: Request for Disclosure of Client Information – Data Subject Access Request
+        </div>
+
+        <div class="greeting">
+            Dear Sir/Madam,
+        </div>
+
+        <div class="body-text">
+            <p>We act on behalf of the above-named client.</p>
+
+            <p>We formally request that your organisation promptly disclose and release to Fast Action Claims all documentation and information relating to our client's financial arrangements with your institution. This includes, but is not limited to, all data and records regarding loans, credit cards, borrowing, and account activity.</p>
+
+            <p>Specifically, we require a complete file containing:</p>
+        </div>
+
+        <ul class="bullet-list">
+            <li>True copies of all completed application forms</li>
+            <li>All pre-contractual information and documentation provided</li>
+            <li>Executed copies of credit or loan agreements</li>
+            <li>Full statements of account, detailing all payments made, interest charged, fees incurred, and any outstanding balances</li>
+            <li>Records of any affordability assessments or creditworthiness checks conducted</li>
+            <li>Copies of all correspondence between your organisation and our client</li>
+        </ul>
+
+        <div class="body-text" style="page-break-before: always;">
+            <p>This request is made under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018. We remind you that you are obligated to respond to this request within one calendar month from the date of receipt.</p>
+
+            <p>Please forward all requested information directly to our office at the address shown above, or via email to irl@rowanrose.co.uk.</p>
+
+            <p>Should you require verification of our authority to act on behalf of our client, please find enclosed the signed Letter of Authority.</p>
+
+            <p>We look forward to your prompt response.</p>
+        </div>
+
+        <div class="signature-block">
+            <p>Yours faithfully,</p>
+            <br>
+            <p><strong>Fast Action Claims</strong><br>
+            On behalf of ${fullName}</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Ltd, a company registered in England and Wales (12916452) whose registered office is situated at 1.03 Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. A list of directors is available at our registered office. We are authorised and regulated by the Solicitors Regulation Authority.
+    </div>
+</body>
+</html>
+    `;
 }
 
 // --- HELPER FUNCTION: GENERATE LOA HTML CONTENT ---
@@ -127,8 +701,8 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
     <style>
         body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10px; color: #333; line-height: 1.4; margin: 0; padding: 25px; }
         .header-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-        .logo-cell { width: 200px; vertical-align: middle; text-align: left; }
-        .contact-cell { vertical-align: middle; text-align: right; font-size: 10px; line-height: 1.4; color: #000; font-weight: bold; }
+        .logo-cell { width: 30%; vertical-align: middle; text-align: left; padding-right: 20px; }
+        .contact-cell { width: 70%; vertical-align: middle; text-align: right; font-size: 10px; line-height: 1.6; color: #000; font-weight: bold; padding-right: 0; }
         .logo-img { width: 160px; height: auto; }
         
         .h1-container { text-align: center; margin: 25px 0; }
@@ -160,10 +734,13 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
                 ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" />` : '<div style="font-size: 20px; font-weight: bold; color: #b45f06;">FAST ACTION CLAIMS</div>'}
             </td>
             <td class="contact-cell">
-                Email: Info@fastactionclaims.co.uk<br>
-                Tel: 0161 533 1706<br>
-                Address: 1.03, Boat Shed, 12 Exchange Quay,<br>
-                Salford, M5 3EQ
+                <strong>Fast Action Claims</strong><br>
+                Tel: 0161 5331706<br>
+                Address: 1.03 The boat shed<br>
+                12 Exchange Quay<br>
+                Salford<br>
+                M5 3EQ<br>
+                irl@rowanrose.co.uk
             </td>
         </tr>
     </table>
@@ -222,7 +799,7 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         <table class="sign-table">
             <tr>
                 <td style="width: 40%; font-weight: bold; font-size: 13px; height: 80px; vertical-align: middle;">
-                    Signature Date:
+                    <strong>SIGNATURE</strong>
                 </td>
                 <td style="width: 60%; text-align: center; vertical-align: middle;">
                     ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-img" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
@@ -247,13 +824,13 @@ const processPendingLOAs = async () => {
         // Query cases that need LOA generation
         // Join with contacts to get necessary details
         const query = `
-            SELECT c.id as case_id, c.lender, c.created_at, 
-                   cnt.id as contact_id, cnt.first_name, cnt.last_name, 
+            SELECT c.id as case_id, c.lender, c.created_at,
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name,
                    cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code,
-                   cnt.signature_2_url
+                   cnt.signature_2_url, cnt.dob
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
-            WHERE (c.status = 'LENDER SELECTION FORM COMPLETED' OR c.status = 'New Lead')
+            WHERE (c.status = 'LENDER SELECTION FORM COMPLETED' OR c.status = 'New Lead' OR c.status = 'LOA Sent')
             AND (c.loa_generated IS NULL OR c.loa_generated = false)
             AND cnt.signature_2_url IS NOT NULL
             LIMIT 50
@@ -306,6 +883,7 @@ const processPendingLOAs = async () => {
                     city: record.city,
                     state_county: record.state_county,
                     postal_code: record.postal_code,
+                    dob: record.dob,
                     id: record.contact_id
                 };
 
@@ -347,6 +925,72 @@ const processPendingLOAs = async () => {
                      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                     [record.contact_id, pdfFileName, 'pdf', 'LOA', pdfUrl, 'Auto-generated', ['LOA', record.lender]]
                 );
+
+                // --- GENERATE COVER LETTER ---
+                try {
+                    const coverLetterHtml = await generateCoverLetterHTML(contactData, record.lender, record.case_id, logoBase64);
+
+                    // Generate Cover Letter PDF using Puppeteer
+                    const coverBrowser = await puppeteer.launch({
+                        headless: 'new',
+                        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+                    });
+                    const coverPage = await coverBrowser.newPage();
+                    await coverPage.setContent(coverLetterHtml, { waitUntil: 'networkidle0' });
+                    const coverPdfBuffer = await coverPage.pdf({
+                        format: 'A4',
+                        printBackground: true,
+                        margin: { top: '15mm', right: '15mm', bottom: '30mm', left: '15mm' }
+                    });
+                    await coverBrowser.close();
+
+                    // Upload Cover Letter to S3
+                    const coverLetterFileName = `${sanitizedLenderName}_Cover_Letter.pdf`;
+                    const coverLetterKey = `${folderName}/LOA/${coverLetterFileName}`;
+
+                    await s3Client.send(new PutObjectCommand({
+                        Bucket: BUCKET_NAME,
+                        Key: coverLetterKey,
+                        Body: coverPdfBuffer,
+                        ContentType: 'application/pdf'
+                    }));
+
+                    const coverLetterUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: coverLetterKey }), { expiresIn: 604800 });
+
+                    // Insert Cover Letter Document Record
+                    await pool.query(
+                        `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                        [record.contact_id, coverLetterFileName, 'pdf', 'Cover Letter', coverLetterUrl, 'Auto-generated', ['Cover Letter', record.lender]]
+                    );
+
+                    console.log(`[Worker] ✅ Cover Letter Generated for Case ${record.case_id} (${record.lender})`);
+
+                    // --- SEND DOCUMENTS TO LENDER VIA EMAIL ---
+                    try {
+                        const clientName = `${record.first_name} ${record.last_name}`;
+                        const emailResult = await sendDocumentsToLender(
+                            record.lender,
+                            clientName,
+                            record.contact_id,
+                            folderName,
+                            record.case_id
+                        );
+
+                        if (emailResult.success) {
+                            console.log(`[Worker] ✅ Documents emailed to lender for Case ${record.case_id}`);
+                        } else {
+                            console.log(`[Worker] ⚠️ Email not sent for Case ${record.case_id}: ${emailResult.reason}`);
+                        }
+                    } catch (emailErr) {
+                        console.error(`[Worker] ⚠️ Email sending failed for Case ${record.case_id}:`, emailErr.message);
+                        // Continue even if email fails - documents were already generated
+                    }
+
+                } catch (coverLetterErr) {
+                    console.error(`[Worker] ⚠️ Cover Letter generation failed for Case ${record.case_id}:`, coverLetterErr.message);
+                    // Continue even if cover letter fails - LOA was already generated
+                }
 
                 // Update Case Status to prevent re-generation
                 await pool.query('UPDATE cases SET loa_generated = true WHERE id = $1', [record.case_id]);

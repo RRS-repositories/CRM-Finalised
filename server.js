@@ -847,10 +847,10 @@ async function addTimestampToSignature(base64Data) {
             hour12: false
         });
 
-        ctx.fillStyle = '#64748b'; // Slightly darker slate for visibility
-        ctx.font = 'bold 14px Arial'; // Increased size and bold
-        ctx.textAlign = 'center';
-        ctx.fillText(`Signed At: ${timestamp}`, width / 2, height - 10);
+        ctx.fillStyle = '#000000'; // Black color for visibility
+        ctx.font = 'bold 14px Arial'; // Bold
+        ctx.textAlign = 'left';
+        ctx.fillText(`Signed At: ${timestamp}`, 10, height - 10);
 
         return canvas.toBuffer('image/png');
     } catch (error) {
@@ -944,21 +944,23 @@ async function generateTermsHTML(clientData, logoBase64) {
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 1px solid #e2e8f0;
+            width: 100%;
         }
-        
+
         .header-left {
             flex: 0 0 auto;
         }
-        
+
         .logo {
             width: 180px;
             height: auto;
         }
-        
+
         .header-right {
             flex: 1;
             text-align: right;
             padding-left: 40px;
+            padding-right: 0;
         }
         
         .company-name {
@@ -1147,10 +1149,10 @@ async function generateTermsHTML(clientData, logoBase64) {
     <div class="page">
         <div class="header-container">
             <div class="header-left">
-                ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Rowan Rose Solicitors" />` : ''}
+                ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Fast Action Claims" />` : ''}
             </div>
             <div class="header-right">
-                <div class="company-name">Rowan Rose Solicitors</div>
+                <div class="company-name">Fast Action Claims</div>
                 <div class="company-tel">Tel: 0161 5331706</div>
                 <div class="company-address">
                     Address: 1.03 The boat shed<br/>
@@ -1159,7 +1161,7 @@ async function generateTermsHTML(clientData, logoBase64) {
                     M5 3EQ
                 </div>
                 <div class="company-email">
-                    <a href="mailto:info@fastactionclaims.co.uk">info@fastactionclaims.co.uk</a>
+                    irl@rowanrose.co.uk
                 </div>
             </div>
         </div>
@@ -1233,8 +1235,8 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
     <style>
         body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10px; color: #333; line-height: 1.4; margin: 0; padding: 25px; }
         .header-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-        .logo-cell { width: 200px; vertical-align: middle; text-align: left; }
-        .contact-cell { vertical-align: middle; text-align: right; font-size: 10px; line-height: 1.4; color: #000; font-weight: bold; }
+        .logo-cell { width: 30%; vertical-align: middle; text-align: left; padding-right: 20px; }
+        .contact-cell { width: 70%; vertical-align: middle; text-align: right; font-size: 10px; line-height: 1.6; color: #000; font-weight: bold; padding-right: 0; }
         .logo-img { width: 160px; height: auto; }
         
         .h1-container { text-align: center; margin: 25px 0; }
@@ -1266,10 +1268,13 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
                 ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" />` : '<div style="font-size: 20px; font-weight: bold; color: #b45f06;">FAST ACTION CLAIMS</div>'}
             </td>
             <td class="contact-cell">
-                Email: Info@fastactionclaims.co.uk<br>
-                Tel: 0161 533 1706<br>
-                Address: 1.03, Boat Shed, 12 Exchange Quay,<br>
-                Salford, M5 3EQ
+                <strong>Fast Action Claims</strong><br>
+                Tel: 0161 5331706<br>
+                Address: 1.03 The boat shed<br>
+                12 Exchange Quay<br>
+                Salford<br>
+                M5 3EQ<br>
+                irl@rowanrose.co.uk
             </td>
         </tr>
     </table>
@@ -1328,7 +1333,7 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         <table class="sign-table">
             <tr>
                 <td style="width: 40%; font-weight: bold; font-size: 13px; height: 80px; vertical-align: middle;">
-                    Signature Date:
+                    <strong>SIGNATURE</strong>
                 </td>
                 <td style="width: 60%; text-align: center; vertical-align: middle;">
                     ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-img" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
@@ -1462,8 +1467,8 @@ async function generatePreviousAddressPDF(clientData, addresses, logoBase64) {
     <style>
         body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10pt; color: #333; line-height: 1.4; margin: 0; padding: 40px; }
         .header-table { width: 100%; margin-bottom: 30px; }
-        .logo-cell { width: 50%; vertical-align: top; }
-        .company-cell { width: 50%; text-align: left; font-size: 10pt; line-height: 1.5; vertical-align: top; padding-left: 20px;}
+        .logo-cell { width: 30%; vertical-align: top; }
+        .company-cell { width: 70%; text-align: right; font-size: 10pt; line-height: 1.5; vertical-align: top; padding-right: 0; }
         .logo-img { width: 150px; height: auto; display: block; }
         
         .lender-address { margin-top: 30px; margin-bottom: 30px; line-height: 1.5; }
@@ -2104,11 +2109,11 @@ app.post('/api/submit-page1', async (req, res) => {
                 // 5. NEW: If lender_type is provided, create a claim and generate LOA
                 if (lender_type) {
                     const finalLender = standardizeLender(lender_type);
-                    // Create claim for this lender
+                    // Create claim for this lender - status is 'LOA Sent' until mail form is submitted
                     const claimRes = await pool.query(
                         `INSERT INTO cases (contact_id, lender, status, loa_generated)
                                         VALUES ($1, $2, $3, $4) RETURNING id`,
-                        [contactId, finalLender, 'LENDER SELECTION FORM COMPLETED', false]
+                        [contactId, finalLender, 'LOA Sent', false]
                     );
                     const claimId = claimRes.rows[0].id;
 

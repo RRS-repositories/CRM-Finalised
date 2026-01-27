@@ -29,109 +29,133 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
     ]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [scriptLoaded, setScriptLoaded] = useState(false);
 
-    // Refs for autocomplete inputs
-    const autocompleteRefs = useRef<{ [key: number]: any }>({});
-    const inputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
+    // Address lookup state for each address (like StepOne)
+    const [addressQueries, setAddressQueries] = useState<{ [key: number]: string }>({});
+    const [addressSuggestions, setAddressSuggestions] = useState<{ [key: number]: any[] }>({});
+    const [showSuggestions, setShowSuggestions] = useState<{ [key: number]: boolean }>({});
+    const [loadingAddress, setLoadingAddress] = useState<{ [key: number]: boolean }>({});
 
-    // Load Google Maps Script
+    // Refs for Google Services
+    const autocompleteService = useRef<any>(null);
+    const placesService = useRef<any>(null);
+    const searchTimeoutRefs = useRef<{ [key: number]: any }>({});
+
+    // Initialize Google Maps Services
     useEffect(() => {
-        const loadScript = () => {
-            if (window.google && window.google.maps) {
-                setScriptLoaded(true);
-                return;
+        let attempts = 0;
+        const intervalId = setInterval(() => {
+            attempts++;
+            if (window.google && window.google.maps && window.google.maps.places) {
+                if (!autocompleteService.current) {
+                    try {
+                        autocompleteService.current = new window.google.maps.places.AutocompleteService();
+                        placesService.current = new window.google.maps.places.PlacesService(document.createElement('div'));
+                        console.log("Google Maps Services Initialized Successfully (PreviousAddress)");
+                    } catch (e) {
+                        console.error("Error initializing Google Maps services:", e);
+                    }
+                }
+                clearInterval(intervalId);
+            } else if (attempts > 20) {
+                console.warn("Google Maps script not loaded after 10 seconds.");
+                clearInterval(intervalId);
             }
+        }, 500);
 
-            const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-            if (existingScript) {
-                existingScript.addEventListener('load', () => setScriptLoaded(true));
-                return;
-            }
-
-            const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-            if (!apiKey) {
-                console.warn("Google Maps API Key provided but script loading skipped as key might be empty initially.");
-                // We don't error out, allowing manual entry
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-            script.async = true;
-            script.defer = true;
-            script.onload = () => setScriptLoaded(true);
-            document.head.appendChild(script);
-        };
-
-        loadScript();
+        return () => clearInterval(intervalId);
     }, []);
 
-    // Initialize Autocomplete for each address field
-    useEffect(() => {
-        if (!scriptLoaded || !hasPreviousAddress) return;
+    // Handle address search (like StepOne)
+    const handleAddressSearch = (index: number, query: string) => {
+        setAddressQueries(prev => ({ ...prev, [index]: query }));
+        setShowSuggestions(prev => ({ ...prev, [index]: true }));
 
-        addresses.forEach((_, index) => {
-            if (inputRefs.current[index] && !autocompleteRefs.current[index]) {
-                const autocomplete = new window.google.maps.places.Autocomplete(
-                    inputRefs.current[index],
-                    { types: ['address'], componentRestrictions: { country: 'gb' } }
-                );
+        if (searchTimeoutRefs.current[index]) clearTimeout(searchTimeoutRefs.current[index]);
 
-                autocomplete.addListener('place_changed', () => {
-                    const place = autocomplete.getPlace();
-                    fillInAddress(place, index);
-                });
-
-                autocompleteRefs.current[index] = autocomplete;
-            }
-        });
-    }, [scriptLoaded, hasPreviousAddress, addresses.length]);
-
-    const fillInAddress = (place: any, index: number) => {
-        const addressComponents = place.address_components;
-        let address1 = '';
-        let postcode = '';
-        let city = '';
-        let county = '';
-        let streetNumber = '';
-        let route = '';
-
-        if (addressComponents) {
-            for (const component of addressComponents) {
-                const componentType = component.types[0];
-
-                switch (componentType) {
-                    case 'street_number':
-                        streetNumber = component.long_name;
-                        break;
-                    case 'route':
-                        route = component.long_name;
-                        break;
-                    case 'postal_code':
-                        postcode = component.long_name;
-                        break;
-                    case 'postal_town':
-                    case 'locality':
-                        city = component.long_name;
-                        break;
-                    case 'administrative_area_level_2':
-                        county = component.long_name;
-                        break;
+        if (query.length > 2) {
+            setLoadingAddress(prev => ({ ...prev, [index]: true }));
+            searchTimeoutRefs.current[index] = setTimeout(() => {
+                if (!autocompleteService.current) {
+                    console.warn("Autocomplete service not initialized yet.");
+                    setLoadingAddress(prev => ({ ...prev, [index]: false }));
+                    return;
                 }
-            }
-            address1 = `${streetNumber} ${route}`.trim();
+
+                const request = {
+                    input: query,
+                    componentRestrictions: { country: 'gb' },
+                };
+
+                autocompleteService.current.getPlacePredictions(request, (predictions: any[], status: any) => {
+                    setLoadingAddress(prev => ({ ...prev, [index]: false }));
+                    if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+                        setAddressSuggestions(prev => ({ ...prev, [index]: predictions.slice(0, 4) }));
+                    } else {
+                        setAddressSuggestions(prev => ({ ...prev, [index]: [] }));
+                    }
+                });
+            }, 300);
+        } else {
+            setAddressSuggestions(prev => ({ ...prev, [index]: [] }));
+            setLoadingAddress(prev => ({ ...prev, [index]: false }));
+        }
+    };
+
+    // Handle address selection (like StepOne)
+    const handleSelectAddress = (index: number, suggestion: any) => {
+        setAddressQueries(prev => ({ ...prev, [index]: suggestion.description }));
+        setShowSuggestions(prev => ({ ...prev, [index]: false }));
+        setLoadingAddress(prev => ({ ...prev, [index]: true }));
+
+        if (!placesService.current) {
+            setLoadingAddress(prev => ({ ...prev, [index]: false }));
+            return;
         }
 
-        const newAddresses = [...addresses];
-        newAddresses[index] = {
-            ...newAddresses[index],
-            address_line_1: address1,
-            city: city,
-            county: county,
-            postal_code: postcode
+        const request = {
+            placeId: suggestion.place_id,
+            fields: ['address_components']
         };
-        setAddresses(newAddresses);
+
+        placesService.current.getDetails(request, (place: any, status: any) => {
+            setLoadingAddress(prev => ({ ...prev, [index]: false }));
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+                let streetNumber = '';
+                let route = '';
+                let postalTown = '';
+                let locality = '';
+                let subpremise = '';
+                let county = '';
+                let postalCode = '';
+
+                place.address_components.forEach((component: any) => {
+                    const types = component.types;
+                    if (types.includes('subpremise')) subpremise = component.long_name;
+                    if (types.includes('street_number')) streetNumber = component.long_name;
+                    if (types.includes('route')) route = component.long_name;
+                    if (types.includes('postal_town')) postalTown = component.long_name;
+                    if (types.includes('locality')) locality = component.long_name;
+                    if (types.includes('administrative_area_level_2')) county = component.long_name;
+                    if (types.includes('administrative_area_level_1') && !county) county = component.long_name;
+                    if (types.includes('postal_code')) postalCode = component.long_name;
+                });
+
+                const fullStreet = [subpremise, streetNumber, route].filter(Boolean).join(' ');
+                const city = postalTown || locality;
+
+                const newAddresses = [...addresses];
+                newAddresses[index] = {
+                    ...newAddresses[index],
+                    address_line_1: fullStreet,
+                    address_line_2: '',
+                    city: city,
+                    county: county,
+                    postal_code: postalCode
+                };
+                setAddresses(newAddresses);
+            }
+        });
     };
 
     const handleAddressChange = (index: number, field: keyof Address, value: string) => {
@@ -147,11 +171,10 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
     const removeAddress = (index: number) => {
         const newAddresses = addresses.filter((_, i) => i !== index);
         setAddresses(newAddresses);
-
-        // Cleanup ref
-        if (autocompleteRefs.current[index]) {
-            // Google maps doesn't have a specific destroy method for autocomplete, but we remove the reference
-            delete autocompleteRefs.current[index];
+        // Cleanup refs
+        if (searchTimeoutRefs.current[index]) {
+            clearTimeout(searchTimeoutRefs.current[index]);
+            delete searchTimeoutRefs.current[index];
         }
     };
 
@@ -237,17 +260,49 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
                                 )}
                             </div>
 
-                            <div className="mb-4">
-                                <label className="block text-sm font-bold text-brand-orange mb-1">
-                                    ADDRESS LOOKUP (START TYPING)
+                            {/* Address Lookup - Same style as StepOne */}
+                            <div className="mb-6 relative z-50">
+                                <label className="block text-xs font-bold text-gold-600 uppercase tracking-wider mb-2">
+                                    Address Lookup (Start Typing)
                                 </label>
-                                <input
-                                    ref={el => inputRefs.current[index] = el}
-                                    type="text"
-                                    placeholder="Start typing to search..."
-                                    className="w-full p-3 rounded-lg border-2 border-brand-orange/30 focus:border-brand-orange focus:ring-1 focus:ring-brand-orange outline-none transition-all"
-                                />
-                                <p className="text-xs text-slate-400 mt-1">Select an address from the dropdown to auto-fill the fields below.</p>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={addressQueries[index] || ''}
+                                        onChange={(e) => handleAddressSearch(index, e.target.value)}
+                                        onFocus={() => {
+                                            if (addressSuggestions[index]?.length > 0) {
+                                                setShowSuggestions(prev => ({ ...prev, [index]: true }));
+                                            }
+                                        }}
+                                        onBlur={() => setTimeout(() => setShowSuggestions(prev => ({ ...prev, [index]: false })), 200)}
+                                        placeholder="e.g. 10 Downing Street"
+                                        className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-900 focus:border-transparent transition-all shadow-sm"
+                                    />
+                                    {loadingAddress[index] && (
+                                        <div className="absolute right-3 top-3 text-slate-400">
+                                            <i className="fas fa-spinner fa-spin"></i>
+                                        </div>
+                                    )}
+
+                                    {showSuggestions[index] && addressSuggestions[index]?.length > 0 && (
+                                        <ul className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[100]">
+                                            {addressSuggestions[index].map((item: any) => (
+                                                <li
+                                                    key={item.place_id}
+                                                    onMouseDown={() => handleSelectAddress(index, item)}
+                                                    className="px-4 py-3 hover:bg-navy-50 cursor-pointer text-sm text-slate-700 border-b border-slate-100 last:border-0 transition-colors flex items-center gap-2"
+                                                >
+                                                    <i className="fas fa-map-marker-alt text-slate-400 text-xs"></i>
+                                                    {item.description}
+                                                </li>
+                                            ))}
+                                            <li className="px-4 py-2 bg-slate-50 text-xs text-right text-slate-400 sticky bottom-0 border-t">
+                                                Powered by Google
+                                            </li>
+                                        </ul>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
