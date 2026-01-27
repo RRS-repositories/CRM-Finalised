@@ -20,9 +20,20 @@ const __dirname = path.dirname(__filename);
 const lendersJsonContent = fs.readFileSync(path.join(__dirname, 'all_lenders_details.json'), 'utf-8');
 const allLendersData = JSON.parse(lendersJsonContent.replace(/:\s*NaN/g, ': null'));
 
-// --- TEST MODE: Set to true to send all lender emails to test address ---
-const LENDER_EMAIL_TEST_MODE = true;
-const TEST_EMAIL_ADDRESS = 'tezanyaniw@gmail.com';
+// ============================================================================
+// EMAIL MODE CONFIGURATION - COMMENT/UNCOMMENT TO SWITCH
+// ============================================================================
+
+// -------- TEST MODE: Comment lines 29-30 for PRODUCTION --------
+// const LENDER_EMAIL_TEST_MODE = true;
+// const TEST_EMAIL_ADDRESS = 'tezanyaniw@gmail.com';
+// -------- END TEST MODE --------
+
+// -------- PRODUCTION MODE: Uncomment line 34 for PRODUCTION --------
+const LENDER_EMAIL_TEST_MODE = false;
+// -------- END PRODUCTION MODE --------
+
+// ============================================================================
 
 // --- EMAIL CONFIGURATION FOR LENDER DOCUMENTS ---
 const lenderEmailTransporter = nodemailer.createTransport({

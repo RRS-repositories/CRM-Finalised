@@ -3543,6 +3543,9 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         }));
 
 
+        // Build base URL dynamically for assets
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
         // Return HTML form page
         res.send(`
                                 <!DOCTYPE html>
@@ -3871,7 +3874,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                     <div class="container">
                                                         <div class="header">
                                                             <div class="logo-container">
-                                                                <img src="http://localhost:5000/fac.png" alt="Fast Action Claims" class="logo" onerror="this.style.display='none'">
+                                                                <img src="${baseUrl}/fac.png" alt="Fast Action Claims" class="logo" onerror="this.style.display='none'">
                                                             </div>
                                                             <div class="contact-info">
                                                                 Email: <a href="mailto:info@fastactionclaims.co.uk">info@fastactionclaims.co.uk</a><br>
