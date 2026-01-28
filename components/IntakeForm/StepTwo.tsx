@@ -102,12 +102,12 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
       <div className="text-center mb-10">
         <h2 className="text-3xl font-serif text-navy-900 mb-3">Welcome, {firstName} {lastName}.</h2>
         <p className="text-slate-500">
-          To proceed, please upload a copy of your &nbsp;
+          AS PART OF OUR ONBOARDING AND TO REPRESENT YOU AS A CLIENT PLEASE UPLOAD ONE FORM OF IDENTIFICATION EITHER A &nbsp;
           <span className="inline-flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-navy-900 rounded-full"></span>
             <strong className="font-bold text-navy-900">Driving Licence</strong>
 
-            <span className="text-slate-400 mx-2">or</span>
+            <span className="text-slate-400 mx-2">OR</span>
 
             <span className="w-1.5 h-1.5 bg-navy-900 rounded-full"></span>
             <strong className="font-bold text-navy-900">Passport</strong>
@@ -235,7 +235,7 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
         <button
           onClick={handleSubmit}
           disabled={!file || uploading}
-          className={`w-full py-4 bg-navy-900 text-white font-medium tracking-wide text-lg shadow-xl shadow-navy-900/10 transition-all hover:bg-slate-800 hover:shadow-2xl hover:-translate-y-1
+          className={`w-full py-4 bg-sky-500 text-white font-medium tracking-wide text-lg shadow-xl shadow-sky-500/20 transition-all hover:bg-sky-600 hover:shadow-2xl hover:-translate-y-1
             ${(!file || uploading) ? 'opacity-50 cursor-not-allowed transform-none' : ''}`}
         >
           {uploading ? (

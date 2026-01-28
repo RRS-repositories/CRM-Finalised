@@ -37,6 +37,7 @@ const EMAIL_DRAFT_MODE = false; // ENABLED - Lender Selection Form & General Ema
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
 
 // --- AWS & DB CLIENTS ---
 const s3Client = new S3Client({
@@ -2153,10 +2154,11 @@ app.post('/api/submit-page1', async (req, res) => {
 
                 // Save T&C PDF to documents table
                 const tcUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: tcKey }), { expiresIn: 604800 });
+                const tcDocName = `${first_name} ${last_name} Terms and Conditions.pdf`;
                 await pool.query(
                     `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
                                         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [contactId, 'Terms and Conditions.pdf', 'pdf', 'Legal', tcUrl, 'Auto-generated', ['T&C', 'Signed']]
+                    [contactId, tcDocName, 'pdf', 'Legal', tcUrl, 'Auto-generated', ['T&C', 'Signed']]
                 );
 
                 // 5. NEW: If lender_type is provided, create a claim and generate LOA
@@ -3681,13 +3683,43 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         .intro {
                                                             font - size: 19px;
                                                         color: #1f2937;
-                                                        line-height: 2;
+                                                        line-height: 1.8;
                                                         margin-bottom: 35px;
                                                         text-align: left;
         }
                                                         .intro strong {
                                                             font - weight: 700;
                                                         color: #111827;
+        }
+                                                        .good-news-banner {
+                                                            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                                                        padding: 18px 24px;
+                                                        border-radius: 12px;
+                                                        display: flex;
+                                                        align-items: center;
+                                                        gap: 12px;
+                                                        font-size: 22px;
+                                                        font-weight: 700;
+                                                        color: #065f46;
+                                                        border: 2px solid #10b981;
+        }
+                                                        .good-news-icon {
+                                                            font-size: 28px;
+        }
+                                                        .friendly-note {
+                                                            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+                                                        padding: 20px 24px;
+                                                        border-radius: 12px;
+                                                        margin-top: 25px;
+                                                        border: 2px solid #3b82f6;
+                                                        text-align: center;
+        }
+                                                        .friendly-note p {
+                                                            font-size: 17px;
+                                                        color: #1e40af;
+                                                        font-weight: 600;
+                                                        margin: 0;
+                                                        line-height: 1.6;
         }
                                                         .category {
                                                             margin: 40px 0;
@@ -3763,28 +3795,71 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         cursor: pointer;
                                                         line-height: 1.6;
         }
-                                                        .signature-section {margin: 45px 0; }
+                                                        .signature-section {
+                                                            margin: 45px 0;
+                                                        background: #f8fafc;
+                                                        padding: 30px;
+                                                        border-radius: 16px;
+                                                        border: 2px solid #e2e8f0;
+        }
                                                         .signature-title {
                                                             font - size: 22px;
                                                         font-weight: 700;
                                                         color: #111827;
-                                                        margin-bottom: 18px; 
+                                                        margin-bottom: 8px;
+        }
+                                                        .signature-subtitle {
+                                                            font-size: 14px;
+                                                        color: #64748b;
+                                                        margin-bottom: 18px;
+        }
+                                                        .signature-container {
+                                                            position: relative;
+                                                        width: 100%;
+                                                        background: white;
+                                                        border: 2px solid #e2e8f0;
+                                                        border-radius: 12px;
+                                                        overflow: hidden;
+                                                        transition: border-color 0.2s;
+        }
+                                                        .signature-container:hover {
+                                                            border-color: #94a3b8;
         }
                                                         .signature-canvas {
-                                                            border: 3px solid #9ca3af;
-                                                        border-radius: 12px;
-                                                        cursor: crosshair;
+                                                            cursor: crosshair;
                                                         display: block;
-                                                        margin: 18px 0;
-                                                        background: white;
                                                         width: 100%;
-                                                        max-width: 700px;
-                                                        height: 200px;
+                                                        height: 180px;
+                                                        touch-action: none;
+        }
+                                                        .signature-placeholder {
+                                                            position: absolute;
+                                                        top: 50%;
+                                                        left: 50%;
+                                                        transform: translate(-50%, -50%);
+                                                        color: #cbd5e1;
+                                                        font-size: 28px;
+                                                        font-style: italic;
+                                                        font-family: serif;
+                                                        pointer-events: none;
+        }
+                                                        .signature-footer {
+                                                            display: flex;
+                                                        justify-content: space-between;
+                                                        align-items: center;
+                                                        margin-top: 12px;
+                                                        padding: 0 4px;
+        }
+                                                        .signature-hint {
+                                                            font-size: 12px;
+                                                        font-weight: 700;
+                                                        text-transform: uppercase;
+                                                        letter-spacing: 0.5px;
+                                                        color: #94a3b8;
         }
                                                         .signature-buttons {
                                                             display: flex;
                                                         gap: 15px;
-                                                        margin: 18px 0; 
         }
                                                         .btn {
                                                             padding: 16px 28px;
@@ -3798,15 +3873,19 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         min-height: 56px;
         }
                                                         .btn-clear {
-                                                            background: #ef4444;
-                                                        color: white; 
+                                                            background: transparent;
+                                                        color: #0f172a;
+                                                        padding: 0;
+                                                        min-height: auto;
+                                                        font-size: 12px;
+                                                        text-transform: uppercase;
+                                                        letter-spacing: 0.5px;
         }
                                                         .btn-clear:hover {
-                                                            background: #dc2626;
-                                                        transform: translateY(-1px);
+                                                            color: #ef4444;
         }
                                                         .btn-submit {
-                                                            background: #2563eb;
+                                                            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                                                         color: white;
                                                         padding: 22px 60px;
                                                         font-size: 22px;
@@ -3814,16 +3893,19 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         width: 100%;
                                                         margin-top: 40px;
                                                         min-height: 64px;
+                                                        border-radius: 12px;
+                                                        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
         }
                                                         .btn-submit:hover {
-                                                            background: #1d4ed8;
+                                                            background: linear-gradient(135deg, #059669 0%, #047857 100%);
                                                         transform: translateY(-2px);
-                                                        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+                                                        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
         }
                                                         .btn-submit:disabled {
                                                             background: #9ca3af;
                                                         cursor: not-allowed;
                                                         transform: none;
+                                                        box-shadow: none;
         }
                                                         .disclaimer {
                                                             font - size: 14px;
@@ -3882,6 +3964,19 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         .intro {
                                                             font - size: 18px;
             }
+                                                        .intro p {
+                                                            font - size: 17px;
+            }
+                                                        .good-news-banner {
+                                                            font - size: 20px;
+                                                        padding: 16px 20px;
+            }
+                                                        .friendly-note {
+                                                            padding: 18px 20px;
+            }
+                                                        .friendly-note p {
+                                                            font - size: 16px;
+            }
                                                         .category {
                                                             padding: 20px 15px;
                                                         margin: 30px 0;
@@ -3925,6 +4020,24 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                         .intro {
                                                             font - size: 17px;
             }
+                                                        .intro p {
+                                                            font - size: 16px;
+            }
+                                                        .good-news-banner {
+                                                            font - size: 18px;
+                                                        padding: 14px 16px;
+                                                        flex-direction: column;
+                                                        text-align: center;
+            }
+                                                        .good-news-icon {
+                                                            font - size: 24px;
+            }
+                                                        .friendly-note {
+                                                            padding: 16px 18px;
+            }
+                                                        .friendly-note p {
+                                                            font - size: 15px;
+            }
                                                         .category-title {
                                                             font - size: 16px;
             }
@@ -3934,6 +4047,10 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             }
                                                         .signature-title {
                                                             font - size: 20px;
+            }
+                                                        .btn-submit {
+                                                            font - size: 18px;
+                                                        padding: 18px 30px;
             }
         }
                                                     </style>
@@ -3953,12 +4070,15 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
 
                                                             <div class="greeting">Hi ${contactName},</div>
                                                             <div class="intro">
-                                                                Great news — your claim is progressing smoothly!<br><br>
-                                                                    We wanted to get in touch to share a list of lenders we're currently pursuing. <strong>Millions of pounds have already been repaid to consumers.</strong><br><br>
-                                                                        <strong>Please take a moment to review the list below and tick any lenders you've used in the last 15 years.</strong><br><br>
-                                                                            Millions has been claimed from lenders for irresponsible lending so it's well worth taking a careful look!<br><br>
-                                                                                If you need any help or have questions, don't hesitate to get in touch.
-                                                                            </div>
+                                                                <div class="good-news-banner">
+                                                                    <span class="good-news-icon">&#127881;</span>
+                                                                    <span>Great news — your claim is progressing smoothly!</span>
+                                                                </div>
+                                                                <p style="margin-top: 20px;">We're reaching out because <strong>millions of pounds have already been repaid to consumers</strong> just like you from lenders for irresponsible lending practices.</p>
+                                                                <p style="margin-top: 15px;">To help maximise your potential refund, please take a quick look at the list below and <strong>tick any lenders you've used in the last 15 years</strong>.</p>
+                                                                <p style="margin-top: 15px; color: #059669;">It only takes a minute and could make a real difference to your claim!</p>
+                                                                <p style="margin-top: 15px; font-size: 16px; color: #6b7280;">Questions? We're here to help — just get in touch.</p>
+                                                            </div>
                                                                                 <div id="errorMessage" class="error-message"></div>
                                                                                 <form id="lenderForm">
                                                                                     <div id="lenderCategories"></div>
@@ -3967,10 +4087,20 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                                                         <div class="question-item"><input type="checkbox" id="scam" name="scam"><label for="scam">HAVE YOU BEEN A VICTIM OF A SCAM IN THE LAST 6 YEARS?</label></div>
                                                                                         <div class="question-item"><input type="checkbox" id="gambling" name="gambling"><label for="gambling">HAVE YOU EXPERIENCED PERIODS OF EXCESSIVE OR PROBLEMATIC GAMBLING WITHIN THE LAST 10 YEARS?</label></div>
                                                                                     </div>
+                                                                                    <div class="friendly-note">
+                                                                                        <p>Thank you for taking the time to complete this form. Your responses help us build the strongest possible case for your claim. We're committed to getting you the best outcome!</p>
+                                                                                    </div>
                                                                                     <div class="signature-section">
-                                                                                        <div class="signature-title">Please sign in the box below</div>
-                                                                                        <canvas id="signatureCanvas" class="signature-canvas" width="700" height="200"></canvas>
-                                                                                        <div class="signature-buttons"><button type="button" class="btn btn-clear" onclick="clearSignature()">Clear Signature</button></div>
+                                                                                        <div class="signature-title">Digital Signature</div>
+                                                                                        <div class="signature-subtitle">By signing below, you agree to our terms of service and authorize us to review your claim.</div>
+                                                                                        <div class="signature-container">
+                                                                                            <canvas id="signatureCanvas" class="signature-canvas"></canvas>
+                                                                                            <div class="signature-placeholder" id="signaturePlaceholder">Sign here</div>
+                                                                                        </div>
+                                                                                        <div class="signature-footer">
+                                                                                            <span class="signature-hint">Draw with finger or mouse</span>
+                                                                                            <button type="button" class="btn btn-clear" onclick="clearSignature()">Clear</button>
+                                                                                        </div>
                                                                                         <div class="disclaimer">Fast Action Claims (Rowan Rose Solicitors) is a trading name of Rowan Rose Solicitors Limited, a limited company registered in England and Wales. Company number: 12345678. Registered office: [Address]. Rowan Rose Solicitors Limited is authorised and regulated by the Solicitors Regulation Authority. SRA number: 123456.</div>
                                                                                     </div>
                                                                                     <button type="submit" class="btn btn-submit" id="submitBtn">Submit</button>
@@ -4007,19 +4137,53 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         });
                                                                                 const canvas = document.getElementById('signatureCanvas');
                                                                                 const ctx = canvas.getContext('2d');
+                                                                                const placeholder = document.getElementById('signaturePlaceholder');
                                                                                 let isDrawing = false;
                                                                                 let hasSignature = false;
-                                                                                ctx.strokeStyle = '#000';
-                                                                                ctx.lineWidth = 2;
-                                                                                ctx.lineCap = 'round';
+
+                                                                                // Resize canvas to fit container
+                                                                                function resizeCanvas() {
+                                                                                    const container = canvas.parentElement;
+                                                                                    const ratio = window.devicePixelRatio || 1;
+                                                                                    const width = container.clientWidth;
+                                                                                    const height = 180;
+                                                                                    canvas.width = width * ratio;
+                                                                                    canvas.height = height * ratio;
+                                                                                    canvas.style.width = width + 'px';
+                                                                                    canvas.style.height = height + 'px';
+                                                                                    ctx.scale(ratio, ratio);
+                                                                                    ctx.strokeStyle = '#0f172a';
+                                                                                    ctx.lineWidth = 2.5;
+                                                                                    ctx.lineCap = 'round';
+                                                                                    ctx.lineJoin = 'round';
+                                                                                }
+                                                                                resizeCanvas();
+                                                                                window.addEventListener('resize', resizeCanvas);
+
+                                                                                function hidePlaceholder() {
+                                                                                    if (placeholder) placeholder.style.display = 'none';
+                                                                                    hasSignature = true;
+                                                                                }
+
         canvas.addEventListener('mousedown', (e) => {isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
-        canvas.addEventListener('mousemove', (e) => { if (!isDrawing) return; const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); hasSignature = true; });
+        canvas.addEventListener('mousemove', (e) => { if (!isDrawing) return; const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); hidePlaceholder(); });
         canvas.addEventListener('mouseup', () => {isDrawing = false; });
         canvas.addEventListener('mouseout', () => {isDrawing = false; });
         canvas.addEventListener('touchstart', (e) => {e.preventDefault(); const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.beginPath(); ctx.moveTo(x, y); isDrawing = true; });
-        canvas.addEventListener('touchmove', (e) => {e.preventDefault(); if (!isDrawing) return; const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.lineTo(x, y); ctx.stroke(); hasSignature = true; });
+        canvas.addEventListener('touchmove', (e) => {e.preventDefault(); if (!isDrawing) return; const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.lineTo(x, y); ctx.stroke(); hidePlaceholder(); });
         canvas.addEventListener('touchend', (e) => {e.preventDefault(); isDrawing = false; });
-                                                                                function clearSignature() {ctx.clearRect(0, 0, canvas.width, canvas.height); hasSignature = false; }
+                                                                                function clearSignature() {
+                                                                                    const ratio = window.devicePixelRatio || 1;
+                                                                                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                                                                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                                                                                    ctx.scale(ratio, ratio);
+                                                                                    ctx.strokeStyle = '#0f172a';
+                                                                                    ctx.lineWidth = 2.5;
+                                                                                    ctx.lineCap = 'round';
+                                                                                    ctx.lineJoin = 'round';
+                                                                                    hasSignature = false;
+                                                                                    if (placeholder) placeholder.style.display = 'block';
+                                                                                }
         document.getElementById('lenderForm').addEventListener('submit', async (e) => {
                                                                                     e.preventDefault();
             const selectedLenders = Array.from(document.querySelectorAll('input[name="lenders"]:checked')).map(cb => cb.value);

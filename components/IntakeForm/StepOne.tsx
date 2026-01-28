@@ -301,8 +301,8 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Invalid email';
     }
-    if (formData.phone && formData.phone.length < 10) {
-      newErrors.phone = 'Invalid phone';
+    if (formData.phone && (formData.phone.length < 10 || formData.phone.length > 11)) {
+      newErrors.phone = 'Phone must be 10-11 digits';
     }
     if (!signatureData) {
       newErrors.signature = 'Signature is required';

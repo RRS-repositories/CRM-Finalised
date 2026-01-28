@@ -600,7 +600,7 @@ async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
             line-height: 1.3;
         }
         .page-content {
-            padding-bottom: 60px;
+            padding-bottom: 100px;
         }
     </style>
 </head>
