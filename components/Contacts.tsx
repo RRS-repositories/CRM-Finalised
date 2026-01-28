@@ -3752,6 +3752,11 @@ const Contacts: React.FC = () => {
    const [contactsPerPage, setContactsPerPage] = useState(20);
    const [currentContactsPage, setCurrentContactsPage] = useState(1);
 
+   // Reset contacts page when filters or per-page changes
+   useEffect(() => {
+      setCurrentContactsPage(1);
+   }, [searchFirstName, searchSurname, searchFullName, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
+
    // Action Menu & Delete Logic
    const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
    const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
@@ -3854,11 +3859,6 @@ const Contacts: React.FC = () => {
    const startContactIndex = (currentContactsPage - 1) * contactsPerPage;
    const endContactIndex = startContactIndex + contactsPerPage;
    const paginatedContacts = filteredContacts.slice(startContactIndex, endContactIndex);
-
-   // Reset to page 1 when filters change or per-page changes
-   useEffect(() => {
-      setCurrentContactsPage(1);
-   }, [searchFirstName, searchSurname, searchFullName, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
 
    return (
       <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors">
