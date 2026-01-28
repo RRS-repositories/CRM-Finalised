@@ -505,3 +505,64 @@ export interface ActionTimelineEntry {
   description: string;
   metadata?: Record<string, any>;
 }
+
+// ============================================
+// Email Module Types (Outlook-style interface)
+// ============================================
+
+export interface EmailAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  provider: 'office365' | 'gmail' | 'imap';
+  isConnected: boolean;
+  lastSyncAt?: string;
+  unreadCount: number;
+  color?: string;
+}
+
+export interface EmailFolder {
+  id: string;
+  accountId: string;
+  name: 'inbox' | 'drafts' | 'sent' | 'archive' | 'trash';
+  displayName: string;
+  unreadCount: number;
+  totalCount: number;
+}
+
+export interface EmailAddress {
+  email: string;
+  name?: string;
+}
+
+export interface EmailAttachmentItem {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  url?: string;
+}
+
+export interface Email {
+  id: string;
+  accountId: string;
+  folderId: string;
+  from: EmailAddress;
+  to: EmailAddress[];
+  cc?: EmailAddress[];
+  bcc?: EmailAddress[];
+  subject: string;
+  bodyText: string;
+  bodyHtml?: string;
+  receivedAt: string;
+  sentAt?: string;
+  isRead: boolean;
+  isStarred: boolean;
+  isDraft: boolean;
+  hasAttachments: boolean;
+  attachments?: EmailAttachmentItem[];
+  threadId?: string;
+  replyTo?: string;
+  inReplyTo?: string;
+  contactId?: string;
+}

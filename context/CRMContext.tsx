@@ -127,6 +127,7 @@ interface CRMContextType {
   // Action Timeline
   actionLogs: ActionLogEntry[];
   fetchActionLogs: (clientId: string) => Promise<void>;
+  fetchAllActionLogs: () => Promise<void>;
 
   // Extended Contact Fields (Bank Details, Addresses)
   updateContactExtended: (contactId: string, data: {
@@ -394,6 +395,31 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const init = async () => {
       await fetchContacts();
       await fetchDocuments();
+      // Fetch all action logs for contacts list view
+      try {
+        const response = await fetch(`${API_BASE_URL}/actions/all`);
+        if (response.ok) {
+          const data = await response.json();
+          const mappedLogs: ActionLogEntry[] = data.map((a: any) => ({
+            id: a.id.toString(),
+            clientId: a.client_id?.toString(),
+            claimId: a.claim_id?.toString(),
+            actorType: a.actor_type,
+            actorId: a.actor_id,
+            actorName: a.actor_name,
+            actionType: a.action_type,
+            actionCategory: a.action_category,
+            description: a.description,
+            metadata: a.metadata,
+            timestamp: a.timestamp,
+            ipAddress: a.ip_address,
+            userAgent: a.user_agent
+          }));
+          setActionLogs(mappedLogs);
+        }
+      } catch (error) {
+        console.error('Error fetching action logs on init:', error);
+      }
     };
     init();
   }, []);
@@ -1487,6 +1513,35 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
+  // Fetch all action logs (latest per client) for contacts list view
+  const fetchAllActionLogs = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/actions/all`);
+      if (!response.ok) throw new Error('Failed to fetch all action logs');
+      const data = await response.json();
+
+      const mappedLogs: ActionLogEntry[] = data.map((a: any) => ({
+        id: a.id.toString(),
+        clientId: a.client_id?.toString(),
+        claimId: a.claim_id?.toString(),
+        actorType: a.actor_type,
+        actorId: a.actor_id,
+        actorName: a.actor_name,
+        actionType: a.action_type,
+        actionCategory: a.action_category,
+        description: a.description,
+        metadata: a.metadata,
+        timestamp: a.timestamp,
+        ipAddress: a.ip_address,
+        userAgent: a.user_agent
+      }));
+
+      setActionLogs(mappedLogs);
+    } catch (error) {
+      console.error('Error fetching all action logs:', error);
+    }
+  }, []);
+
   // --- Extended Contact Fields ---
   const updateContactExtended = async (contactId: string, data: {
     bankDetails?: BankDetails;
@@ -1646,7 +1701,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       communications, fetchCommunications, addCommunication,
       workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
       crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
-      actionLogs, fetchActionLogs,
+      actionLogs, fetchActionLogs, fetchAllActionLogs,
       updateContactExtended, updateClaimExtended, fetchFullClaim
     }}>
       {children}

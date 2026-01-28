@@ -1,4 +1,4 @@
-import { Conversation, Contact, Document, Template, Form, KPI, ClaimStatus } from './types';
+import { Conversation, Contact, Document, Template, Form, KPI, ClaimStatus, EmailAccount, EmailFolder, Email } from './types';
 
 // Pipeline Categories for Kanban board
 export const PIPELINE_CATEGORIES = [
@@ -732,4 +732,223 @@ export const LENDER_CATEGORIES: LenderCategory[] = [
 
 // Flatten all lenders for easy access
 export const ALL_LENDERS = LENDER_CATEGORIES.flatMap(category => category.lenders);
+
+// ============================================
+// Email Module Mock Data (Outlook-style interface)
+// ============================================
+
+export const MOCK_EMAIL_ACCOUNTS: EmailAccount[] = [
+  {
+    id: 'acc-1',
+    email: 'info@fastactionclaims.co.uk',
+    displayName: 'Fast Action Claims',
+    provider: 'office365',
+    isConnected: true,
+    unreadCount: 8,
+    color: '#1E3A5F'
+  },
+  {
+    id: 'acc-2',
+    email: 'irl@rowanrose.co.uk',
+    displayName: 'Rowan Rose IRL',
+    provider: 'office365',
+    isConnected: true,
+    unreadCount: 3,
+    color: '#9C27B0'
+  },
+  {
+    id: 'acc-3',
+    email: 'DSAR@fastactionclaims.co.uk',
+    displayName: 'DSAR Requests',
+    provider: 'office365',
+    isConnected: true,
+    unreadCount: 12,
+    color: '#FF9800'
+  }
+];
+
+export const MOCK_EMAIL_FOLDERS: EmailFolder[] = [
+  // Fast Action Claims folders
+  { id: 'inbox-acc-1', accountId: 'acc-1', name: 'inbox', displayName: 'Inbox', unreadCount: 8, totalCount: 156 },
+  { id: 'drafts-acc-1', accountId: 'acc-1', name: 'drafts', displayName: 'Drafts', unreadCount: 0, totalCount: 3 },
+  { id: 'sent-acc-1', accountId: 'acc-1', name: 'sent', displayName: 'Sent', unreadCount: 0, totalCount: 89 },
+  // Rowan Rose IRL folders
+  { id: 'inbox-acc-2', accountId: 'acc-2', name: 'inbox', displayName: 'Inbox', unreadCount: 3, totalCount: 45 },
+  { id: 'drafts-acc-2', accountId: 'acc-2', name: 'drafts', displayName: 'Drafts', unreadCount: 0, totalCount: 1 },
+  { id: 'sent-acc-2', accountId: 'acc-2', name: 'sent', displayName: 'Sent', unreadCount: 0, totalCount: 32 },
+  // DSAR Requests folders
+  { id: 'inbox-acc-3', accountId: 'acc-3', name: 'inbox', displayName: 'Inbox', unreadCount: 12, totalCount: 234 },
+  { id: 'drafts-acc-3', accountId: 'acc-3', name: 'drafts', displayName: 'Drafts', unreadCount: 0, totalCount: 5 },
+  { id: 'sent-acc-3', accountId: 'acc-3', name: 'sent', displayName: 'Sent', unreadCount: 0, totalCount: 198 },
+];
+
+export const MOCK_EMAILS: Email[] = [
+  // Fast Action Claims Inbox emails
+  {
+    id: 'email-1',
+    accountId: 'acc-1',
+    folderId: 'inbox-acc-1',
+    from: { email: 'john.smith@gmail.com', name: 'John Smith' },
+    to: [{ email: 'info@fastactionclaims.co.uk', name: 'Fast Action Claims' }],
+    subject: 'Re: Claim Reference FAC-2025-001234 - Bank Statements Attached',
+    bodyText: 'Dear Fast Action Claims Team,\n\nThank you for the update on my claim. Please find attached my bank statements for the last 6 months as requested.\n\nI have also included a copy of my ID as verification.\n\nPlease let me know if you need any additional documentation.\n\nKind regards,\nJohn Smith',
+    bodyHtml: '<p>Dear Fast Action Claims Team,</p><p>Thank you for the update on my claim. Please find attached my bank statements for the last 6 months as requested.</p><p>I have also included a copy of my ID as verification.</p><p>Please let me know if you need any additional documentation.</p><p>Kind regards,<br/>John Smith</p>',
+    receivedAt: '2026-01-28T10:30:00Z',
+    isRead: false,
+    isStarred: true,
+    isDraft: false,
+    hasAttachments: true,
+    attachments: [
+      { id: 'att-1', filename: 'bank_statement_jan.pdf', mimeType: 'application/pdf', size: 245000 },
+      { id: 'att-2', filename: 'bank_statement_feb.pdf', mimeType: 'application/pdf', size: 238000 },
+      { id: 'att-3', filename: 'id_document.jpg', mimeType: 'image/jpeg', size: 1200000 }
+    ]
+  },
+  {
+    id: 'email-2',
+    accountId: 'acc-1',
+    folderId: 'inbox-acc-1',
+    from: { email: 'sarah.jones@outlook.com', name: 'Sarah Jones' },
+    to: [{ email: 'info@fastactionclaims.co.uk', name: 'Fast Action Claims' }],
+    subject: 'Query about my Vanquis claim progress',
+    bodyText: 'Hello,\n\nI submitted my claim against Vanquis about 3 weeks ago and wanted to check on the progress. My reference number is FAC-2025-000987.\n\nCould you please provide an update?\n\nThank you,\nSarah Jones',
+    bodyHtml: '<p>Hello,</p><p>I submitted my claim against Vanquis about 3 weeks ago and wanted to check on the progress. My reference number is FAC-2025-000987.</p><p>Could you please provide an update?</p><p>Thank you,<br/>Sarah Jones</p>',
+    receivedAt: '2026-01-28T09:15:00Z',
+    isRead: false,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: false
+  },
+  {
+    id: 'email-3',
+    accountId: 'acc-1',
+    folderId: 'inbox-acc-1',
+    from: { email: 'mike.wilson@yahoo.co.uk', name: 'Mike Wilson' },
+    to: [{ email: 'info@fastactionclaims.co.uk', name: 'Fast Action Claims' }],
+    subject: 'New claim enquiry - Multiple lenders',
+    bodyText: 'Hi there,\n\nI am interested in making claims against several lenders. I have had issues with Aqua, Vanquis, and Lending Stream.\n\nCould someone call me to discuss? My number is 07700 900123.\n\nBest regards,\nMike Wilson',
+    bodyHtml: '<p>Hi there,</p><p>I am interested in making claims against several lenders. I have had issues with Aqua, Vanquis, and Lending Stream.</p><p>Could someone call me to discuss? My number is 07700 900123.</p><p>Best regards,<br/>Mike Wilson</p>',
+    receivedAt: '2026-01-28T08:45:00Z',
+    isRead: true,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: false
+  },
+  {
+    id: 'email-4',
+    accountId: 'acc-1',
+    folderId: 'inbox-acc-1',
+    from: { email: 'compliance@vanquis.co.uk', name: 'Vanquis Compliance Team' },
+    to: [{ email: 'info@fastactionclaims.co.uk', name: 'Fast Action Claims' }],
+    subject: 'RE: DSAR Request - Client: Emma Thompson - Ref: VQ-DSAR-2026-4521',
+    bodyText: 'Dear Sir/Madam,\n\nWe acknowledge receipt of your Data Subject Access Request on behalf of Ms Emma Thompson.\n\nWe are processing this request and will respond within the statutory timeframe of 30 days.\n\nYour reference: FAC-2025-001156\nOur reference: VQ-DSAR-2026-4521\n\nRegards,\nVanquis Compliance Team',
+    bodyHtml: '<p>Dear Sir/Madam,</p><p>We acknowledge receipt of your Data Subject Access Request on behalf of Ms Emma Thompson.</p><p>We are processing this request and will respond within the statutory timeframe of 30 days.</p><p>Your reference: FAC-2025-001156<br/>Our reference: VQ-DSAR-2026-4521</p><p>Regards,<br/>Vanquis Compliance Team</p>',
+    receivedAt: '2026-01-27T16:30:00Z',
+    isRead: true,
+    isStarred: true,
+    isDraft: false,
+    hasAttachments: false
+  },
+  {
+    id: 'email-5',
+    accountId: 'acc-1',
+    folderId: 'inbox-acc-1',
+    from: { email: 'noreply@lendingstream.co.uk', name: 'Lending Stream' },
+    to: [{ email: 'info@fastactionclaims.co.uk', name: 'Fast Action Claims' }],
+    subject: 'Final Response Letter - Complaint Reference LS-2026-78432',
+    bodyText: 'Dear Fast Action Claims,\n\nPlease find attached our Final Response Letter regarding the complaint submitted on behalf of Mr David Brown.\n\nWe have upheld the complaint and have calculated a refund of £2,340.56.\n\nPlease confirm acceptance of this offer within 14 days.\n\nRegards,\nLending Stream Complaints Team',
+    bodyHtml: '<p>Dear Fast Action Claims,</p><p>Please find attached our Final Response Letter regarding the complaint submitted on behalf of Mr David Brown.</p><p>We have upheld the complaint and have calculated a refund of <strong>£2,340.56</strong>.</p><p>Please confirm acceptance of this offer within 14 days.</p><p>Regards,<br/>Lending Stream Complaints Team</p>',
+    receivedAt: '2026-01-27T14:22:00Z',
+    isRead: false,
+    isStarred: true,
+    isDraft: false,
+    hasAttachments: true,
+    attachments: [
+      { id: 'att-4', filename: 'Final_Response_Letter_LS-2026-78432.pdf', mimeType: 'application/pdf', size: 156000 }
+    ]
+  },
+  // Rowan Rose IRL Inbox emails
+  {
+    id: 'email-6',
+    accountId: 'acc-2',
+    folderId: 'inbox-acc-2',
+    from: { email: 'client.services@hsbc.co.uk', name: 'HSBC Client Services' },
+    to: [{ email: 'irl@rowanrose.co.uk', name: 'Rowan Rose IRL' }],
+    subject: 'LOA Confirmation - Account Holder: James Taylor',
+    bodyText: 'Dear Rowan Rose Solicitors,\n\nWe confirm receipt of your Letter of Authority for the account holder James Taylor.\n\nWe will now process your request and respond accordingly.\n\nRegards,\nHSBC Client Services',
+    bodyHtml: '<p>Dear Rowan Rose Solicitors,</p><p>We confirm receipt of your Letter of Authority for the account holder James Taylor.</p><p>We will now process your request and respond accordingly.</p><p>Regards,<br/>HSBC Client Services</p>',
+    receivedAt: '2026-01-28T11:00:00Z',
+    isRead: false,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: false
+  },
+  {
+    id: 'email-7',
+    accountId: 'acc-2',
+    folderId: 'inbox-acc-2',
+    from: { email: 'lisa.brown@gmail.com', name: 'Lisa Brown' },
+    to: [{ email: 'irl@rowanrose.co.uk', name: 'Rowan Rose IRL' }],
+    subject: 'Signed LOA documents attached',
+    bodyText: 'Hi,\n\nPlease find attached my signed Letter of Authority documents as requested.\n\nLet me know if you need anything else.\n\nThanks,\nLisa',
+    bodyHtml: '<p>Hi,</p><p>Please find attached my signed Letter of Authority documents as requested.</p><p>Let me know if you need anything else.</p><p>Thanks,<br/>Lisa</p>',
+    receivedAt: '2026-01-28T09:30:00Z',
+    isRead: false,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: true,
+    attachments: [
+      { id: 'att-5', filename: 'Signed_LOA_Lisa_Brown.pdf', mimeType: 'application/pdf', size: 89000 }
+    ]
+  },
+  // DSAR Requests Inbox emails
+  {
+    id: 'email-8',
+    accountId: 'acc-3',
+    folderId: 'inbox-acc-3',
+    from: { email: 'dsar.response@aqua.co.uk', name: 'Aqua DSAR Team' },
+    to: [{ email: 'DSAR@fastactionclaims.co.uk', name: 'DSAR Requests' }],
+    subject: 'DSAR Response - Reference: AQ-DSAR-2026-1234 - Client: Robert Green',
+    bodyText: 'Dear Fast Action Claims,\n\nPlease find attached the DSAR response for your client Robert Green.\n\nThe attached documents include:\n- Account statements (2018-2025)\n- Credit agreement\n- Payment history\n- Communication records\n\nRegards,\nAqua DSAR Team',
+    bodyHtml: '<p>Dear Fast Action Claims,</p><p>Please find attached the DSAR response for your client Robert Green.</p><p>The attached documents include:</p><ul><li>Account statements (2018-2025)</li><li>Credit agreement</li><li>Payment history</li><li>Communication records</li></ul><p>Regards,<br/>Aqua DSAR Team</p>',
+    receivedAt: '2026-01-28T10:45:00Z',
+    isRead: false,
+    isStarred: true,
+    isDraft: false,
+    hasAttachments: true,
+    attachments: [
+      { id: 'att-6', filename: 'DSAR_Response_Robert_Green.zip', mimeType: 'application/zip', size: 4500000 }
+    ]
+  },
+  {
+    id: 'email-9',
+    accountId: 'acc-3',
+    folderId: 'inbox-acc-3',
+    from: { email: 'data.protection@mbna.co.uk', name: 'MBNA Data Protection' },
+    to: [{ email: 'DSAR@fastactionclaims.co.uk', name: 'DSAR Requests' }],
+    subject: 'DSAR Acknowledgement - Ref: MBNA-DSAR-2026-5678',
+    bodyText: 'Dear Sir/Madam,\n\nThis email confirms receipt of your DSAR request dated 15th January 2026.\n\nWe will respond within 30 calendar days.\n\nMBNA Data Protection Team',
+    bodyHtml: '<p>Dear Sir/Madam,</p><p>This email confirms receipt of your DSAR request dated 15th January 2026.</p><p>We will respond within 30 calendar days.</p><p>MBNA Data Protection Team</p>',
+    receivedAt: '2026-01-27T15:00:00Z',
+    isRead: true,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: false
+  },
+  {
+    id: 'email-10',
+    accountId: 'acc-3',
+    folderId: 'inbox-acc-3',
+    from: { email: 'complaints@moneyboat.co.uk', name: 'Money Boat Complaints' },
+    to: [{ email: 'DSAR@fastactionclaims.co.uk', name: 'DSAR Requests' }],
+    subject: 'DSAR Extension Request - Client: Amy Williams',
+    bodyText: 'Dear Fast Action Claims,\n\nDue to the volume of data requested, we require an extension of 30 days to complete the DSAR for your client Amy Williams.\n\nThis is permitted under GDPR Article 12(3).\n\nWe will provide the complete response by 28th February 2026.\n\nRegards,\nMoney Boat Complaints Team',
+    bodyHtml: '<p>Dear Fast Action Claims,</p><p>Due to the volume of data requested, we require an extension of 30 days to complete the DSAR for your client Amy Williams.</p><p>This is permitted under GDPR Article 12(3).</p><p>We will provide the complete response by 28th February 2026.</p><p>Regards,<br/>Money Boat Complaints Team</p>',
+    receivedAt: '2026-01-27T11:30:00Z',
+    isRead: false,
+    isStarred: false,
+    isDraft: false,
+    hasAttachments: false
+  }
+];
 

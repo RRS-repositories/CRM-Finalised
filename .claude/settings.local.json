@@ -11,7 +11,14 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(node --check:*)",
-      "Bash(nslookup:*)"
+      "Bash(nslookup:*)",
+      "Bash(dir /s \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS\\\\CRM-Finalised\")",
+      "Bash(findstr:*)",
+      "Bash(npm run build:*)",
+      "Bash(node -e:*)",
+      "Bash(netstat:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev)"
     ]
   }
 }

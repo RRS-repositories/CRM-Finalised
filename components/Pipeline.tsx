@@ -2,8 +2,11 @@
 import React, { useState, useMemo } from 'react';
 import { PIPELINE_CATEGORIES, SPEC_LENDERS } from '../constants';
 import { ClaimStatus, Claim } from '../types';
-import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
+
+// View type for toggle
+type ViewType = 'kanban' | 'list';
 
 // Date range options
 const DATE_RANGE_OPTIONS = [
@@ -97,6 +100,15 @@ const getAvatarColor = (name: string): string => {
   return colors[index];
 };
 
+// Generate Client ID (RR-YYMMDD-XXXX format) - same logic as Contacts.tsx
+const generateClientId = (contact: { id: string; clientId?: string; createdAt?: string }): string => {
+  if (contact.clientId) return contact.clientId;
+  const dateStr = contact.createdAt || new Date().toISOString();
+  const datePart = new Date(dateStr).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6);
+  const idPart = contact.id.slice(-4).toUpperCase();
+  return `RR-${datePart}-${idPart}`;
+};
+
 // Date filter helper function
 const isWithinDateRange = (dateStr: string | undefined, range: string): boolean => {
   if (!dateStr || range === 'all') return true;
@@ -165,6 +177,13 @@ const Pipeline: React.FC = () => {
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
 
+  // View toggle state
+  const [viewType, setViewType] = useState<ViewType>('kanban');
+
+  // Selection state for list view
+  const [selectedClaims, setSelectedClaims] = useState<Set<string>>(new Set());
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+
   // Filter States
   const [dateRangeFilter, setDateRangeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('');
@@ -179,6 +198,10 @@ const Pipeline: React.FC = () => {
   // Search states for dropdowns
   const [statusSearch, setStatusSearch] = useState('');
   const [lenderSearch, setLenderSearch] = useState('');
+
+  // Pagination state for list view
+  const [claimsPerPage, setClaimsPerPage] = useState(20);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Animation key - changes when filters change to trigger re-animation
   const filterKey = useMemo(() =>
@@ -224,6 +247,98 @@ const Pipeline: React.FC = () => {
           contactName: contact ? contact.fullName : 'Unknown Client'
        };
     });
+  };
+
+  // Helper to get the workflow stage (pipeline category) for a status
+  const getWorkflowStage = (status: string): string => {
+    for (const category of PIPELINE_CATEGORIES) {
+      if (category.statuses.includes(status as ClaimStatus)) {
+        return category.title;
+      }
+    }
+    return 'Unknown';
+  };
+
+  // Get all filtered claims for list view (sorted by date created)
+  const getAllFilteredClaims = useMemo(() => {
+    return claims
+      .filter(c => {
+        // Specific status filter
+        const specificStatusMatch = statusFilter === '' || c.status === statusFilter;
+        // Lender filter
+        const lenderMatch = lenderFilter === '' || c.lender === lenderFilter;
+        // Date range filter
+        const dateMatch = isWithinDateRange(c.startDate, dateRangeFilter);
+        // Client filter
+        let clientMatch = true;
+        if (clientFilter) {
+          const contact = contacts.find(con => con.id === c.contactId);
+          const contactName = contact ? contact.fullName : 'Unknown';
+          clientMatch = contactName.toLowerCase().includes(clientFilter.toLowerCase());
+        }
+        return specificStatusMatch && lenderMatch && dateMatch && clientMatch;
+      })
+      .map(claim => {
+        const contact = contacts.find(con => con.id === claim.contactId);
+        return {
+          ...claim,
+          contactName: contact ? contact.fullName : 'Unknown Client',
+          clientId: contact ? generateClientId({ id: contact.id, clientId: contact.clientId, createdAt: contact.createdAt }) : 'N/A',
+          workflowStage: getWorkflowStage(claim.status),
+          createdAt: claim.startDate || contact?.createdAt || ''
+        };
+      })
+      .sort((a, b) => {
+        // Sort by date created (newest first)
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+  }, [claims, contacts, statusFilter, lenderFilter, dateRangeFilter, clientFilter]);
+
+  // Pagination calculations for list view
+  const totalPages = Math.ceil(getAllFilteredClaims.length / claimsPerPage);
+  const startIndex = (currentPage - 1) * claimsPerPage;
+  const endIndex = startIndex + claimsPerPage;
+  const paginatedClaims = getAllFilteredClaims.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change or per-page changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter, claimsPerPage]);
+
+  // Selection handlers for list view
+  const toggleClaimSelection = (claimId: string) => {
+    setSelectedClaims(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(claimId)) {
+        newSet.delete(claimId);
+      } else {
+        newSet.add(claimId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedClaims.size === getAllFilteredClaims.length) {
+      setSelectedClaims(new Set());
+    } else {
+      setSelectedClaims(new Set(getAllFilteredClaims.map(c => c.id)));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedClaims(new Set());
+  };
+
+  // Bulk update status for selected claims
+  const handleBulkStatusUpdate = (newStatus: ClaimStatus) => {
+    selectedClaims.forEach(claimId => {
+      updateClaimStatus(claimId, newStatus);
+    });
+    setSelectedClaims(new Set());
+    setShowStatusDropdown(false);
   };
 
   const handleDragStart = (e: React.DragEvent, claimId: string) => {
@@ -293,6 +408,33 @@ const Pipeline: React.FC = () => {
                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
                   {claims.length} Claims
                </span>
+               {/* View Toggle Button */}
+               <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
+                  <button
+                     onClick={() => setViewType('kanban')}
+                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all ${
+                        viewType === 'kanban'
+                           ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                     }`}
+                     title="Kanban View"
+                  >
+                     <LayoutGrid size={14} />
+                     <span className="hidden sm:inline">Kanban</span>
+                  </button>
+                  <button
+                     onClick={() => setViewType('list')}
+                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all ${
+                        viewType === 'list'
+                           ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                     }`}
+                     title="List View"
+                  >
+                     <List size={14} />
+                     <span className="hidden sm:inline">List</span>
+                  </button>
+               </div>
             </div>
 
             {/* Compact Filter Bar */}
@@ -539,7 +681,253 @@ const Pipeline: React.FC = () => {
          />
       )}
 
+      {/* List View */}
+      {viewType === 'list' && (
+         <div className="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-slate-900">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden border border-gray-200 dark:border-slate-700">
+               {/* Table */}
+               <table className="w-full border-collapse">
+                  {/* Table Header */}
+                  <thead>
+                     <tr className="bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600">
+                        <th className="w-12 px-4 py-3 border-r border-gray-200 dark:border-slate-600">
+                           <input
+                              type="checkbox"
+                              checked={getAllFilteredClaims.length > 0 && selectedClaims.size === getAllFilteredClaims.length}
+                              onChange={toggleSelectAll}
+                              className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                           />
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
+                           Client ID
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
+                           Client Name
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
+                           Lender
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
+                           Status
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
+                           Workflow Stage
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                           Created
+                        </th>
+                     </tr>
+                  </thead>
+                  {/* Table Body */}
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                     {paginatedClaims.length === 0 ? (
+                        <tr>
+                           <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                              <TrendingUp size={32} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                              <p className="text-sm">No claims found matching your filters</p>
+                           </td>
+                        </tr>
+                     ) : (
+                        paginatedClaims.map((claim, index) => {
+                           const priority = getPriorityFromClaimValue(claim.claimValue || 0);
+                           const priorityStyle = priorityConfig[priority];
+                           const avatarColor = getAvatarColor(claim.contactName);
+                           const initials = claim.contactName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+                           const stageGradient = columnGradients[PIPELINE_CATEGORIES.find(c => c.title === claim.workflowStage)?.id || 'lead-generation'];
+                           const isSelected = selectedClaims.has(claim.id);
+
+                           return (
+                              <tr
+                                 key={claim.id}
+                                 className={`
+                                    hover:bg-indigo-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer
+                                    ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/20' : index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/50 dark:bg-slate-800/50'}
+                                 `}
+                                 onClick={() => toggleClaimSelection(claim.id)}
+                              >
+                                 {/* Checkbox */}
+                                 <td className="w-12 px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <input
+                                       type="checkbox"
+                                       checked={isSelected}
+                                       onChange={() => toggleClaimSelection(claim.id)}
+                                       onClick={(e) => e.stopPropagation()}
+                                       className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                 </td>
+                                 {/* Client ID */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <span className="text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded">
+                                       {claim.clientId}
+                                    </span>
+                                 </td>
+                                 {/* Client Name */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <div className="flex items-center gap-2">
+                                       <div className={`w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                                          {initials}
+                                       </div>
+                                       <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                          {claim.contactName}
+                                       </span>
+                                    </div>
+                                 </td>
+                                 {/* Lender */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                                       {claim.lender}
+                                    </span>
+                                 </td>
+                                 {/* Status */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <span className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color}`}>
+                                       <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
+                                       {claim.status}
+                                    </span>
+                                 </td>
+                                 {/* Workflow Stage */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
+                                    <span className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md text-white ${stageGradient.gradient}`}>
+                                       {claim.workflowStage}
+                                    </span>
+                                 </td>
+                                 {/* Created Date */}
+                                 <td className="px-4 py-3 text-right">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                       {(() => {
+                                          if (!claim.createdAt) return '-';
+                                          const date = new Date(claim.createdAt);
+                                          if (isNaN(date.getTime())) return '-';
+                                          return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                                       })()}
+                                    </span>
+                                 </td>
+                              </tr>
+                           );
+                        })
+                     )}
+                  </tbody>
+               </table>
+               {/* Table Footer with Pagination */}
+               {getAllFilteredClaims.length > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
+                     <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                           Showing {startIndex + 1}-{Math.min(endIndex, getAllFilteredClaims.length)} of {getAllFilteredClaims.length}
+                        </span>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <div className="flex items-center gap-1.5">
+                           <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
+                           <select
+                              value={claimsPerPage}
+                              onChange={(e) => setClaimsPerPage(Number(e.target.value))}
+                              className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                           >
+                              <option value={20}>20</option>
+                              <option value={30}>30</option>
+                              <option value={50}>50</option>
+                              <option value={100}>100</option>
+                           </select>
+                        </div>
+                     </div>
+                     <div className="flex items-center">
+                        <button
+                           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                           disabled={currentPage === 1}
+                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                        >
+                           Previous
+                        </button>
+                        <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
+                           {currentPage} / {totalPages || 1}
+                        </span>
+                        <button
+                           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                           disabled={currentPage === totalPages || totalPages === 0}
+                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                        >
+                           Next
+                        </button>
+                     </div>
+                  </div>
+               )}
+            </div>
+
+            {/* Selection Action Bar */}
+            {selectedClaims.size > 0 && (
+               <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+                  {/* Status Dropdown */}
+                  {showStatusDropdown && (
+                     <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-80 max-h-96 overflow-hidden">
+                        <div className="p-3 border-b border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50">
+                           <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Update Status</h3>
+                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Select a status for {selectedClaims.size} selected claim{selectedClaims.size > 1 ? 's' : ''}</p>
+                        </div>
+                        <div className="overflow-y-auto max-h-72">
+                           {PIPELINE_CATEGORIES.map((category) => {
+                              const gradientConfig = columnGradients[category.id] || columnGradients['lead-generation'];
+                              return (
+                                 <div key={category.id} className="border-b border-gray-100 dark:border-slate-700 last:border-b-0">
+                                    <div className={`px-3 py-2 ${gradientConfig.gradient}`}>
+                                       <span className="text-xs font-semibold text-white uppercase tracking-wider">{category.title}</span>
+                                    </div>
+                                    <div className="py-1">
+                                       {category.statuses.map((status) => (
+                                          <button
+                                             key={status}
+                                             onClick={() => handleBulkStatusUpdate(status)}
+                                             className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                                          >
+                                             <span className={`w-2 h-2 rounded-full ${gradientConfig.gradient}`}></span>
+                                             {status}
+                                          </button>
+                                       ))}
+                                    </div>
+                                 </div>
+                              );
+                           })}
+                        </div>
+                     </div>
+                  )}
+
+                  {/* Action Bar */}
+                  <div className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-4">
+                     <span className="text-sm font-medium">{selectedClaims.size} selected</span>
+                     <div className="h-4 w-px bg-slate-600"></div>
+                     <button
+                        className={`text-sm transition-colors flex items-center gap-1.5 ${showStatusDropdown ? 'text-indigo-300' : 'hover:text-indigo-300'}`}
+                        onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                     >
+                        <TrendingUp size={14} />
+                        Update Status
+                        <ChevronDown size={14} className={`transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                     </button>
+                     <div className="h-4 w-px bg-slate-600"></div>
+                     <button
+                        className="text-sm hover:text-red-300 transition-colors"
+                        onClick={() => {
+                           clearSelection();
+                           setShowStatusDropdown(false);
+                        }}
+                     >
+                        <X size={16} />
+                     </button>
+                  </div>
+               </div>
+            )}
+
+            {/* Click outside to close status dropdown */}
+            {showStatusDropdown && (
+               <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowStatusDropdown(false)}
+               />
+            )}
+         </div>
+      )}
+
       {/* Kanban Board */}
+      {viewType === 'kanban' && (
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
          <div className="flex space-x-4 h-full min-w-max pb-2">
             {PIPELINE_CATEGORIES.map((cat) => {
@@ -680,6 +1068,7 @@ const Pipeline: React.FC = () => {
             })}
          </div>
       </div>
+      )}
     </div>
   );
 };

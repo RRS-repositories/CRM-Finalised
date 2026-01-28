@@ -859,7 +859,7 @@ const processPendingLOAs = async () => {
                    cnt.signature_2_url, cnt.dob
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
-            WHERE (c.status = 'LENDER SELECTION FORM COMPLETED' OR c.status = 'New Lead' OR c.status = 'LOA Sent')
+            WHERE (c.status = 'Lender Selection Form Completed' OR c.status = 'New Lead' OR c.status = 'LOA Sent')
             AND (c.loa_generated IS NULL OR c.loa_generated = false)
             AND cnt.signature_2_url IS NOT NULL
             LIMIT 50

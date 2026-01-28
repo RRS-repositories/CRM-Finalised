@@ -159,6 +159,9 @@ pool.on('error', (err, client) => {
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='loa_generated') THEN
                          ALTER TABLE cases ADD COLUMN loa_generated BOOLEAN DEFAULT FALSE;
                     END IF;
+
+                    -- Fix capitalization of status values
+                    UPDATE cases SET status = 'Lender Selection Form Completed' WHERE status = 'LENDER SELECTION FORM COMPLETED';
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
@@ -3054,6 +3057,21 @@ app.delete('/api/notes/:id', async (req, res) => {
 
 // --- ACTION LOGS API ---
 
+// Get all action logs (for contacts list view - shows latest per client)
+app.get('/api/actions/all', async (req, res) => {
+    try {
+        // Get the most recent action for each client
+        const { rows } = await pool.query(`
+            SELECT DISTINCT ON (client_id) *
+            FROM action_logs
+            ORDER BY client_id, timestamp DESC
+        `);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get action logs for a client
 app.get('/api/clients/:id/actions', async (req, res) => {
     const { category, limit } = req.query;
@@ -4144,11 +4162,11 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     try {
                         const standardizedLenderName = standardizeLender(lender);
 
-                        // Condition: Only the Intake Lender gets 'LENDER SELECTION FORM COMPLETED' initially
+                        // Condition: Only the Intake Lender gets 'Lender Selection Form Completed' initially
                         // Others get 'New Lead'
                         let initialStatus = 'New Lead';
                         if (contact.intake_lender && standardizeLender(contact.intake_lender) === standardizedLenderName) {
-                            initialStatus = 'LENDER SELECTION FORM COMPLETED';
+                            initialStatus = 'Lender Selection Form Completed';
                         }
 
                         // CHECK FOR EXISTING CASE FIRST
@@ -4161,7 +4179,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
                             // Case exists - update status if it's the intake lender, otherwise leave as is (or update if needed)
                             console.log(`[Background LOA] Case already exists for ${lender}. Updating status if needed.`);
 
-                            if (initialStatus === 'LENDER SELECTION FORM COMPLETED') {
+                            if (initialStatus === 'Lender Selection Form Completed') {
                                 await pool.query(
                                     `UPDATE cases SET status = $1 WHERE id = $2`,
                                     [initialStatus, existingCaseRes.rows[0].id]
@@ -4195,7 +4213,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
 
                     // Update existing case if it exists (e.g. created created above or previously)
                     const updateResult = await pool.query(
-                        `UPDATE cases SET status = 'LENDER SELECTION FORM COMPLETED' 
+                        `UPDATE cases SET status = 'Lender Selection Form Completed' 
                          WHERE contact_id = $1 AND lower(lender) = lower($2)`,
                         [contactId, stdIntakeLender]
                     );
@@ -4204,7 +4222,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
                         // If not exists (meaning user didn't select it? or it wasn't in list?), create it
                         await pool.query(
                             `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated)
-                             VALUES ($1, $2, 'LENDER SELECTION FORM COMPLETED', 0, CURRENT_TIMESTAMP, false)`,
+                             VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false)`,
                             [contactId, stdIntakeLender]
                         );
                     }

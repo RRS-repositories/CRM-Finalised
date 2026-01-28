@@ -4,12 +4,12 @@ import {
    Search, Filter, Upload, Download, MoreHorizontal,
    Trash2, X, UserPlus, ArrowLeft, Clock as ClockIcon,
    FileText as FileIcon, Paperclip, StickyNote,
-   ChevronDown, Plus, Check, Mail as MailIcon,
+   ChevronDown, ChevronUp, Plus, Check, Mail as MailIcon,
    Phone as PhoneIcon, Calendar as CalendarIcon,
    MapPin, CreditCard, Sparkles, MessageSquare as MessageIcon,
    Eye, File as GenericFileIcon, AlertTriangle, Edit, FileUp,
    User, Briefcase, Workflow, History, Send, XCircle,
-   Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle
+   Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle, RotateCcw
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
@@ -269,6 +269,10 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
    // Timeline Filter
    const [timelineFilter, setTimelineFilter] = useState<string>('all');
+
+   // Claims Pagination State
+   const [claimsPerPage, setClaimsPerPage] = useState(20);
+   const [currentClaimsPage, setCurrentClaimsPage] = useState(1);
 
    // Claim File View (detailed view for individual claim)
    const [viewingClaimId, setViewingClaimId] = useState<string | null>(null);
@@ -1514,6 +1518,14 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                <div className="space-y-4">
                   {/* CLAIMS LIST VIEW (when not viewing a specific claim) */}
                   {!viewingClaimId && (
+                     (() => {
+                        // Claims Pagination calculations
+                        const totalClaimsPages = Math.ceil(contactClaims.length / claimsPerPage);
+                        const startClaimIndex = (currentClaimsPage - 1) * claimsPerPage;
+                        const endClaimIndex = startClaimIndex + claimsPerPage;
+                        const paginatedClaims = contactClaims.slice(startClaimIndex, endClaimIndex);
+
+                        return (
                      <>
                         {/* Clean Header */}
                         <div className="flex justify-between items-center">
@@ -1545,7 +1557,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                            </div>
 
                            {/* Table Body */}
-                           {contactClaims.map((claim, index) => (
+                           {paginatedClaims.map((claim, index) => (
                               <div
                                  key={claim.id}
                                  className={`grid grid-cols-12 gap-4 px-5 py-4 border-b border-gray-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600/50 transition-colors items-center ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}
@@ -1595,8 +1607,57 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  </button>
                               </div>
                            )}
+
+                           {/* Claims Pagination Controls */}
+                           {contactClaims.length > 0 && (
+                              <div className="flex items-center justify-between px-5 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
+                                 <div className="flex items-center gap-3">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                       Showing {startClaimIndex + 1}-{Math.min(endClaimIndex, contactClaims.length)} of {contactClaims.length}
+                                    </span>
+                                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                                    <div className="flex items-center gap-1.5">
+                                       <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
+                                       <select
+                                          value={claimsPerPage}
+                                          onChange={(e) => {
+                                             setClaimsPerPage(Number(e.target.value));
+                                             setCurrentClaimsPage(1);
+                                          }}
+                                          className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                       >
+                                          <option value={20}>20</option>
+                                          <option value={30}>30</option>
+                                          <option value={50}>50</option>
+                                          <option value={100}>100</option>
+                                       </select>
+                                    </div>
+                                 </div>
+                                 <div className="flex items-center">
+                                    <button
+                                       onClick={() => setCurrentClaimsPage(prev => Math.max(prev - 1, 1))}
+                                       disabled={currentClaimsPage === 1}
+                                       className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                    >
+                                       Previous
+                                    </button>
+                                    <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
+                                       {currentClaimsPage} / {totalClaimsPages || 1}
+                                    </span>
+                                    <button
+                                       onClick={() => setCurrentClaimsPage(prev => Math.min(prev + 1, totalClaimsPages))}
+                                       disabled={currentClaimsPage === totalClaimsPages || totalClaimsPages === 0}
+                                       className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                    >
+                                       Next
+                                    </button>
+                                 </div>
+                              </div>
+                           )}
                         </div>
                      </>
+                        );
+                     })()
                   )}
 
                   {/* INDIVIDUAL CLAIM FILE VIEW - Following crm-claim-spec.md */}
@@ -1645,7 +1706,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  id: 'onboarding',
                                  label: 'Onboarding',
                                  color: '#a855f7', // purple
-                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'LENDER SELECTION FORM COMPLETED', 'Bank Statements Received', 'Onboarding Complete']
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
                               },
                               {
                                  id: 'dsar-process',
@@ -1846,7 +1907,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                              'LOA Sent',
                                              'LOA Signed',
                                              'Bank Statements Requested',
-                                             'LENDER SELECTION FORM COMPLETED',
+                                             'Lender Selection Form Completed',
                                              'Bank Statements Received',
                                              'Onboarding Complete'
                                           ]
@@ -1948,23 +2009,17 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                              className="claim-input w-full px-3 py-2 border-2 border-gray-400 dark:border-slate-500 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
                                              style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
                                           >
-                                             {availableStatuses.length > 0 ? (
-                                                availableStatuses.map(status => (
-                                                   <option key={status} value={status}>{status}</option>
-                                                ))
-                                             ) : (
-                                                // Show all statuses grouped if no current stage found
-                                                pipelineStages.map(stage => (
-                                                   <optgroup key={stage.id} label={stage.label}>
-                                                      {stage.statuses.map(status => (
-                                                         <option key={status} value={status}>{status}</option>
-                                                      ))}
-                                                   </optgroup>
-                                                ))
-                                             )}
+                                             {/* Show all statuses grouped by stage */}
+                                             {pipelineStages.map(stage => (
+                                                <optgroup key={stage.id} label={stage.label}>
+                                                   {stage.statuses.map(status => (
+                                                      <option key={status} value={status}>{status}</option>
+                                                   ))}
+                                                </optgroup>
+                                             ))}
                                           </select>
                                           <p className="text-[10px] text-gray-400 mt-1">
-                                             Showing {availableStatuses.length} statuses for {stageLabel}
+                                             Showing all {pipelineStages.reduce((sum, stage) => sum + stage.statuses.length, 0)} statuses
                                           </p>
                                        </div>
                                     );
@@ -3627,12 +3682,75 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 };
 
 const Contacts: React.FC = () => {
-   const { contacts, addContact, deleteContacts, addNotification } = useCRM();
+   const { contacts, addContact, deleteContacts, addNotification, actionLogs } = useCRM();
+
+   // Helper function to generate Client ID in RR-YYMMDD-XXX format
+   const generateClientId = (contact: Contact): string => {
+      if (contact.clientId) return contact.clientId;
+
+      // Generate from createdAt date and contact ID
+      const createdDate = contact.createdAt ? new Date(contact.createdAt) : new Date();
+      const yy = String(createdDate.getFullYear()).slice(-2);
+      const mm = String(createdDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(createdDate.getDate()).padStart(2, '0');
+
+      return `RR-${yy}${mm}${dd}-${contact.id}`;
+   };
+
+   // Helper function to get the latest action for a contact
+   const getLatestAction = (contactId: string): { actionType: string; description: string; timeAgo: string } | null => {
+      const contactActions = actionLogs.filter(log => String(log.clientId) === String(contactId));
+      if (contactActions.length === 0) return null;
+
+      // Sort by timestamp descending and get the most recent
+      const sorted = [...contactActions].sort((a, b) =>
+         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      const latest = sorted[0];
+
+      // Format relative time
+      const date = new Date(latest.timestamp);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      let timeAgo = '';
+      if (diffMins < 1) timeAgo = 'Just now';
+      else if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+      else if (diffHours < 24) timeAgo = `${diffHours}h ago`;
+      else if (diffDays < 7) timeAgo = `${diffDays}d ago`;
+      else timeAgo = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+
+      // Format action type for display
+      const actionTypeFormatted = latest.actionType
+         .replace(/_/g, ' ')
+         .replace(/\b\w/g, c => c.toUpperCase());
+
+      return {
+         actionType: actionTypeFormatted,
+         description: latest.description,
+         timeAgo
+      };
+   };
    const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
    const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
    const [showAddContact, setShowAddContact] = useState(false);
    const [showBulkImport, setShowBulkImport] = useState(false);
-   const [searchTerm, setSearchTerm] = useState('');
+   const [showSearchFilters, setShowSearchFilters] = useState(false);
+
+   // Individual search fields
+   const [searchFirstName, setSearchFirstName] = useState('');
+   const [searchSurname, setSearchSurname] = useState('');
+   const [searchFullName, setSearchFullName] = useState('');
+   const [searchPhone, setSearchPhone] = useState('');
+   const [searchPostcode, setSearchPostcode] = useState('');
+   const [searchClientId, setSearchClientId] = useState('');
+
+   // Pagination State
+   const [contactsPerPage, setContactsPerPage] = useState(20);
+   const [currentContactsPage, setCurrentContactsPage] = useState(1);
 
    // Action Menu & Delete Logic
    const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -3706,40 +3824,162 @@ const Contacts: React.FC = () => {
       return <ContactDetailView contactId={selectedContactId} onBack={handleBack} />;
    }
 
-   const filteredContacts = contacts.filter(c =>
-      c.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase())
-   );
+   const filteredContacts = contacts.filter(c => {
+      // Check each search field - all filled fields must match (AND logic)
+      const matchesFirstName = !searchFirstName ||
+         (c.firstName && c.firstName.toLowerCase().includes(searchFirstName.toLowerCase()));
+      const matchesSurname = !searchSurname ||
+         (c.lastName && c.lastName.toLowerCase().includes(searchSurname.toLowerCase()));
+      const matchesFullName = !searchFullName ||
+         c.fullName.toLowerCase().includes(searchFullName.toLowerCase());
+      const matchesPhone = !searchPhone ||
+         (c.phone && c.phone.toLowerCase().includes(searchPhone.toLowerCase()));
+      const matchesPostcode = !searchPostcode ||
+         (c.address?.postalCode && c.address.postalCode.toLowerCase().includes(searchPostcode.toLowerCase()));
+
+      // Match Client ID: full generated ID, stored clientId, or just the number
+      const generatedId = generateClientId(c);
+      const searchTerm = searchClientId.toLowerCase();
+      const matchesClientId = !searchClientId ||
+         String(c.id).includes(searchClientId) ||
+         generatedId.toLowerCase().includes(searchTerm) ||
+         (c.clientId && c.clientId.toLowerCase().includes(searchTerm));
+
+      return matchesFirstName && matchesSurname && matchesFullName &&
+             matchesPhone && matchesPostcode && matchesClientId;
+   });
+
+   // Pagination calculations
+   const totalContactsPages = Math.ceil(filteredContacts.length / contactsPerPage);
+   const startContactIndex = (currentContactsPage - 1) * contactsPerPage;
+   const endContactIndex = startContactIndex + contactsPerPage;
+   const paginatedContacts = filteredContacts.slice(startContactIndex, endContactIndex);
+
+   // Reset to page 1 when filters change or per-page changes
+   useEffect(() => {
+      setCurrentContactsPage(1);
+   }, [searchFirstName, searchSurname, searchFullName, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
 
    return (
       <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors">
          {/* Header */}
-         <div className="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 flex-shrink-0 shadow-sm">
-            <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
-            <div className="flex gap-3">
-               <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                     type="text"
-                     placeholder="Search contacts..."
-                     value={searchTerm}
-                     onChange={(e) => setSearchTerm(e.target.value)}
-                     className="pl-9 pr-4 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                  />
+         <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-shrink-0 shadow-sm">
+            <div className="h-16 flex items-center justify-between px-6">
+               <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
+               <div className="flex gap-3">
+                  <button
+                     onClick={() => setShowSearchFilters(!showSearchFilters)}
+                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors border ${
+                        showSearchFilters
+                           ? 'bg-navy-600 text-white border-navy-600'
+                           : 'bg-white dark:bg-slate-700 border-gray-200 dark:border-slate-600 text-gray-700 dark:text-white hover:bg-gray-50 dark:hover:bg-slate-600'
+                     }`}
+                  >
+                     <Filter size={18} />
+                     Search Filters
+                     {showSearchFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                  <button
+                     onClick={() => setShowBulkImport(true)}
+                     className="bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 text-navy-700 dark:text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
+                  >
+                     <FileUp size={18} /> Bulk Import
+                  </button>
+                  <button
+                     onClick={() => setShowAddContact(true)}
+                     className="bg-brand-orange hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
+                  >
+                     <UserPlus size={18} /> Add Contact
+                  </button>
                </div>
-               <button
-                  onClick={() => setShowBulkImport(true)}
-                  className="bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 text-navy-700 dark:text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
-               >
-                  <FileUp size={18} /> Bulk Import
-               </button>
-               <button
-                  onClick={() => setShowAddContact(true)}
-                  className="bg-brand-orange hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
-               >
-                  <UserPlus size={18} /> Add Contact
-               </button>
             </div>
+
+            {/* Search Filters Panel */}
+            {showSearchFilters && (
+               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
+                  <div className="grid grid-cols-6 gap-4">
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">First Name</label>
+                        <input
+                           type="text"
+                           placeholder="Search first name..."
+                           value={searchFirstName}
+                           onChange={(e) => setSearchFirstName(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Surname</label>
+                        <input
+                           type="text"
+                           placeholder="Search surname..."
+                           value={searchSurname}
+                           onChange={(e) => setSearchSurname(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Full Name</label>
+                        <input
+                           type="text"
+                           placeholder="Search full name..."
+                           value={searchFullName}
+                           onChange={(e) => setSearchFullName(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Contact Number</label>
+                        <input
+                           type="text"
+                           placeholder="Search phone..."
+                           value={searchPhone}
+                           onChange={(e) => setSearchPhone(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Post Code</label>
+                        <input
+                           type="text"
+                           placeholder="Search postcode..."
+                           value={searchPostcode}
+                           onChange={(e) => setSearchPostcode(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Client ID</label>
+                        <input
+                           type="text"
+                           placeholder="Search client ID..."
+                           value={searchClientId}
+                           onChange={(e) => setSearchClientId(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                  </div>
+                  <div className="flex justify-between items-center mt-4">
+                     <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {filteredContacts.length} of {contacts.length} contacts
+                     </span>
+                     <button
+                        onClick={() => {
+                           setSearchFirstName('');
+                           setSearchSurname('');
+                           setSearchFullName('');
+                           setSearchPhone('');
+                           setSearchPostcode('');
+                           setSearchClientId('');
+                        }}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg transition-colors"
+                     >
+                        <RotateCcw size={14} />
+                        Clear Filters
+                     </button>
+                  </div>
+               </div>
+            )}
          </div>
 
          {/* List */}
@@ -3748,16 +3988,15 @@ const Contacts: React.FC = () => {
                <table className="w-full text-left">
                   <thead className="bg-gradient-to-r from-slate-100 to-gray-100 dark:from-slate-700 dark:to-slate-800 border-b-2 border-gray-200 dark:border-slate-600">
                      <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Name</th>
-                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Lender</th>
-                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Est. Value</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Client ID</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Full Name</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Contact</th>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Last Activity</th>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider text-right">Action</th>
                      </tr>
                   </thead>
                   <tbody>
-                     {filteredContacts.map((contact, index) => (
+                     {paginatedContacts.map((contact, index) => (
                         <tr
                            key={contact.id}
                            onClick={() => handleContactClick(contact.id)}
@@ -3772,30 +4011,62 @@ const Contacts: React.FC = () => {
                               hover:shadow-md hover:scale-[1.005] hover:z-10 relative
                            `}
                         >
+                           {/* Client ID */}
+                           <td className="px-6 py-4">
+                              <span className="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded">
+                                 {generateClientId(contact)}
+                              </span>
+                           </td>
+                           {/* Full Name */}
                            <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
                                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
                                     {contact.fullName.charAt(0).toUpperCase()}
                                  </div>
-                                 <div>
-                                    <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName}</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400">{contact.email}</div>
+                                 <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName}</div>
+                              </div>
+                           </td>
+                           {/* Contact (Email & Phone) */}
+                           <td className="px-6 py-4">
+                              <div className="flex flex-col gap-1">
+                                 <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                    <MailIcon size={14} className="text-gray-400" />
+                                    <span>{contact.email || '—'}</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                    <PhoneIcon size={14} className="text-gray-400" />
+                                    <span>{contact.phone || '—'}</span>
                                  </div>
                               </div>
                            </td>
+                           {/* Last Activity (from Action Timeline) */}
                            <td className="px-6 py-4">
-                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${getStatusColor(contact.status)}`}>
-                                 <span className="w-2 h-2 rounded-full mr-2 bg-current opacity-70"></span>
-                                 {contact.status}
-                              </span>
+                              {(() => {
+                                 const latestAction = getLatestAction(contact.id);
+                                 if (!latestAction) {
+                                    return (
+                                       <span className="text-sm text-gray-400 dark:text-gray-500 italic">
+                                          No activity
+                                       </span>
+                                    );
+                                 }
+                                 return (
+                                    <div className="flex flex-col gap-1 max-w-[280px]">
+                                       <div className="flex items-center gap-2">
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                             {latestAction.actionType}
+                                          </span>
+                                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                                             {latestAction.timeAgo}
+                                          </span>
+                                       </div>
+                                       <p className="text-sm text-gray-600 dark:text-gray-400 truncate" title={latestAction.description}>
+                                          {latestAction.description}
+                                       </p>
+                                    </div>
+                                 );
+                              })()}
                            </td>
-                           <td className="px-6 py-4 text-sm font-medium text-gray-700 dark:text-gray-300">{contact.lender || '—'}</td>
-                           <td className="px-6 py-4">
-                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded-lg">
-                                 £{(contact.claimValue || 0).toLocaleString()}
-                              </span>
-                           </td>
-                           <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{contact.lastActivity || 'Active'}</td>
                            <td className="px-6 py-4 text-right relative">
                               <button
                                  onClick={(e) => {
@@ -3829,15 +4100,59 @@ const Contacts: React.FC = () => {
                            </td>
                         </tr>
                      ))}
-                     {filteredContacts.length === 0 && (
+                     {paginatedContacts.length === 0 && (
                         <tr>
-                           <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                           <td colSpan={5} className="px-6 py-12 text-center text-gray-400">
                               No contacts found.
                            </td>
                         </tr>
                      )}
                   </tbody>
                </table>
+
+               {/* Pagination Controls */}
+               {filteredContacts.length > 0 && (
+                  <div className="flex items-center justify-between px-6 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
+                     <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                           Showing {startContactIndex + 1}-{Math.min(endContactIndex, filteredContacts.length)} of {filteredContacts.length}
+                        </span>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <div className="flex items-center gap-1.5">
+                           <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
+                           <select
+                              value={contactsPerPage}
+                              onChange={(e) => setContactsPerPage(Number(e.target.value))}
+                              className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                           >
+                              <option value={20}>20</option>
+                              <option value={30}>30</option>
+                              <option value={50}>50</option>
+                              <option value={100}>100</option>
+                           </select>
+                        </div>
+                     </div>
+                     <div className="flex items-center">
+                        <button
+                           onClick={() => setCurrentContactsPage(prev => Math.max(prev - 1, 1))}
+                           disabled={currentContactsPage === 1}
+                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                        >
+                           Previous
+                        </button>
+                        <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
+                           {currentContactsPage} / {totalContactsPages || 1}
+                        </span>
+                        <button
+                           onClick={() => setCurrentContactsPage(prev => Math.min(prev + 1, totalContactsPages))}
+                           disabled={currentContactsPage === totalContactsPages || totalContactsPages === 0}
+                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                        >
+                           Next
+                        </button>
+                     </div>
+                  </div>
+               )}
             </div>
          </div>
 

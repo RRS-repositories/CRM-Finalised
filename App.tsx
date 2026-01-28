@@ -6,6 +6,7 @@ import Contacts from './components/Contacts';
 import Pipeline from './components/Pipeline';
 import Calendar from './components/Calendar';
 import Conversations from './components/Conversations';
+import { EmailConversations } from './components/Email';
 import Documents from './components/Documents';
 import Forms from './components/Forms';
 import Workflows from './components/Workflows';
@@ -75,7 +76,7 @@ const AppContent = () => {
       case ViewState.CONVERSATIONS_SMS:
         return <Conversations platformFilter="sms" />;
       case ViewState.CONVERSATIONS_EMAIL:
-        return <Conversations platformFilter="email" />;
+        return <EmailConversations />;
 
       case ViewState.MARKETING:
         return <Marketing />;
