@@ -85,8 +85,8 @@ export const emailService = {
 
     } catch (error) {
       console.error("❌ Failed to send verification email:", error);
-      alert(`[ERROR] Could not connect to Email Server at ${BACKEND_URL}.\n\nEnsure you are running 'node server.js'.\n\nFallback Code: ${code}`);
-      return true;
+      // Email server connection failed - user should ensure server.js is running
+      return false;
     }
   },
 
@@ -135,8 +135,8 @@ export const emailService = {
 
     } catch (error) {
       console.error("❌ Failed to send reset email:", error);
-      alert(`[ERROR] Could not connect to Email Server.\n\nFallback Link:\n${resetLink}`);
-      return true;
+      // Email server connection failed - user should ensure server.js is running
+      return false;
     }
   }
 };

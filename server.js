@@ -4318,6 +4318,7 @@ app.get('/api/contacts/:id/action-timeline', async (req, res) => {
 
 
 // --- BACKGROUND WORKER: PROCESS PENDING LOAs ---
-app.listen(port, () => {
-    console.log(`Consolidated Server running on port ${port}`);
+// Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Consolidated Server running on port ${port} (listening on all interfaces)`);
 });
