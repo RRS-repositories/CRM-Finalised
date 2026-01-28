@@ -1572,7 +1572,7 @@ const transporter = nodemailer.createTransport({
     secure: false,
     auth: {
         user: 'info@fastactionclaims.co.uk',
-        pass: 'R!508682892731uj' // Note: In production this should be in .env
+        pass: 'H!292668193906ah'
     },
     tls: {
         ciphers: 'SSLv3'

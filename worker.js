@@ -46,7 +46,7 @@ const lenderEmailTransporter = nodemailer.createTransport({
     secure: false,
     auth: {
         user: 'DSAR@fastactionclaims.co.uk',
-        pass: 'B$678397151113aq'
+        pass: 'Farm54595459!!!'
     },
     tls: {
         ciphers: 'SSLv3'
