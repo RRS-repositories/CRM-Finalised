@@ -30,7 +30,8 @@ const port = process.env.PORT || 5000;
 // ============================================================================
 // EMAIL DRAFT MODE - Set to true to SKIP sending ALL emails (for review)
 // ============================================================================
-const EMAIL_DRAFT_MODE = true; // Set to false when ready to send emails
+const EMAIL_DRAFT_MODE = false; // ENABLED - Lender Selection Form & General Emails will send
+// NOTE: DSAR emails (worker.js) have separate DRAFT mode control
 // ============================================================================
 
 // --- MIDDLEWARE ---
@@ -1813,12 +1814,26 @@ app.patch('/api/users/:id', async (req, res) => {
             count++;
         }
 
+        // If no fields to update, return error
+        if (params.length === 0) {
+            return res.status(400).json({ success: false, message: 'No fields to update' });
+        }
+
         query = query.slice(0, -2); // Remove last comma
         query += ` WHERE id = $${count} RETURNING *`;
         params.push(id);
 
+        // Execute the query (this was missing!)
+        const { rows } = await pool.query(query, params);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        console.log(`✅ User ${id} updated:`, { role, isApproved });
         res.json({ success: true, user: rows[0] });
     } catch (err) {
+        console.error('Error updating user:', err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
