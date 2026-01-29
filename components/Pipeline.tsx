@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PIPELINE_CATEGORIES, SPEC_LENDERS } from '../constants';
 import { ClaimStatus, Claim } from '../types';
-import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 
 // View type for toggle
@@ -172,7 +173,8 @@ const isWithinDateRange = (dateStr: string | undefined, range: string): boolean 
 };
 
 const Pipeline: React.FC = () => {
-  const { claims, contacts, updateClaimStatus } = useCRM();
+  const { claims, contacts, updateClaimStatus, bulkUpdateClaimStatusByIds, navigateToContact } = useCRM();
+  const navigate = useNavigate();
   const [draggedClaimId, setDraggedClaimId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
@@ -183,6 +185,9 @@ const Pipeline: React.FC = () => {
   // Selection state for list view
   const [selectedClaims, setSelectedClaims] = useState<Set<string>>(new Set());
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+
+  // Inline status dropdown state for list view rows
+  const [inlineStatusDropdownId, setInlineStatusDropdownId] = useState<string | null>(null);
 
   // Filter States
   const [dateRangeFilter, setDateRangeFilter] = useState('all');
@@ -332,17 +337,24 @@ const Pipeline: React.FC = () => {
     setSelectedClaims(new Set());
   };
 
-  // Bulk update status for selected claims
-  const handleBulkStatusUpdate = (newStatus: ClaimStatus) => {
-    selectedClaims.forEach(claimId => {
-      updateClaimStatus(claimId, newStatus);
-    });
+  // Bulk update status for selected claims - optimized single API call
+  const handleBulkStatusUpdate = async (newStatus: ClaimStatus) => {
+    const claimIds = Array.from(selectedClaims);
+    await bulkUpdateClaimStatusByIds(claimIds, newStatus);
     setSelectedClaims(new Set());
     setShowStatusDropdown(false);
   };
 
   const handleDragStart = (e: React.DragEvent, claimId: string) => {
-    setDraggedClaimId(claimId);
+    // If the dragged claim is selected, we'll drag all selected claims
+    // If not selected, just drag this one claim
+    if (selectedClaims.has(claimId)) {
+      setDraggedClaimId(claimId); // Primary dragged claim
+    } else {
+      // Clear selection and only drag this claim
+      setSelectedClaims(new Set([claimId]));
+      setDraggedClaimId(claimId);
+    }
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -355,7 +367,7 @@ const Pipeline: React.FC = () => {
      // Optional visual cleanup
   };
 
-  const handleDrop = (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => {
+  const handleDrop = async (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => {
     e.preventDefault();
     setDragOverColumnId(null);
 
@@ -363,8 +375,18 @@ const Pipeline: React.FC = () => {
 
     // Default to the first status in the dropped category
     const newStatus = categoryStatuses[0];
-    updateClaimStatus(draggedClaimId, newStatus);
-    
+
+    // If we have multiple selected claims, use optimized bulk update
+    if (selectedClaims.size > 1) {
+      const claimIds = Array.from(selectedClaims);
+      await bulkUpdateClaimStatusByIds(claimIds, newStatus);
+      setSelectedClaims(new Set());
+    } else {
+      // Single claim - use regular update
+      await updateClaimStatus(draggedClaimId, newStatus);
+      setSelectedClaims(new Set());
+    }
+
     setDraggedClaimId(null);
   };
 
@@ -670,13 +692,14 @@ const Pipeline: React.FC = () => {
       </div>
 
       {/* Click outside to close dropdowns */}
-      {(dateDropdownOpen || statusDropdownOpen || lenderDropdownOpen) && (
+      {(dateDropdownOpen || statusDropdownOpen || lenderDropdownOpen || inlineStatusDropdownId) && (
          <div
             className="fixed inset-0 z-40"
             onClick={() => {
                setDateDropdownOpen(false);
                setStatusDropdownOpen(false);
                setLenderDropdownOpen(false);
+               setInlineStatusDropdownId(null);
             }}
          />
       )}
@@ -778,12 +801,63 @@ const Pipeline: React.FC = () => {
                                        {claim.lender}
                                     </span>
                                  </td>
-                                 {/* Status */}
-                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
-                                    <span className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color}`}>
+                                 {/* Status - Clickable Dropdown */}
+                                 <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700 relative">
+                                    <button
+                                       onClick={(e) => {
+                                          e.stopPropagation();
+                                          setInlineStatusDropdownId(inlineStatusDropdownId === claim.id ? null : claim.id);
+                                       }}
+                                       className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color} hover:ring-2 hover:ring-offset-1 hover:ring-indigo-300 transition-all cursor-pointer`}
+                                    >
                                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
                                        {claim.status}
-                                    </span>
+                                       <ChevronDown size={10} className="ml-1 opacity-60" />
+                                    </button>
+
+                                    {/* Inline Status Dropdown */}
+                                    {inlineStatusDropdownId === claim.id && (
+                                       <div className="absolute left-0 top-full mt-1 z-[100] bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-72 max-h-80 overflow-hidden">
+                                          <div className="p-2 border-b border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50">
+                                             <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Change Status</span>
+                                          </div>
+                                          <div className="overflow-y-auto max-h-64">
+                                             {PIPELINE_CATEGORIES.map((category) => {
+                                                const catGradient = columnGradients[category.id] || columnGradients['lead-generation'];
+                                                return (
+                                                   <div key={category.id} className="border-b border-gray-100 dark:border-slate-700 last:border-b-0">
+                                                      <div className={`px-3 py-1.5 ${catGradient.gradient}`}>
+                                                         <span className="text-[10px] font-semibold text-white uppercase tracking-wider">{category.title}</span>
+                                                      </div>
+                                                      <div className="py-0.5">
+                                                         {category.statuses.map((status) => (
+                                                            <button
+                                                               key={status}
+                                                               onClick={async (e) => {
+                                                                  e.stopPropagation();
+                                                                  await updateClaimStatus(claim.id, status);
+                                                                  setInlineStatusDropdownId(null);
+                                                               }}
+                                                               className={`w-full text-left px-4 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                                                  claim.status === status
+                                                                     ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium'
+                                                                     : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700'
+                                                               }`}
+                                                            >
+                                                               <span className={`w-1.5 h-1.5 rounded-full ${catGradient.gradient}`}></span>
+                                                               {status}
+                                                               {claim.status === status && (
+                                                                  <span className="ml-auto text-indigo-500">✓</span>
+                                                               )}
+                                                            </button>
+                                                         ))}
+                                                      </div>
+                                                   </div>
+                                                );
+                                             })}
+                                          </div>
+                                       </div>
+                                    )}
                                  </td>
                                  {/* Workflow Stage */}
                                  <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
@@ -852,77 +926,6 @@ const Pipeline: React.FC = () => {
                   </div>
                )}
             </div>
-
-            {/* Selection Action Bar */}
-            {selectedClaims.size > 0 && (
-               <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-                  {/* Status Dropdown */}
-                  {showStatusDropdown && (
-                     <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-80 max-h-96 overflow-hidden">
-                        <div className="p-3 border-b border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50">
-                           <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Update Status</h3>
-                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Select a status for {selectedClaims.size} selected claim{selectedClaims.size > 1 ? 's' : ''}</p>
-                        </div>
-                        <div className="overflow-y-auto max-h-72">
-                           {PIPELINE_CATEGORIES.map((category) => {
-                              const gradientConfig = columnGradients[category.id] || columnGradients['lead-generation'];
-                              return (
-                                 <div key={category.id} className="border-b border-gray-100 dark:border-slate-700 last:border-b-0">
-                                    <div className={`px-3 py-2 ${gradientConfig.gradient}`}>
-                                       <span className="text-xs font-semibold text-white uppercase tracking-wider">{category.title}</span>
-                                    </div>
-                                    <div className="py-1">
-                                       {category.statuses.map((status) => (
-                                          <button
-                                             key={status}
-                                             onClick={() => handleBulkStatusUpdate(status)}
-                                             className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
-                                          >
-                                             <span className={`w-2 h-2 rounded-full ${gradientConfig.gradient}`}></span>
-                                             {status}
-                                          </button>
-                                       ))}
-                                    </div>
-                                 </div>
-                              );
-                           })}
-                        </div>
-                     </div>
-                  )}
-
-                  {/* Action Bar */}
-                  <div className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-4">
-                     <span className="text-sm font-medium">{selectedClaims.size} selected</span>
-                     <div className="h-4 w-px bg-slate-600"></div>
-                     <button
-                        className={`text-sm transition-colors flex items-center gap-1.5 ${showStatusDropdown ? 'text-indigo-300' : 'hover:text-indigo-300'}`}
-                        onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                     >
-                        <TrendingUp size={14} />
-                        Update Status
-                        <ChevronDown size={14} className={`transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
-                     </button>
-                     <div className="h-4 w-px bg-slate-600"></div>
-                     <button
-                        className="text-sm hover:text-red-300 transition-colors"
-                        onClick={() => {
-                           clearSelection();
-                           setShowStatusDropdown(false);
-                        }}
-                     >
-                        <X size={16} />
-                     </button>
-                  </div>
-               </div>
-            )}
-
-            {/* Click outside to close status dropdown */}
-            {showStatusDropdown && (
-               <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowStatusDropdown(false)}
-               />
-            )}
          </div>
       )}
 
@@ -990,21 +993,29 @@ const Pipeline: React.FC = () => {
                            const priority = getPriorityFromClaimValue(claim.claimValue || 0);
                            const priorityStyle = priorityConfig[priority];
                            const aiRecommendation = getAIRecommendation(claim.status, claim.daysInStage || 0);
-                           const avatarColor = getAvatarColor(claim.contactName);
-                           const initials = claim.contactName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
                            const staggerClass = `pipeline-card-stagger-${Math.min(index + 1, 5)}`;
+                           const isSelected = selectedClaims.has(claim.id);
+                           const isDragging = draggedClaimId === claim.id || (selectedClaims.has(claim.id) && draggedClaimId !== null);
 
                            return (
                               <div
                                  key={claim.id}
                                  draggable
                                  onDragStart={(e) => handleDragStart(e, claim.id)}
+                                 onClick={() => toggleClaimSelection(claim.id)}
+                                 onDoubleClick={() => {
+                                    if (claim.contactId) {
+                                       navigateToContact(claim.contactId, 'claims', claim.id);
+                                       navigate('/contacts');
+                                    }
+                                 }}
                                  className={`
                                    pipeline-card-enter ${staggerClass}
                                    bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg
-                                   transition-shadow duration-150 cursor-grab active:cursor-grabbing
+                                   transition-all duration-150 cursor-pointer active:cursor-grabbing
                                    border-l-4 ${priorityStyle.borderColor} border border-gray-200 dark:border-slate-600
-                                   ${draggedClaimId === claim.id ? 'opacity-50 rotate-1 scale-98' : 'hover:-translate-y-1 hover:scale-[1.02]'}
+                                   ${isDragging ? 'opacity-50 rotate-1 scale-98' : 'hover:-translate-y-1 hover:scale-[1.02]'}
+                                   ${isSelected ? 'ring-2 ring-indigo-500 ring-offset-1' : ''}
                                  `}
                               >
                                  {/* Compact Card Header */}
@@ -1015,13 +1026,22 @@ const Pipeline: React.FC = () => {
                                           <div className="flex items-center mt-1 flex-wrap gap-1">
                                              <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded ${priorityStyle.bgColor} ${priorityStyle.color}`}>
                                                 <span className={`w-1 h-1 rounded-full mr-1 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
-                                                {priorityStyle.label}
+                                                {claim.status}
                                              </span>
                                           </div>
                                        </div>
-                                       {/* Smaller Avatar */}
-                                       <div className={`w-7 h-7 rounded-full ${avatarColor} flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0`}>
-                                          {initials}
+                                       {/* Checkbox for selection */}
+                                       <div className="flex-shrink-0">
+                                          <input
+                                             type="checkbox"
+                                             checked={isSelected}
+                                             onChange={(e) => {
+                                                e.stopPropagation();
+                                                toggleClaimSelection(claim.id);
+                                             }}
+                                             onClick={(e) => e.stopPropagation()}
+                                             className="w-5 h-5 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                          />
                                        </div>
                                     </div>
                                  </div>
@@ -1068,6 +1088,77 @@ const Pipeline: React.FC = () => {
             })}
          </div>
       </div>
+      )}
+
+      {/* Selection Action Bar - appears for both List and Kanban views */}
+      {selectedClaims.size > 0 && (
+         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+            {/* Status Dropdown */}
+            {showStatusDropdown && (
+               <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-80 max-h-96 overflow-hidden">
+                  <div className="p-3 border-b border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50">
+                     <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Update Status</h3>
+                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Select a status for {selectedClaims.size} selected claim{selectedClaims.size > 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="overflow-y-auto max-h-72">
+                     {PIPELINE_CATEGORIES.map((category) => {
+                        const gradientConfig = columnGradients[category.id] || columnGradients['lead-generation'];
+                        return (
+                           <div key={category.id} className="border-b border-gray-100 dark:border-slate-700 last:border-b-0">
+                              <div className={`px-3 py-2 ${gradientConfig.gradient}`}>
+                                 <span className="text-xs font-semibold text-white uppercase tracking-wider">{category.title}</span>
+                              </div>
+                              <div className="py-1">
+                                 {category.statuses.map((status) => (
+                                    <button
+                                       key={status}
+                                       onClick={() => handleBulkStatusUpdate(status)}
+                                       className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                                    >
+                                       <span className={`w-2 h-2 rounded-full ${gradientConfig.gradient}`}></span>
+                                       {status}
+                                    </button>
+                                 ))}
+                              </div>
+                           </div>
+                        );
+                     })}
+                  </div>
+               </div>
+            )}
+
+            {/* Action Bar */}
+            <div className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-4">
+               <span className="text-sm font-medium">{selectedClaims.size} selected</span>
+               <div className="h-4 w-px bg-slate-600"></div>
+               <button
+                  className={`text-sm transition-colors flex items-center gap-1.5 ${showStatusDropdown ? 'text-indigo-300' : 'hover:text-indigo-300'}`}
+                  onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+               >
+                  <TrendingUp size={14} />
+                  Update Status
+                  <ChevronDown size={14} className={`transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+               </button>
+               <div className="h-4 w-px bg-slate-600"></div>
+               <button
+                  className="text-sm hover:text-red-300 transition-colors"
+                  onClick={() => {
+                     clearSelection();
+                     setShowStatusDropdown(false);
+                  }}
+               >
+                  <X size={16} />
+               </button>
+            </div>
+         </div>
+      )}
+
+      {/* Click outside to close status dropdown */}
+      {showStatusDropdown && (
+         <div
+            className="fixed inset-0 z-40"
+            onClick={() => setShowStatusDropdown(false)}
+         />
       )}
     </div>
   );

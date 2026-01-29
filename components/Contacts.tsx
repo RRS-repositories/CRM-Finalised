@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
    Search, Filter, Upload, Download, MoreHorizontal,
    Trash2, X, UserPlus, ArrowLeft, Clock as ClockIcon,
@@ -50,13 +51,8 @@ const formatDateOfBirth = (dob: string | undefined): string => {
    }
 };
 
-// Common Lenders List for Dropdowns
-const COMMON_LENDERS = [
-   'Amigo Loans', 'Bamboo', 'Barclays', 'Black Horse', 'Capital One',
-   'Creation', 'Everyday Loans', 'H&T', 'Likely Loans', 'Lloyds',
-   'MBNA', 'Monzo', 'Morses Club', 'NatWest', 'Provident',
-   'Santander', 'Tesco Bank', 'Vanquis', 'Virgin Money', 'Welcome Finance'
-];
+// Use SPEC_LENDERS from constants for the full lenders list
+const COMMON_LENDERS = SPEC_LENDERS;
 
 interface FormData {
    firstName: string;
@@ -161,8 +157,47 @@ const formatTimeAgo = (dateString: string | undefined | null) => {
    }
 };
 
+// Format date for Action Timeline (e.g., "Yesterday 15:06" or "21st Jan 2026 13:46")
+const formatActionDate = (dateString: string | undefined | null): string => {
+   if (!dateString) return 'Unknown';
+
+   try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid date';
+
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const timeStr = `${hours}:${minutes}`;
+
+      if (dateOnly.getTime() === today.getTime()) {
+         return `Today ${timeStr}`;
+      }
+      if (dateOnly.getTime() === yesterday.getTime()) {
+         return `Yesterday ${timeStr}`;
+      }
+
+      // Format as "21st Jan 2026 13:46"
+      const day = date.getDate();
+      const suffix = day === 1 || day === 21 || day === 31 ? 'st' :
+         day === 2 || day === 22 ? 'nd' :
+            day === 3 || day === 23 ? 'rd' : 'th';
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = months[date.getMonth()];
+      const year = date.getFullYear();
+
+      return `${day}${suffix} ${month} ${year} ${timeStr}`;
+   } catch {
+      return 'Unknown';
+   }
+};
+
 // --- Sub-Component: Contact Detail View (7-Tab Structure) ---
-const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: () => void }) => {
+const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initialClaimId, onBackToPipeline }: { contactId: string, onBack: () => void, initialTab?: ContactTab, initialClaimId?: string, onBackToPipeline?: () => void }) => {
    const {
       contacts, documents, claims, activityLogs: legacyActivityLogs, addClaim, updateClaim, deleteClaim, updateContact, setActiveContext, addNote, addDocument,
       // CRM Specification Methods
@@ -177,8 +212,8 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
    const contactClaims = claims.filter(c => c.contactId === contactId);
 
    // Main 7-Tab Navigation
-   const [activeTab, setActiveTab] = useState<ContactTab>('personal');
-   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(contactClaims[0]?.id || null);
+   const [activeTab, setActiveTab] = useState<ContactTab>(initialTab);
+   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(initialClaimId || contactClaims[0]?.id || null);
 
    // Modals & Forms
    const [showAddClaim, setShowAddClaim] = useState(false);
@@ -365,6 +400,14 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       }
    }, [activeTab, contact?.id]);
 
+   // Auto-open claim file when navigating from Pipeline with initialClaimId
+   useEffect(() => {
+      if (initialClaimId && activeTab === 'claims') {
+         // Automatically open the claim file view for the specified claim
+         handleOpenClaimFile(initialClaimId);
+      }
+   }, [initialClaimId, activeTab]);
+
    // Initialize bank details, addresses from contact
    useEffect(() => {
       if (contact) {
@@ -414,7 +457,47 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 
    if (!contact) return <div className="p-6">Contact not found. <button onClick={onBack} className="text-blue-600 underline ml-2">Back</button></div>;
 
-   const contactDocs = documents.filter(d => d.associatedContactId === contactId);
+   // Helper to check if a document is an image/signature file (to hide from frontend display)
+   const isImageFile = (doc: Document) => {
+      if (doc.type === 'image') return true;
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'];
+      const lowerName = doc.name.toLowerCase();
+      // Check file extension
+      if (imageExtensions.some(ext => lowerName.endsWith(ext))) return true;
+      // Check if it's a signature file by name or tags
+      if (lowerName.includes('signature') || lowerName.includes('_sig')) return true;
+      if (doc.tags.some(tag => tag.toLowerCase().includes('signature'))) return true;
+      return false;
+   };
+
+   // Filter documents for this contact, excluding image/signature files
+   const contactDocs = documents.filter(d => {
+      if (d.associatedContactId !== contactId) return false;
+      if (isImageFile(d)) return false;
+      return true;
+   });
+
+   // Helper to extract lender from document tags or name
+   const getLenderFromDoc = (doc: Document) => {
+      const docTypeTags = ['Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form'];
+      const lenderTag = doc.tags.find(tag => !docTypeTags.includes(tag));
+      if (lenderTag) return lenderTag;
+      const nameParts = doc.name.split('_');
+      if (nameParts.length > 1) {
+         return nameParts[0].replace(/_/g, ' ');
+      }
+      return '';
+   };
+
+   // Helper to format date from yyyy-mm-dd to dd-mm-yyyy
+   const formatDate = (dateStr: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+         return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return dateStr;
+   };
 
    // Filter logs for this contact (legacy activity logs)
    const legacyTimeline = legacyActivityLogs
@@ -767,8 +850,13 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
       }
    };
 
-   // Close claim file view and go back to list
+   // Close claim file view and go back to list (or Pipeline if came from there)
    const handleCloseClaimFile = () => {
+      // If we came from Pipeline (initialClaimId was set), navigate back to Pipeline
+      if (initialClaimId && onBackToPipeline) {
+         onBackToPipeline();
+         return;
+      }
       setViewingClaimId(null);
       setClaimFileData(null);
       setClaimFileForm({
@@ -1548,7 +1636,7 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                         {/* Claims Table */}
                         <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
                            {/* Table Header */}
-                           <div className="grid grid-cols-12 gap-4 px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                           <div className="grid grid-cols-12 gap-4 px-5 py-4 bg-gradient-to-r from-navy-700 to-navy-800 dark:from-navy-800 dark:to-navy-900 text-sm font-bold text-white uppercase tracking-wider">
                               <div className="col-span-4">Lender</div>
                               <div className="col-span-2">Reference</div>
                               <div className="col-span-2">Created</div>
@@ -1563,7 +1651,12 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                  className={`grid grid-cols-12 gap-4 px-5 py-4 border-b border-gray-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600/50 transition-colors items-center ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}
                               >
                                  <div className="col-span-4">
-                                    <p className="font-semibold text-navy-900 dark:text-white">{claim.lender}</p>
+                                    <button
+                                       onClick={() => handleOpenClaimFile(claim.id)}
+                                       className="font-semibold text-navy-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer transition-colors text-left"
+                                    >
+                                       {claim.lender}
+                                    </button>
                                  </div>
                                  <div className="col-span-2">
                                     <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">
@@ -2898,36 +2991,89 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   </div>
 
                   {contactDocs.length > 0 ? (
-                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
                         <table className="w-full text-left">
-                           <thead className="bg-gray-50 dark:bg-slate-700">
-                              <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold">
-                                 <th className="py-3 px-4">Name</th>
-                                 <th className="py-3 px-4">Category</th>
-                                 <th className="py-3 px-4">Type</th>
-                                 <th className="py-3 px-4">Date</th>
-                                 <th className="py-3 px-4 text-right">Actions</th>
+                           <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-700 dark:to-purple-700">
+                              <tr className="text-xs text-white uppercase tracking-wider font-bold">
+                                 <th className="py-4 px-5">Document Name</th>
+                                 <th className="py-4 px-5">Lender</th>
+                                 <th className="py-4 px-5">Category</th>
+                                 <th className="py-4 px-5">Type</th>
+                                 <th className="py-4 px-5">Date</th>
+                                 <th className="py-4 px-5 text-right">Actions</th>
                               </tr>
                            </thead>
-                           <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                              {contactDocs.map(doc => (
-                                 <tr key={doc.id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                                    <td className="py-3 px-4">
+                           <tbody>
+                              {contactDocs.map((doc, index) => (
+                                 <tr
+                                    key={doc.id}
+                                    className={`
+                                       ${index % 2 === 0
+                                          ? 'bg-white dark:bg-slate-800'
+                                          : 'bg-indigo-50/50 dark:bg-slate-700/50'
+                                       }
+                                       hover:bg-indigo-100 dark:hover:bg-indigo-900/30
+                                       transition-all duration-200
+                                       border-b border-gray-100 dark:border-slate-700
+                                    `}
+                                 >
+                                    <td className="py-4 px-5">
                                        <div className="flex items-center gap-3">
-                                          <div className="p-1.5 bg-blue-50 dark:bg-slate-600 rounded text-blue-600 dark:text-blue-400">
-                                             <FileIcon size={14} />
+                                          <div className={`p-2 rounded-lg shadow-sm ${
+                                             doc.type === 'pdf'
+                                                ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                                                : doc.type === 'docx'
+                                                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                                                   : 'bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-gray-400'
+                                          }`}>
+                                             <FileIcon size={16} />
                                           </div>
-                                          <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{doc.name}</span>
+                                          <button
+                                            onClick={() => setPreviewDoc(doc)}
+                                            className="text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left"
+                                            title="Click to preview"
+                                         >
+                                            {doc.name}
+                                         </button>
                                        </div>
                                     </td>
-                                    <td className="py-3 px-4 text-xs text-gray-500 dark:text-gray-400">{doc.category || 'General'}</td>
-                                    <td className="py-3 px-4 text-xs text-gray-500 dark:text-gray-400 uppercase font-medium">{doc.type}</td>
-                                    <td className="py-3 px-4 text-xs text-gray-500 dark:text-gray-400">{doc.dateModified}</td>
-                                    <td className="py-3 px-4 text-right">
+                                    <td className="py-4 px-5">
+                                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                          {getLenderFromDoc(doc) || 'N/A'}
+                                       </span>
+                                    </td>
+                                    <td className="py-4 px-5">
+                                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                          doc.category === 'Cover Letter'
+                                             ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
+                                             : doc.category === 'LOA'
+                                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                                : 'bg-gray-100 dark:bg-slate-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-500'
+                                       }`}>
+                                          {doc.category || 'General'}
+                                       </span>
+                                    </td>
+                                    <td className="py-4 px-5">
+                                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                          doc.type === 'pdf'
+                                             ? 'bg-red-500 text-white'
+                                             : doc.type === 'docx'
+                                                ? 'bg-blue-500 text-white'
+                                                : 'bg-gray-500 text-white'
+                                       }`}>
+                                          {doc.type}
+                                       </span>
+                                    </td>
+                                    <td className="py-4 px-5">
+                                       <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                                          {formatDate(doc.dateModified)}
+                                       </span>
+                                    </td>
+                                    <td className="py-4 px-5 text-right">
                                        <div className="flex items-center justify-end gap-2">
                                           <button
                                              onClick={() => setPreviewDoc(doc)}
-                                             className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                                             className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors"
                                              title="Preview"
                                           >
                                              <Eye size={16} />
@@ -2936,8 +3082,9 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                                              <a
                                                 href={doc.url}
                                                 download={doc.name}
-                                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-800/50 transition-colors"
                                              >
+                                                <Download size={12} />
                                                 Download
                                              </a>
                                           )}
@@ -2977,56 +3124,64 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
                   </div>
 
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                     <div className="relative">
-                        <div className="absolute left-7 top-0 bottom-0 w-px bg-gray-200 dark:bg-slate-600"></div>
-                        {filteredActionLogs.length > 0 ? filteredActionLogs.map((log, index) => (
-                           <div key={log.id} className={`relative flex items-start gap-4 px-5 py-4 ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}>
-                              <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${log.actionCategory === 'claims' ? 'bg-indigo-500 border-indigo-300' :
-                                 log.actionCategory === 'communication' ? 'bg-green-500 border-green-300' :
-                                    log.actionCategory === 'documents' ? 'bg-blue-500 border-blue-300' :
-                                       log.actionCategory === 'notes' ? 'bg-yellow-500 border-yellow-300' :
-                                          log.actionCategory === 'workflows' ? 'bg-purple-500 border-purple-300' :
-                                             'bg-gray-400 border-gray-300'
-                                 }`}></div>
-                              <div className="flex-1">
-                                 <div className="flex justify-between items-start">
-                                    <div>
-                                       <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{log.actionType}</p>
-                                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{log.description}</p>
-                                    </div>
-                                    <span className="text-xs text-gray-400 whitespace-nowrap ml-4">{formatTimeAgo(log.timestamp)}</span>
-                                 </div>
-                                 {log.actorName && (
-                                    <p className="text-xs text-gray-400 mt-1">By: {log.actorName}</p>
-                                 )}
+                     {filteredActionLogs.length > 0 ? filteredActionLogs.map((log, index) => (
+                        <div key={log.id} className={`flex items-center gap-4 px-5 py-4 ${index !== filteredActionLogs.length - 1 ? 'border-b border-gray-200 dark:border-slate-700' : ''}`}>
+                           {/* Icon */}
+                           <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                              <RotateCcw size={22} className="text-blue-500 dark:text-blue-400" />
+                           </div>
+
+                           {/* Action label */}
+                           <div className="w-20 shrink-0">
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Action</p>
+                           </div>
+
+                           {/* Description and actor */}
+                           <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                                 {log.description}
+                              </p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                 by {log.actorType === 'system' ? 'System' : `User ${log.actorName || 'Unknown'}`}
+                              </p>
+                           </div>
+
+                           {/* Date/Time on rightmost side */}
+                           <div className="shrink-0 text-right">
+                              <p className="text-sm text-gray-500 dark:text-gray-400">{formatActionDate(log.timestamp)}</p>
+                           </div>
+                        </div>
+                     )) : (
+                        // Fall back to legacy timeline if no CRM action logs
+                        legacyTimeline.length > 0 ? legacyTimeline.map((item, index) => (
+                           <div key={item.id} className={`flex items-center gap-4 px-5 py-4 ${index !== legacyTimeline.length - 1 ? 'border-b border-gray-200 dark:border-slate-700' : ''}`}>
+                              {/* Icon */}
+                              <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                                 <RotateCcw size={22} className="text-blue-500 dark:text-blue-400" />
+                              </div>
+
+                              {/* Action label */}
+                              <div className="w-20 shrink-0">
+                                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Action</p>
+                              </div>
+
+                              {/* Description */}
+                              <div className="flex-1 min-w-0">
+                                 <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                                    {item.title}{item.description ? ` - ${item.description}` : ''}
+                                 </p>
+                                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">by System</p>
+                              </div>
+
+                              {/* Date/Time on rightmost side */}
+                              <div className="shrink-0 text-right">
+                                 <p className="text-sm text-gray-500 dark:text-gray-400">{formatActionDate(item.date)}</p>
                               </div>
                            </div>
                         )) : (
-                           // Fall back to legacy timeline if no CRM action logs
-                           legacyTimeline.map((item, index) => (
-                              <div key={item.id} className={`relative flex items-start gap-4 px-5 py-4 ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}>
-                                 <div className={`w-3 h-3 rounded-full border-2 shadow-sm shrink-0 z-10 mt-1.5 ${item.type === 'creation' ? 'bg-green-500 border-green-300' :
-                                    item.type === 'status_change' ? 'bg-blue-500 border-blue-300' :
-                                       item.type === 'communication' ? 'bg-purple-500 border-purple-300' :
-                                          'bg-gray-400 border-gray-300'
-                                    }`}></div>
-                                 <div className="flex-1">
-                                    <div className="flex justify-between items-start">
-                                       <div>
-                                          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{item.title}</p>
-                                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{item.description}</p>
-                                       </div>
-                                       <span className="text-xs text-gray-400 whitespace-nowrap ml-4">{formatTimeAgo(item.date)}</span>
-                                    </div>
-                                 </div>
-                              </div>
-                           ))
-                        )}
-
-                        {filteredActionLogs.length === 0 && legacyTimeline.length === 0 && (
                            <p className="text-center text-gray-400 py-8">No activity recorded yet.</p>
-                        )}
-                     </div>
+                        )
+                     )}
                   </div>
                </div>
             )}
@@ -3682,7 +3837,18 @@ const ContactDetailView = ({ contactId, onBack }: { contactId: string, onBack: (
 };
 
 const Contacts: React.FC = () => {
-   const { contacts, addContact, deleteContacts, addNotification, actionLogs } = useCRM();
+   const { contacts, addContact, deleteContacts, addNotification, actionLogs, fetchAllActionLogs, addCommunication, pendingContactNavigation, clearContactNavigation } = useCRM();
+   const navigate = useNavigate();
+
+   // Fetch all action logs for the Last Activity column
+   useEffect(() => {
+      fetchAllActionLogs();
+   }, [fetchAllActionLogs]);
+
+   // Callback to navigate back to Pipeline/Cases module
+   const handleBackToPipeline = useCallback(() => {
+      navigate('/cases');
+   }, [navigate]);
 
    // Helper function to generate Client ID in RR-YYMMDD-XXX format
    const generateClientId = (contact: Contact): string => {
@@ -3736,9 +3902,22 @@ const Contacts: React.FC = () => {
    };
    const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
    const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+   const [initialTab, setInitialTab] = useState<ContactTab>('personal');
+   const [initialClaimId, setInitialClaimId] = useState<string | undefined>(undefined);
    const [showAddContact, setShowAddContact] = useState(false);
    const [showBulkImport, setShowBulkImport] = useState(false);
    const [showSearchFilters, setShowSearchFilters] = useState(false);
+
+   // Handle navigation from Pipeline (double-click on claim)
+   useEffect(() => {
+      if (pendingContactNavigation) {
+         setSelectedContactId(pendingContactNavigation.contactId);
+         setInitialTab(pendingContactNavigation.tab as ContactTab);
+         setInitialClaimId(pendingContactNavigation.claimId);
+         setViewMode('detail');
+         clearContactNavigation();
+      }
+   }, [pendingContactNavigation, clearContactNavigation]);
 
    // Individual search fields
    const [searchFirstName, setSearchFirstName] = useState('');
@@ -3763,16 +3942,26 @@ const Contacts: React.FC = () => {
    const [deleteConfirmation, setDeleteConfirmation] = useState('');
    const [deleteError, setDeleteError] = useState('');
 
+   // Email Modal State (for list view)
+   const [showListEmailModal, setShowListEmailModal] = useState(false);
+   const [listEmailContact, setListEmailContact] = useState<Contact | null>(null);
+   const [listEmailSubject, setListEmailSubject] = useState('');
+   const [listEmailContent, setListEmailContent] = useState('');
+
    // Add Contact Form State
    const [newContactData, setNewContactData] = useState<FormData>(INITIAL_FORM_STATE);
 
    const handleContactClick = (id: string) => {
       setSelectedContactId(id);
+      setInitialTab('personal'); // Reset to default tab when clicking from list
+      setInitialClaimId(undefined); // Reset claim when clicking from list
       setViewMode('detail');
    };
 
    const handleBack = () => {
       setSelectedContactId(null);
+      setInitialTab('personal'); // Reset tab when going back
+      setInitialClaimId(undefined); // Reset claim when going back
       setViewMode('list');
    };
 
@@ -3825,8 +4014,33 @@ const Contacts: React.FC = () => {
       }
    };
 
+   // Email Modal Handlers (for list view)
+   const handleEmailClick = (contact: Contact, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setListEmailContact(contact);
+      setListEmailSubject('');
+      setListEmailContent('');
+      setShowListEmailModal(true);
+   };
+
+   const handleListLogEmail = async () => {
+      if (!listEmailContent.trim() || !listEmailContact) return;
+      await addCommunication({
+         clientId: listEmailContact.id,
+         channel: 'email',
+         direction: 'outbound',
+         subject: listEmailSubject,
+         content: listEmailContent
+      });
+      setListEmailSubject('');
+      setListEmailContent('');
+      setShowListEmailModal(false);
+      setListEmailContact(null);
+      addNotification('success', 'Email logged successfully');
+   };
+
    if (viewMode === 'detail' && selectedContactId) {
-      return <ContactDetailView contactId={selectedContactId} onBack={handleBack} />;
+      return <ContactDetailView contactId={selectedContactId} onBack={handleBack} initialTab={initialTab} initialClaimId={initialClaimId} onBackToPipeline={handleBackToPipeline} />;
    }
 
    const filteredContacts = contacts.filter(c => {
@@ -3990,7 +4204,8 @@ const Contacts: React.FC = () => {
                      <tr>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Client ID</th>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Full Name</th>
-                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Contact</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Email</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Telephone</th>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider">Last Activity</th>
                         <th className="px-6 py-4 text-xs font-bold text-gray-600 dark:text-gray-200 uppercase tracking-wider text-right">Action</th>
                      </tr>
@@ -4026,17 +4241,29 @@ const Contacts: React.FC = () => {
                                  <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName}</div>
                               </div>
                            </td>
-                           {/* Contact (Email & Phone) */}
+                           {/* Email */}
                            <td className="px-6 py-4">
-                              <div className="flex flex-col gap-1">
-                                 <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                                    <MailIcon size={14} className="text-gray-400" />
-                                    <span>{contact.email || '—'}</span>
+                              {contact.email ? (
+                                 <button
+                                    onClick={(e) => handleEmailClick(contact, e)}
+                                    className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline transition-colors"
+                                    title="Click to send email"
+                                 >
+                                    <MailIcon size={14} className="text-blue-500" />
+                                    <span>{contact.email}</span>
+                                 </button>
+                              ) : (
+                                 <div className="flex items-center gap-2 text-sm text-gray-400">
+                                    <MailIcon size={14} />
+                                    <span>—</span>
                                  </div>
-                                 <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                                    <PhoneIcon size={14} className="text-gray-400" />
-                                    <span>{contact.phone || '—'}</span>
-                                 </div>
+                              )}
+                           </td>
+                           {/* Telephone */}
+                           <td className="px-6 py-4">
+                              <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                 <PhoneIcon size={14} className="text-gray-400" />
+                                 <span>{contact.phone || '—'}</span>
                               </div>
                            </td>
                            {/* Last Activity (from Action Timeline) */}
@@ -4051,17 +4278,12 @@ const Contacts: React.FC = () => {
                                     );
                                  }
                                  return (
-                                    <div className="flex flex-col gap-1 max-w-[280px]">
-                                       <div className="flex items-center gap-2">
-                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                                             {latestAction.actionType}
-                                          </span>
-                                          <span className="text-xs text-gray-400 dark:text-gray-500">
-                                             {latestAction.timeAgo}
-                                          </span>
-                                       </div>
-                                       <p className="text-sm text-gray-600 dark:text-gray-400 truncate" title={latestAction.description}>
+                                    <div className="max-w-[300px]">
+                                       <p className="text-sm text-gray-700 dark:text-gray-300 truncate" title={latestAction.description}>
                                           {latestAction.description}
+                                       </p>
+                                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                          {latestAction.timeAgo}
                                        </p>
                                     </div>
                                  );
@@ -4335,6 +4557,86 @@ const Contacts: React.FC = () => {
                   addNotification('success', `Successfully imported ${count} contact${count !== 1 ? 's' : ''}`);
                }}
             />
+         )}
+
+         {/* Email Modal (List View) */}
+         {showListEmailModal && listEmailContact && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-lg p-6 border border-gray-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg mb-4 text-navy-900 dark:text-white flex items-center gap-2">
+                     <MailIcon size={20} className="text-blue-600" /> Log Email
+                  </h3>
+                  <div className="space-y-4">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
+                        <input
+                           type="email"
+                           value={listEmailContact.email || ''}
+                           disabled
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-50 dark:bg-slate-700 text-gray-500"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Template (Optional)</label>
+                        <select
+                           onChange={(e) => {
+                              const template = EMAIL_TEMPLATES.find(t => t.id === e.target.value);
+                              if (template) {
+                                 setListEmailSubject(template.subject);
+                                 setListEmailContent(template.content);
+                              }
+                           }}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                        >
+                           <option value="">Select a template...</option>
+                           {EMAIL_TEMPLATES.map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                           ))}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subject</label>
+                        <input
+                           type="text"
+                           value={listEmailSubject}
+                           onChange={(e) => setListEmailSubject(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                           placeholder="Email subject..."
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Message</label>
+                        <textarea
+                           value={listEmailContent}
+                           onChange={(e) => setListEmailContent(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                           rows={6}
+                           placeholder="Email content..."
+                        />
+                     </div>
+                  </div>
+                  <div className="flex justify-end gap-3 mt-6">
+                     <button
+                        onClick={() => {
+                           setShowListEmailModal(false);
+                           setListEmailSubject('');
+                           setListEmailContent('');
+                           setListEmailContact(null);
+                        }}
+                        className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm"
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={handleListLogEmail}
+                        disabled={!listEmailContent.trim()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                     >
+                        <Send size={14} /> Log Email
+                     </button>
+                  </div>
+               </div>
+            </div>
          )}
       </div>
    );

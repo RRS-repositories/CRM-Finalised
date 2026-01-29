@@ -1,11 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
-   FileText, Search, Filter, Upload, File, Download, Trash2, Tag, Eye, Edit, Save, X,
-   Folder, Plus, LayoutGrid, List, ChevronRight, AlignLeft, Bold, Italic, Underline
+   FileText, Search, Filter, File, Download, Trash2, Tag, Eye, Edit, Save, X
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
-import { Document, Template } from '../types';
-import { MOCK_TEMPLATE_FOLDERS, TEMPLATE_VARIABLES } from '../constants';
+import { Document } from '../types';
 import Templates from './Templates';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -46,9 +44,8 @@ const Documents: React.FC = () => {
 
 // --- Sub-Component: Documents Content ---
 const DocumentsContent: React.FC = () => {
-   const { documents, updateDocument, addDocument, addNotification } = useCRM();
+   const { documents, updateDocument, addDocument, addNotification, contacts } = useCRM();
    const API_BASE_URL = API_ENDPOINTS.api;
-   const [activeCategory, setActiveCategory] = useState('All');
    const [searchQuery, setSearchQuery] = useState('');
 
    // Edit State
@@ -59,10 +56,53 @@ const DocumentsContent: React.FC = () => {
 
    const categories = ['All', 'Client', 'Correspondence', 'Legal', 'Templates', 'Other'];
 
+   // Helper to get client name from associatedContactId
+   const getClientName = (contactId?: string) => {
+      if (!contactId) return '';
+      const contact = contacts.find(c => c.id === contactId);
+      return contact?.fullName || '';
+   };
+
+   // Helper to extract lender from document tags or name
+   const getLenderFromDoc = (doc: Document) => {
+      // First check tags for known lenders (exclude document type tags)
+      const docTypeTags = ['Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form'];
+      const lenderTag = doc.tags.find(tag => !docTypeTags.includes(tag));
+      if (lenderTag) return lenderTag;
+
+      // Fallback: parse from document name (first part before underscore)
+      const nameParts = doc.name.split('_');
+      if (nameParts.length > 1) {
+         return nameParts[0].replace(/_/g, ' ');
+      }
+      return '';
+   };
+
+   // Helper to check if a document is an image file (to hide from frontend display)
+   const isImageFile = (doc: Document) => {
+      if (doc.type === 'image') return true;
+      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'];
+      const lowerName = doc.name.toLowerCase();
+      return imageExtensions.some(ext => lowerName.endsWith(ext));
+   };
+
+   // Helper to format date from yyyy-mm-dd to dd-mm-yyyy
+   const formatDate = (dateStr: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+         return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return dateStr;
+   };
+
    const filteredDocs = documents.filter(doc => {
-      const matchesCategory = activeCategory === 'All' || doc.category === activeCategory;
-      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
+      // Hide image files (signatures, IDs, etc.) from frontend display
+      if (isImageFile(doc)) return false;
+      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+         getClientName(doc.associatedContactId).toLowerCase().includes(searchQuery.toLowerCase()) ||
+         getLenderFromDoc(doc).toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesSearch;
    });
 
    const getFileIcon = (type: string) => {
@@ -121,33 +161,7 @@ const DocumentsContent: React.FC = () => {
 
    return (
       <div className="flex h-full bg-white dark:bg-slate-900 relative">
-         {/* Sidebar Categories */}
-         <div className="w-64 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-6 flex flex-col">
-            {/* Removed Generic Upload Button to focus on generated content/templates */}
-            <div className="mb-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-               Files & Generation
-            </div>
-
-            <div className="space-y-1">
-               <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Folders</h3>
-               {categories.map(cat => (
-                  <button
-                     key={cat}
-                     onClick={() => setActiveCategory(cat)}
-                     className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex justify-between items-center group ${activeCategory === cat ? 'bg-white dark:bg-slate-700 text-navy-700 dark:text-white shadow-sm border border-gray-100 dark:border-slate-600' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-navy-900 dark:hover:text-white'
-                        }`}
-                  >
-                     <div className="flex items-center gap-2">
-                        <Folder size={16} className={`${activeCategory === cat ? 'text-blue-500' : 'text-gray-400 group-hover:text-blue-400'}`} />
-                        {cat}
-                     </div>
-                     {cat !== 'All' && <span className="text-xs text-gray-400 bg-gray-100 dark:bg-slate-600 px-1.5 py-0.5 rounded-full">{documents.filter(d => d.category === cat).length}</span>}
-                  </button>
-               ))}
-            </div>
-         </div>
-
-         {/* Main Content */}
+         {/* Main Content - Full Width (no sidebar) */}
          <div className="flex-1 flex flex-col overflow-hidden">
             {/* Toolbar */}
             <div className="h-16 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 bg-white dark:bg-slate-800 flex-shrink-0">
@@ -170,65 +184,118 @@ const DocumentsContent: React.FC = () => {
 
             {/* File List */}
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
-               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
                   <table className="w-full text-left">
-                     <thead className="bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
-                        <tr>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">Type</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ver</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Modified</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Size</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tags</th>
-                           <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider text-right">Actions</th>
+                     <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-700 dark:to-purple-700">
+                        <tr className="text-xs text-white uppercase tracking-wider font-bold">
+                           <th className="px-5 py-4">Client</th>
+                           <th className="px-5 py-4">Document Name</th>
+                           <th className="px-5 py-4">Lender</th>
+                           <th className="px-5 py-4">Modified</th>
+                           <th className="px-5 py-4 pl-10">Tags</th>
+                           <th className="px-5 py-4 text-right">Actions</th>
                         </tr>
                      </thead>
-                     <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                        {filteredDocs.map((doc) => (
-                           <tr key={doc.id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group">
-                              <td className="px-6 py-4">
-                                 {getFileIcon(doc.type)}
+                     <tbody>
+                        {filteredDocs.map((doc, index) => (
+                           <tr
+                              key={doc.id}
+                              className={`
+                                 ${index % 2 === 0
+                                    ? 'bg-white dark:bg-slate-800'
+                                    : 'bg-indigo-50/50 dark:bg-slate-700/50'
+                                 }
+                                 hover:bg-indigo-100 dark:hover:bg-indigo-900/30
+                                 transition-all duration-200
+                                 border-b border-gray-100 dark:border-slate-700
+                                 group
+                              `}
+                           >
+                              <td className="px-5 py-4">
+                                 <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{getClientName(doc.associatedContactId) || 'N/A'}</span>
                               </td>
-                              <td className="px-6 py-4">
-                                 <span className="text-sm font-medium text-gray-900 dark:text-white">{doc.name}</span>
-                              </td>
-                              <td className="px-6 py-4">
-                                 <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">v{doc.version || 1}.0</span>
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                 {doc.dateModified}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                 {doc.size}
-                              </td>
-                              <td className="px-6 py-4">
-                                 <div className="flex gap-1">
-                                    {doc.tags.map(tag => (
-                                       <span key={tag} className="flex items-center text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-900">
-                                          <Tag size={10} className="mr-1" /> {tag}
-                                       </span>
-                                    ))}
+                              <td className="px-5 py-4">
+                                 <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg shadow-sm flex-shrink-0 ${
+                                       doc.type === 'pdf'
+                                          ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                                          : doc.type === 'docx'
+                                             ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                                             : 'bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-gray-400'
+                                    }`}>
+                                       {getFileIcon(doc.type)}
+                                    </div>
+                                    <button
+                                       onClick={() => handlePreview(doc)}
+                                       className="text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left"
+                                       title="Click to preview"
+                                    >
+                                       {doc.name}
+                                    </button>
                                  </div>
                               </td>
-                              <td className="px-6 py-4 text-right">
+                              <td className="px-5 py-4">
+                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                    {getLenderFromDoc(doc) || 'N/A'}
+                                 </span>
+                              </td>
+                              <td className="px-5 py-4">
+                                 <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                                    {formatDate(doc.dateModified)}
+                                 </span>
+                              </td>
+                              <td className="px-5 py-4 pl-10">
+                                 <div className="flex gap-1.5 flex-wrap">
+                                    {doc.tags.map((tag, tagIndex) => {
+                                       const tagColors = [
+                                          'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800',
+                                          'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+                                          'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800',
+                                          'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 border-pink-200 dark:border-pink-800',
+                                       ];
+                                       return (
+                                          <span
+                                             key={tag}
+                                             className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${tagColors[tagIndex % tagColors.length]}`}
+                                          >
+                                             <Tag size={10} className="mr-1" /> {tag}
+                                          </span>
+                                       );
+                                    })}
+                                 </div>
+                              </td>
+                              <td className="px-5 py-4 text-right">
                                  <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditClick(doc)} className="p-1.5 text-gray-500 hover:text-navy-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-600 rounded" title="Edit">
-                                       <Edit size={16} />
+                                    <button
+                                       onClick={() => handleEditClick(doc)}
+                                       className="p-2 rounded-lg bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-500 transition-colors"
+                                       title="Edit"
+                                    >
+                                       <Edit size={14} />
                                     </button>
-                                    <button onClick={() => handlePreview(doc)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded" title="Preview">
-                                       <Eye size={16} />
+                                    <button
+                                       onClick={() => handlePreview(doc)}
+                                       className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors"
+                                       title="Preview"
+                                    >
+                                       <Eye size={14} />
                                     </button>
-                                    {/* Download (also uses secure link) */}
                                     <button
                                        onClick={() => handlePreview(doc)}
                                        disabled={!doc.url}
-                                       className={`p-1.5 rounded ${!doc.url ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'}`}
+                                       className={`p-2 rounded-lg transition-colors ${!doc.url
+                                          ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                                          : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-800/50'
+                                       }`}
                                        title="Download/View"
                                     >
-                                       <Download size={16} />
+                                       <Download size={14} />
                                     </button>
-                                    <button className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded" title="Delete">
-                                       <Trash2 size={16} />
+                                    <button
+                                       className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/50 transition-colors"
+                                       title="Delete"
+                                    >
+                                       <Trash2 size={14} />
                                     </button>
                                  </div>
                               </td>

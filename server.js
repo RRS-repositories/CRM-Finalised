@@ -3366,6 +3366,64 @@ app.delete('/api/contacts/:id', async (req, res) => {
     }
 });
 
+// Update Case Status (basic PATCH for status changes)
+app.patch('/api/cases/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+        return res.status(400).json({ error: 'Status is required' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE cases SET status = $1 WHERE id = $2 RETURNING *`,
+            [status, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+
+        console.log(`✅ Updated case ${id} status to: ${status}`);
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('❌ Error updating case status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Bulk Update Case Status (optimized for multiple claims)
+app.patch('/api/cases/bulk/status', async (req, res) => {
+    const { claimIds, status } = req.body;
+
+    if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0) {
+        return res.status(400).json({ error: 'claimIds array is required' });
+    }
+
+    if (!status) {
+        return res.status(400).json({ error: 'Status is required' });
+    }
+
+    try {
+        // Use a single query with ANY to update all claims at once
+        const result = await pool.query(
+            `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
+            [status, claimIds]
+        );
+
+        console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);
+        res.json({
+            success: true,
+            updatedCount: result.rows.length,
+            updatedClaims: result.rows
+        });
+    } catch (error) {
+        console.error('❌ Error bulk updating case status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Delete Individual Claim with S3 Cleanup
 app.delete('/api/cases/:id', async (req, res) => {
     const { id } = req.params;

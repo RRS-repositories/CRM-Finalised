@@ -78,7 +78,8 @@ interface CRMContextType {
   addClaim: (claim: Partial<Claim>) => Promise<{ success: boolean; message: string; id?: string }>;
   updateClaim: (claim: Claim) => { success: boolean; message: string };
   deleteClaim: (claimId: string) => Promise<{ success: boolean; message: string }>;
-  updateClaimStatus: (claimId: string, newStatus: string) => { success: boolean; message: string };
+  updateClaimStatus: (claimId: string, newStatus: string) => Promise<{ success: boolean; message: string }>;
+  bulkUpdateClaimStatusByIds: (claimIds: string[], newStatus: string) => Promise<{ success: boolean; count: number; message: string }>;
   bulkUpdateClaims: (criteria: { lender?: string; status?: string; minDaysInStage?: number }, newStatus: string) => { success: boolean; count: number; message: string };
 
   // Calendar
@@ -161,6 +162,9 @@ interface CRMContextType {
   updateClaimExtended: (claimId: string, data: Record<string, any>) => Promise<{ success: boolean; message: string }>;
   fetchFullClaim: (claimId: string) => Promise<any>;
 
+  // Data Refresh
+  refreshAllData: () => Promise<void>;
+
   // Theme
   theme: Theme;
   toggleTheme: () => void;
@@ -168,6 +172,11 @@ interface CRMContextType {
   // View Navigation
   currentView: ViewState;
   setCurrentView: (view: ViewState) => void;
+
+  // Contact Navigation (for navigating from Pipeline to Contacts)
+  pendingContactNavigation: { contactId: string; tab: string; claimId?: string } | null;
+  navigateToContact: (contactId: string, tab?: string, claimId?: string) => void;
+  clearContactNavigation: () => void;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -184,6 +193,31 @@ const INITIAL_USERS: User[] = [
   }
 ];
 
+// Helper to get initial ViewState from URL
+const getInitialViewState = (): ViewState => {
+  const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
+  const routeMap: Record<string, ViewState> = {
+    '/': ViewState.DASHBOARD,
+    '/dashboard': ViewState.DASHBOARD,
+    '/contacts': ViewState.CONTACTS,
+    '/cases': ViewState.PIPELINE,
+    '/calendar': ViewState.CALENDAR,
+    '/conversations': ViewState.CONVERSATIONS_ALL,
+    '/conversations/facebook': ViewState.CONVERSATIONS_FACEBOOK,
+    '/conversations/whatsapp': ViewState.CONVERSATIONS_WHATSAPP,
+    '/conversations/sms': ViewState.CONVERSATIONS_SMS,
+    '/conversations/email': ViewState.CONVERSATIONS_EMAIL,
+    '/marketing': ViewState.MARKETING,
+    '/documents': ViewState.DOCUMENTS,
+    '/forms': ViewState.FORMS,
+    '/automation': ViewState.WORKFLOW,
+    '/settings': ViewState.SETTINGS,
+    '/management': ViewState.MANAGEMENT,
+    '/accounts': ViewState.LENDERS,
+  };
+  return routeMap[pathname] || ViewState.DASHBOARD;
+};
+
 export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -191,7 +225,19 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Theme & View State
   const [theme, setTheme] = useState<Theme>('light');
-  const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
+  const [currentView, setCurrentView] = useState<ViewState>(getInitialViewState());
+
+  // Contact Navigation (for navigating from Pipeline to Contacts with specific tab and claim
+  const [pendingContactNavigation, setPendingContactNavigation] = useState<{ contactId: string; tab: string; claimId?: string } | null>(null);
+
+  const navigateToContact = useCallback((contactId: string, tab: string = 'claims', claimId?: string) => {
+    setPendingContactNavigation({ contactId, tab, claimId });
+    setCurrentView(ViewState.CONTACTS);
+  }, []);
+
+  const clearContactNavigation = useCallback(() => {
+    setPendingContactNavigation(null);
+  }, []);
 
   // Temporary storage for users who haven't verified email yet
   const [pendingRegistrations, setPendingRegistrations] = useState<Record<string, PendingRegistration>>({});
@@ -203,7 +249,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templates, setTemplates] = useState<Template[]>(MOCK_TEMPLATES);
   const [forms, setForms] = useState<Form[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -390,6 +436,42 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error('Error fetching documents:', error);
     }
   };
+
+  // Refresh all data from the server - call this after any mutation
+  const refreshAllData = useCallback(async () => {
+    console.log('[CRMContext] Refreshing all data...');
+    await Promise.all([
+      fetchContacts(),
+      fetchDocuments(),
+      (async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/actions/all`);
+          if (response.ok) {
+            const data = await response.json();
+            const mappedLogs: ActionLogEntry[] = data.map((a: any) => ({
+              id: a.id.toString(),
+              clientId: a.client_id?.toString(),
+              claimId: a.claim_id?.toString(),
+              actorType: a.actor_type,
+              actorId: a.actor_id,
+              actorName: a.actor_name,
+              actionType: a.action_type,
+              actionCategory: a.action_category,
+              description: a.description,
+              metadata: a.metadata,
+              timestamp: a.timestamp,
+              ipAddress: a.ip_address,
+              userAgent: a.user_agent
+            }));
+            setActionLogs(mappedLogs);
+          }
+        } catch (error) {
+          console.error('Error fetching action logs:', error);
+        }
+      })()
+    ]);
+    console.log('[CRMContext] Data refresh complete');
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -753,6 +835,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setContacts(updated);
       addNotification('success', 'Contact details updated successfully');
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: `Updated contact ${contact.fullName}` };
     } catch (e: any) {
       addNotification('error', 'Failed to update contact');
@@ -823,6 +907,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setContacts(prev => [...prev, newContact]);
       logActivity(newContact.id, 'Contact Created', `Contact created via ${newContact.source}`, 'creation');
       addNotification('success', `Contact ${newContact.fullName} created successfully`);
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: `Created contact for ${newContact.fullName}`, id: newContact.id };
     } catch (e: any) {
       console.error('[CRMContext addContact] Error:', e);
@@ -854,6 +940,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setClaims(prev => prev.filter(c => !ids.includes(c.contactId)));
 
       addNotification('success', `${ids.length} contact(s) deleted successfully`);
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: `Deleted ${ids.length} contacts` };
     } catch (e: any) {
       console.error('Error deleting contacts:', e);
@@ -918,6 +1006,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       logActivity(newClaim.contactId, 'Claim Added', `New claim created for ${newClaim.lender}`, 'creation', newClaim.id);
 
       addNotification('success', 'Claim added successfully');
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: 'Claim added', id: newClaim.id };
     } catch (e: any) {
       addNotification('error', 'Failed to add claim');
@@ -946,28 +1036,121 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Claim updated' };
   };
 
-  const updateClaimStatus = (claimId: string, newStatus: string) => {
+  const updateClaimStatus = async (claimId: string, newStatus: string): Promise<{ success: boolean; message: string }> => {
     const isValidStatus = Object.values(ClaimStatus).includes(newStatus as ClaimStatus);
     if (!isValidStatus) {
       addNotification('error', 'Invalid status provided');
       return { success: false, message: 'Invalid status' };
     }
 
-    // Find claim to log activity
-    const claim = claims.find(c => c.id === claimId);
-    if (claim) {
-      logActivity(claim.contactId, 'Status Updated', `${claim.lender} claim moved to ${newStatus}`, 'status_change', claimId);
+    try {
+      // Call the backend API to persist the status change
+      const response = await fetch(`${API_BASE_URL}/cases/${claimId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (!response.ok) {
+        // Try to parse as JSON, but handle HTML error pages gracefully
+        let errorMessage = 'Failed to update claim status';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } else {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+        } catch {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Find claim to log activity
+      const claim = claims.find(c => c.id === claimId);
+      if (claim) {
+        logActivity(claim.contactId, 'Status Updated', `${claim.lender} claim moved to ${newStatus}`, 'status_change', claimId);
+      }
+
+      // Update local state immediately for responsiveness - no need for full refresh
+      setClaims(prev => prev.map(c => {
+        if (c.id === claimId) {
+          return { ...c, status: newStatus as ClaimStatus, daysInStage: 0 };
+        }
+        return c;
+      }));
+
+      addNotification('success', 'Claim status updated');
+      return { success: true, message: 'Status updated' };
+    } catch (e: any) {
+      addNotification('error', e.message || 'Failed to update status');
+      return { success: false, message: e.message };
+    }
+  };
+
+  // Optimized bulk update - single API call for multiple claims
+  const bulkUpdateClaimStatusByIds = async (claimIds: string[], newStatus: string): Promise<{ success: boolean; count: number; message: string }> => {
+    const isValidStatus = Object.values(ClaimStatus).includes(newStatus as ClaimStatus);
+    if (!isValidStatus) {
+      addNotification('error', 'Invalid status provided');
+      return { success: false, count: 0, message: 'Invalid status' };
     }
 
-    setClaims(prev => prev.map(c => {
-      if (c.id === claimId) {
-        return { ...c, status: newStatus as ClaimStatus, daysInStage: 0 };
-      }
-      return c;
-    }));
+    if (claimIds.length === 0) {
+      return { success: false, count: 0, message: 'No claims selected' };
+    }
 
-    addNotification('success', 'Claim status updated');
-    return { success: true, message: 'Status updated' };
+    try {
+      // Single API call to update all claims at once
+      const response = await fetch(`${API_BASE_URL}/cases/bulk/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claimIds, status: newStatus })
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to bulk update claims';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } else {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+        } catch {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+
+      // Log activity for each updated claim
+      claimIds.forEach(claimId => {
+        const claim = claims.find(c => c.id === claimId);
+        if (claim) {
+          logActivity(claim.contactId, 'Bulk Status Update', `${claim.lender} claim moved to ${newStatus}`, 'status_change', claimId);
+        }
+      });
+
+      // Update local state immediately for responsiveness
+      setClaims(prev => prev.map(c => {
+        if (claimIds.includes(c.id)) {
+          return { ...c, status: newStatus as ClaimStatus, daysInStage: 0 };
+        }
+        return c;
+      }));
+
+      addNotification('success', `${result.updatedCount || claimIds.length} claims updated to ${newStatus}`);
+      // Local state already updated - no need for full refresh
+      return { success: true, count: result.updatedCount || claimIds.length, message: `Updated ${result.updatedCount || claimIds.length} claims` };
+    } catch (e: any) {
+      addNotification('error', e.message || 'Failed to bulk update');
+      return { success: false, count: 0, message: e.message };
+    }
   };
 
   const deleteClaim = async (claimId: string) => {
@@ -977,16 +1160,37 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete claim');
+        let errorMessage = 'Failed to delete claim';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } else {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+        } catch {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
+      let result = { message: 'Claim deleted' };
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          result = await response.json();
+        }
+      } catch {
+        // Ignore JSON parse errors for success response
+      }
 
       // Update local state
       setClaims(prev => prev.filter(c => c.id !== claimId));
 
       addNotification('success', 'Claim deleted successfully');
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: result.message || 'Claim deleted' };
     } catch (e: any) {
       console.error('Error deleting claim:', e);
@@ -1249,6 +1453,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setCommunications(prev => [newComm, ...prev]);
       addNotification('success', `${comm.channel?.toUpperCase()} logged successfully`);
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Communication logged', id: newComm.id };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1331,6 +1537,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setWorkflowTriggers(prev => [newWorkflow, ...prev]);
       addNotification('success', `${workflowConfig.name} workflow triggered`);
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Workflow triggered', id: newWorkflow.id };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1360,6 +1568,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ));
 
       addNotification('success', 'Workflow cancelled');
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Workflow cancelled' };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1424,6 +1634,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setCrmNotes(prev => [newNote, ...prev]);
       addNotification('success', 'Note added successfully');
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Note added', id: newNote.id };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1457,6 +1669,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ));
 
       addNotification('success', 'Note updated successfully');
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Note updated' };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1477,6 +1691,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setCrmNotes(prev => prev.filter(n => n.id !== noteId));
       addNotification('success', 'Note deleted successfully');
+      // Refresh to sync
+      await refreshAllData();
       return { success: true, message: 'Note deleted' };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1507,7 +1723,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         userAgent: a.user_agent
       }));
 
-      setActionLogs(mappedLogs);
+      // Merge with existing logs instead of replacing them
+      // Remove old logs for this client and add the new ones
+      setActionLogs(prevLogs => {
+        const otherClientLogs = prevLogs.filter(log => String(log.clientId) !== String(clientId));
+        return [...otherClientLogs, ...mappedLogs];
+      });
     } catch (error) {
       console.error('Error fetching action logs:', error);
     }
@@ -1642,6 +1863,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }));
 
       addNotification('success', 'Contact details updated successfully');
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: 'Contact updated' };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1664,6 +1887,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       addNotification('success', 'Claim details updated successfully');
+      // Refresh all data to ensure UI is in sync
+      await refreshAllData();
       return { success: true, message: 'Claim updated' };
     } catch (e: any) {
       addNotification('error', e.message);
@@ -1691,8 +1916,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       notifications, addNotification, removeNotification,
       activeContext, setActiveContext,
       currentView, setCurrentView,
+      pendingContactNavigation, navigateToContact, clearContactNavigation,
       updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
-      addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaims,
+      addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaimStatusByIds, bulkUpdateClaims,
       addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
       addTemplate, updateTemplate,
       addForm, updateForm, deleteForm,
@@ -1702,7 +1928,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
       crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
       actionLogs, fetchActionLogs, fetchAllActionLogs,
-      updateContactExtended, updateClaimExtended, fetchFullClaim
+      updateContactExtended, updateClaimExtended, fetchFullClaim,
+      // Data Refresh
+      refreshAllData
     }}>
       {children}
     </CRMContext.Provider>

@@ -20,7 +20,10 @@ const Templates: React.FC = () => {
   const [viewMode, setViewMode] = useState<'library' | 'editor'>('library');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
+  // Template type filter state (must be declared before any conditional returns)
+  const [templateTypeFilter, setTemplateTypeFilter] = useState<'all' | 'email' | 'sms' | 'letter'>('email');
+
   // Editor State
   const [currentTemplate, setCurrentTemplate] = useState<Template | null>(null);
   const [editorName, setEditorName] = useState('');
@@ -36,6 +39,16 @@ const Templates: React.FC = () => {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [templateToGenerate, setTemplateToGenerate] = useState<Template | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string>('');
+
+  // Preview Modal State
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
+
+  // Handle preview click
+  const handlePreview = (template: Template) => {
+    setPreviewTemplate(template);
+    setShowPreviewModal(true);
+  };
 
   // Initialize editor with content
   useEffect(() => {
@@ -345,11 +358,9 @@ const Templates: React.FC = () => {
 
   // --- Renderers ---
 
-  const selectedFolder = MOCK_TEMPLATE_FOLDERS.find(f => f.id === selectedFolderId);
   const filteredTemplates = templates.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = selectedFolderId ? t.category.toLowerCase() === selectedFolder?.name.toLowerCase() : true;
-    return matchesSearch && matchesFolder;
+    return matchesSearch;
   });
 
   // Editor View
@@ -542,43 +553,38 @@ const Templates: React.FC = () => {
     );
   }
 
-  // Library View (List)
+  // Filter templates by type as well
+  const typeFilteredTemplates = filteredTemplates.filter(t => {
+    if (templateTypeFilter === 'all') return true;
+    const name = t.name.toLowerCase();
+    const desc = t.description?.toLowerCase() || '';
+    if (templateTypeFilter === 'email') return name.includes('email') || desc.includes('email');
+    if (templateTypeFilter === 'sms') return name.includes('sms') || desc.includes('sms');
+    if (templateTypeFilter === 'letter') return name.includes('letter') || desc.includes('letter') || name.includes('loa') || name.includes('authority');
+    return true;
+  });
+
+  // Library View (List/Table)
   return (
     <div className="flex h-full bg-white dark:bg-slate-900 relative">
       {/* Sidebar Folders */}
-      <div className="w-64 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-6 flex flex-col">
-         <button 
-            onClick={handleNew}
-            className="w-full bg-navy-700 hover:bg-navy-800 text-white rounded-lg py-2.5 px-4 flex items-center justify-center gap-2 mb-8 shadow-sm transition-colors"
-         >
-            <Plus size={16} /> New Template
-         </button>
+      <div className="w-56 border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col">
+         <div className="p-4 border-b border-gray-100 dark:border-slate-700">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Files & Generation</p>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Folders</p>
+         </div>
 
-         <div className="space-y-1">
-            <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Categories</h3>
-            <button
-                onClick={() => setSelectedFolderId(null)}
-                className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex justify-between items-center group ${
-                !selectedFolderId ? 'bg-white dark:bg-slate-700 text-navy-700 dark:text-white shadow-sm border border-gray-100 dark:border-slate-600' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
-                }`}
-            >
-                <div className="flex items-center gap-2">
-                    <LayoutGrid size={16} /> All Templates
-                </div>
-            </button>
+         <div className="flex-1 overflow-y-auto p-2">
             {MOCK_TEMPLATE_FOLDERS.map(folder => (
                <button
                  key={folder.id}
                  onClick={() => setSelectedFolderId(folder.id)}
-                 className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex justify-between items-center group ${
-                    selectedFolderId === folder.id ? 'bg-white dark:bg-slate-700 text-navy-700 dark:text-white shadow-sm border border-gray-100 dark:border-slate-600' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
-                 }`}
+                 className="w-full text-left px-3 py-2 rounded text-sm font-medium transition-colors flex justify-between items-center bg-gray-100 dark:bg-slate-700 text-navy-700 dark:text-white"
                >
                   <div className="flex items-center gap-2">
-                     <Folder size={16} className={`${selectedFolderId === folder.id ? 'text-blue-500' : 'text-gray-400 group-hover:text-blue-400'}`} />
+                     <Folder size={14} className="text-yellow-500" />
                      {folder.name}
                   </div>
-                  {folder.count > 0 && <span className="text-xs text-gray-400 bg-gray-100 dark:bg-slate-600 px-1.5 py-0.5 rounded-full">{folder.count}</span>}
                </button>
             ))}
          </div>
@@ -586,13 +592,13 @@ const Templates: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-         {/* Toolbar */}
-         <div className="h-16 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 bg-white dark:bg-slate-800 flex-shrink-0">
-            <div className="relative w-96">
+         {/* Toolbar with Search */}
+         <div className="h-14 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 bg-white dark:bg-slate-800 flex-shrink-0">
+            <div className="relative w-80">
                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-               <input 
-                 type="text" 
-                 placeholder="Search templates..." 
+               <input
+                 type="text"
+                 placeholder="Search documents..."
                  value={searchQuery}
                  onChange={(e) => setSearchQuery(e.target.value)}
                  className="w-full pl-9 pr-4 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
@@ -600,45 +606,100 @@ const Templates: React.FC = () => {
             </div>
          </div>
 
-         {/* Templates Grid */}
+         {/* Template Type Tabs */}
+         <div className="px-6 py-4 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-3">
+               <button
+                  onClick={() => setTemplateTypeFilter('email')}
+                  className={`px-6 py-2.5 rounded-lg text-sm font-bold border-2 transition-all ${
+                     templateTypeFilter === 'email'
+                        ? 'bg-navy-700 border-navy-700 text-white'
+                        : 'bg-white dark:bg-slate-700 border-navy-700 dark:border-navy-500 text-navy-700 dark:text-navy-300 hover:bg-navy-50 dark:hover:bg-slate-600'
+                  }`}
+               >
+                  Email Templates
+               </button>
+               <button
+                  onClick={() => setTemplateTypeFilter('sms')}
+                  className={`px-6 py-2.5 rounded-lg text-sm font-bold border-2 transition-all ${
+                     templateTypeFilter === 'sms'
+                        ? 'bg-navy-700 border-navy-700 text-white'
+                        : 'bg-white dark:bg-slate-700 border-navy-700 dark:border-navy-500 text-navy-700 dark:text-navy-300 hover:bg-navy-50 dark:hover:bg-slate-600'
+                  }`}
+               >
+                  SMS Templates
+               </button>
+               <button
+                  onClick={() => setTemplateTypeFilter('letter')}
+                  className={`px-6 py-2.5 rounded-lg text-sm font-bold border-2 transition-all ${
+                     templateTypeFilter === 'letter'
+                        ? 'bg-navy-700 border-navy-700 text-white'
+                        : 'bg-white dark:bg-slate-700 border-navy-700 dark:border-navy-500 text-navy-700 dark:text-navy-300 hover:bg-navy-50 dark:hover:bg-slate-600'
+                  }`}
+               >
+                  Letter Templates
+               </button>
+            </div>
+            <button
+               onClick={handleNew}
+               className="px-6 py-2.5 rounded-lg text-sm font-bold border-2 bg-white dark:bg-slate-700 border-green-600 dark:border-green-500 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-all"
+            >
+               Add new template
+            </button>
+         </div>
+
+         {/* Templates Table */}
          <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
-             {filteredTemplates.length > 0 ? (
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {filteredTemplates.map(template => (
-                        <div key={template.id} className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all group flex flex-col overflow-hidden">
-                            <div className="h-40 bg-gray-50 dark:bg-slate-700 flex items-center justify-center border-b border-gray-100 dark:border-slate-600 relative">
-                                <FileText size={48} className="text-gray-300 dark:text-gray-500" />
-                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                                    <button 
-                                        onClick={() => handleUseTemplate(template)}
-                                        className="bg-white text-navy-900 px-4 py-2 rounded-full text-xs font-bold hover:bg-gray-100 shadow-sm"
-                                    >
-                                        Use Template
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-4 flex-1 flex flex-col">
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-navy-900 dark:text-white truncate pr-2">{template.name}</h3>
-                                    <button onClick={() => handleEdit(template)} className="text-gray-400 hover:text-navy-600 dark:hover:text-white">
-                                        <Edit size={14} />
-                                    </button>
-                                </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-4 flex-1">{template.description}</p>
-                                <div className="flex justify-between items-center text-[10px] text-gray-400 border-t border-gray-50 dark:border-slate-700 pt-3">
-                                    <span className="bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded">{template.category}</span>
-                                    <span>{template.lastModified}</span>
-                                </div>
-                            </div>
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+               <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                  {typeFilteredTemplates.length > 0 ? (
+                     typeFilteredTemplates.map((template, index) => (
+                        <div
+                           key={template.id}
+                           className={`
+                              flex items-center justify-between px-5 py-4
+                              ${index % 2 === 0
+                                 ? 'bg-white dark:bg-slate-800'
+                                 : 'bg-gray-50/50 dark:bg-slate-700/50'
+                              }
+                              hover:bg-indigo-50 dark:hover:bg-indigo-900/20
+                              transition-all duration-200
+                           `}
+                        >
+                           <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                                 <FileText size={18} />
+                              </div>
+                              <button
+                                 onClick={() => handlePreview(template)}
+                                 className="text-sm font-semibold text-navy-700 dark:text-navy-300 hover:text-navy-900 dark:hover:text-navy-100 hover:underline transition-colors cursor-pointer"
+                              >
+                                 {template.name}
+                              </button>
+                           </div>
+                           <div className="flex gap-2">
+                              <button
+                                 onClick={() => handleEdit(template)}
+                                 className="px-4 py-1.5 text-sm font-medium border-2 border-navy-600 dark:border-navy-400 text-navy-600 dark:text-navy-400 rounded-lg hover:bg-navy-50 dark:hover:bg-navy-900/30 transition-colors"
+                              >
+                                 Edit
+                              </button>
+                              <button
+                                 className="px-4 py-1.5 text-sm font-medium border-2 border-red-500 dark:border-red-400 text-red-500 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                              >
+                                 Delete
+                              </button>
+                           </div>
                         </div>
-                    ))}
-                 </div>
-             ) : (
-                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                    <File size={48} className="mb-4 opacity-20" />
-                    <p>No templates found.</p>
-                 </div>
-             )}
+                     ))
+                  ) : (
+                     <div className="px-5 py-16 text-center">
+                        <File size={48} className="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+                        <p className="text-gray-400 dark:text-gray-500">No templates found matching your filters.</p>
+                     </div>
+                  )}
+               </div>
+            </div>
          </div>
       </div>
 
@@ -650,10 +711,10 @@ const Templates: React.FC = () => {
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
                     Create a new document from <strong>{templateToGenerate.name}</strong>. Select a contact to populate fields.
                 </p>
-                
+
                 <div className="mb-6">
                     <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Select Contact</label>
-                    <select 
+                    <select
                         value={selectedContactId}
                         onChange={(e) => setSelectedContactId(e.target.value)}
                         className="w-full text-sm border-gray-300 dark:border-slate-600 rounded-lg shadow-sm p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -668,6 +729,61 @@ const Templates: React.FC = () => {
                    <button onClick={() => setShowGenerateModal(false)} className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm font-medium">Cancel</button>
                    <button onClick={confirmGenerate} className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium flex items-center gap-2">
                       <Play size={16} /> Generate
+                   </button>
+                </div>
+             </div>
+          </div>
+      )}
+
+      {/* Template Preview Modal */}
+      {showPreviewModal && previewTemplate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-3xl max-h-[80vh] flex flex-col border border-gray-200 dark:border-slate-700">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
+                   <div>
+                      <h3 className="font-bold text-lg text-navy-900 dark:text-white">{previewTemplate.name}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{previewTemplate.category} Template</p>
+                   </div>
+                   <button
+                      onClick={() => setShowPreviewModal(false)}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                   >
+                      <X size={20} className="text-gray-500" />
+                   </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                   <div className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-6 border border-gray-200 dark:border-slate-600">
+                      {previewTemplate.description && (
+                         <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 pb-4 border-b border-gray-200 dark:border-slate-600">
+                            <span className="font-semibold">Description:</span> {previewTemplate.description}
+                         </p>
+                      )}
+                      <div
+                         className="prose prose-sm dark:prose-invert max-w-none text-gray-800 dark:text-gray-200"
+                         dangerouslySetInnerHTML={{ __html: previewTemplate.content }}
+                      />
+                   </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-gray-200 dark:border-slate-700 flex justify-end gap-3 flex-shrink-0">
+                   <button
+                      onClick={() => setShowPreviewModal(false)}
+                      className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm font-medium"
+                   >
+                      Close
+                   </button>
+                   <button
+                      onClick={() => {
+                         setShowPreviewModal(false);
+                         handleEdit(previewTemplate);
+                      }}
+                      className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                   >
+                      <Edit size={16} /> Edit Template
                    </button>
                 </div>
              </div>
