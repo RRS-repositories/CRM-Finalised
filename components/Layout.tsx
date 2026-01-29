@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, MessageSquare, Target, Building2,
   FileText, ClipboardList, Settings, Workflow, Calendar,
   Bell, Sparkles, Megaphone, Shield, ChevronDown, ChevronRight,
-  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info
+  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut
 } from 'lucide-react';
 import { ViewState } from '../types';
 import { useCRM } from '../context/CRMContext';
@@ -17,7 +17,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, onToggleAI }) => {
-  const { currentUser, theme, notifications, removeNotification } = useCRM();
+  const { currentUser, theme, notifications, removeNotification, logout } = useCRM();
 
   // State for collapsible menus
   const [conversationsOpen, setConversationsOpen] = useState(false);
@@ -159,7 +159,20 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
         {/* Bottom Navigation (Fixed) */}
         <div className="py-2 border-t border-navy-800 space-y-1 flex-shrink-0">
-          {bottomNavItems.map(renderNavItem)}
+          {/* Accounts */}
+          {renderNavItem(bottomNavItems[0])}
+
+          {/* Sign Out Button */}
+          <button
+            onClick={logout}
+            className="w-full flex items-center px-4 py-3 transition-colors text-red-400 hover:bg-red-900/30 hover:text-red-300"
+          >
+            <LogOut size={20} className="mr-3" />
+            <span className="text-sm font-medium">Sign Out</span>
+          </button>
+
+          {/* Settings */}
+          {renderNavItem(bottomNavItems[1])}
         </div>
       </aside>
 

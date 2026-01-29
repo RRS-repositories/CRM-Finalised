@@ -371,14 +371,24 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           state_county: c.state_county,
           postalCode: c.postal_code
         },
-        previousAddresses: c.previous_addresses_list ? c.previous_addresses_list.map((pa: any) => ({
-          id: pa.id.toString(),
-          line1: pa.address_line_1,
-          line2: pa.address_line_2,
-          city: pa.city,
-          county: pa.county,
-          postalCode: pa.postal_code
-        })) : []
+        // Use JSONB column if available (saved from CRM), otherwise fall back to separate table
+        previousAddresses: c.previous_addresses && Array.isArray(c.previous_addresses) && c.previous_addresses.length > 0
+          ? c.previous_addresses.map((pa: any, idx: number) => ({
+              id: pa.id || `prev_addr_${idx}`,
+              line1: pa.line1 || pa.address_line_1 || '',
+              line2: pa.line2 || pa.address_line_2 || '',
+              city: pa.city || '',
+              county: pa.county || pa.state_county || '',
+              postalCode: pa.postalCode || pa.postal_code || ''
+            }))
+          : c.previous_addresses_list ? c.previous_addresses_list.map((pa: any) => ({
+              id: pa.id.toString(),
+              line1: pa.address_line_1,
+              line2: pa.address_line_2,
+              city: pa.city,
+              county: pa.county,
+              postalCode: pa.postal_code
+            })) : []
       }));
       setContacts(mappedContacts);
 

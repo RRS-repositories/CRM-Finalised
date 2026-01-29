@@ -78,12 +78,17 @@ const DocumentsContent: React.FC = () => {
       return '';
    };
 
-   // Helper to check if a document is an image file (to hide from frontend display)
+   // Helper to check if a document is an image/signature file (to hide from frontend display)
    const isImageFile = (doc: Document) => {
       if (doc.type === 'image') return true;
       const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'];
       const lowerName = doc.name.toLowerCase();
-      return imageExtensions.some(ext => lowerName.endsWith(ext));
+      // Check file extension
+      if (imageExtensions.some(ext => lowerName.endsWith(ext))) return true;
+      // Check if it's a signature file by name or tags
+      if (lowerName.includes('signature') || lowerName.includes('_sig')) return true;
+      if (doc.tags.some(tag => tag.toLowerCase().includes('signature'))) return true;
+      return false;
    };
 
    // Helper to format date from yyyy-mm-dd to dd-mm-yyyy

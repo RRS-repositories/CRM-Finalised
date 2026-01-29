@@ -278,6 +278,42 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    });
    const [previousAddresses, setPreviousAddresses] = useState<PreviousAddressEntry[]>([]);
 
+   // Previous address lookup state (per address ID)
+   const [prevAddrSuggestions, setPrevAddrSuggestions] = useState<Record<string, any[]>>({});
+   const [prevAddrQuery, setPrevAddrQuery] = useState<Record<string, string>>({});
+   const [prevAddrLoading, setPrevAddrLoading] = useState<Record<string, boolean>>({});
+   const [showPrevAddrSuggestions, setShowPrevAddrSuggestions] = useState<Record<string, boolean>>({});
+
+   // Google Maps services refs
+   const autocompleteServiceRef = useRef<any>(null);
+   const placesServiceRef = useRef<any>(null);
+   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+   // Initialize Google Maps services
+   useEffect(() => {
+      const initGoogleMaps = () => {
+         if (window.google && window.google.maps && window.google.maps.places) {
+            autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
+            // Create a dummy div for PlacesService
+            const dummyDiv = document.createElement('div');
+            placesServiceRef.current = new window.google.maps.places.PlacesService(dummyDiv);
+         }
+      };
+
+      if (window.google) {
+         initGoogleMaps();
+      } else {
+         // Wait for Google Maps to load
+         const checkGoogle = setInterval(() => {
+            if (window.google) {
+               initGoogleMaps();
+               clearInterval(checkGoogle);
+            }
+         }, 100);
+         return () => clearInterval(checkGoogle);
+      }
+   }, []);
+
    // Edit modes for each section
    const [editingPersonalInfo, setEditingPersonalInfo] = useState(false);
    const [editingCurrentAddress, setEditingCurrentAddress] = useState(false);
@@ -753,6 +789,95 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setPreviousAddresses(previousAddresses.map(addr =>
          addr.id === id ? { ...addr, [field]: value } : addr
       ));
+   };
+
+   // Previous address lookup functions
+   const handlePrevAddrSearch = (addrId: string, query: string) => {
+      setPrevAddrQuery(prev => ({ ...prev, [addrId]: query }));
+      setShowPrevAddrSuggestions(prev => ({ ...prev, [addrId]: true }));
+
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+      if (query.length > 2) {
+         setPrevAddrLoading(prev => ({ ...prev, [addrId]: true }));
+         searchTimeoutRef.current = setTimeout(() => {
+            if (!autocompleteServiceRef.current) {
+               setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
+               return;
+            }
+
+            const request = {
+               input: query,
+               componentRestrictions: { country: 'gb' }
+            };
+
+            autocompleteServiceRef.current.getPlacePredictions(request, (predictions: any[], status: any) => {
+               setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
+               if (status === window.google?.maps?.places?.PlacesServiceStatus?.OK && predictions) {
+                  setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: predictions.slice(0, 4) }));
+               } else {
+                  setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: [] }));
+               }
+            });
+         }, 300);
+      } else {
+         setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: [] }));
+         setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
+      }
+   };
+
+   const handleSelectPrevAddr = (addrId: string, suggestion: any) => {
+      setPrevAddrQuery(prev => ({ ...prev, [addrId]: suggestion.description }));
+      setShowPrevAddrSuggestions(prev => ({ ...prev, [addrId]: false }));
+      setPrevAddrLoading(prev => ({ ...prev, [addrId]: true }));
+
+      if (!placesServiceRef.current) {
+         setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
+         return;
+      }
+
+      const request = {
+         placeId: suggestion.place_id,
+         fields: ['address_components']
+      };
+
+      placesServiceRef.current.getDetails(request, (place: any, status: any) => {
+         setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
+         if (status === window.google?.maps?.places?.PlacesServiceStatus?.OK && place) {
+            let streetNumber = '';
+            let route = '';
+            let postalTown = '';
+            let locality = '';
+            let subpremise = '';
+            let county = '';
+            let postalCode = '';
+
+            place.address_components.forEach((component: any) => {
+               const types = component.types;
+               if (types.includes('subpremise')) subpremise = component.long_name;
+               if (types.includes('street_number')) streetNumber = component.long_name;
+               if (types.includes('route')) route = component.long_name;
+               if (types.includes('postal_town')) postalTown = component.long_name;
+               if (types.includes('locality')) locality = component.long_name;
+               if (types.includes('administrative_area_level_2')) county = component.long_name;
+               if (types.includes('administrative_area_level_1') && !county) county = component.long_name;
+               if (types.includes('postal_code')) postalCode = component.long_name;
+            });
+
+            const fullStreet = [subpremise, streetNumber, route].filter(Boolean).join(' ');
+            const city = postalTown || locality;
+
+            setPreviousAddresses(prev => prev.map(addr =>
+               addr.id === addrId ? {
+                  ...addr,
+                  line1: fullStreet,
+                  city: city,
+                  county: county,
+                  postalCode: postalCode
+               } : addr
+            ));
+         }
+      });
    };
 
    // Open claim file view
@@ -1417,6 +1542,39 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           )}
                                        </div>
                                        <div className="grid grid-cols-2 gap-3">
+                                          {/* Address Lookup */}
+                                          <div className="col-span-2 relative">
+                                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                                <MapPin size={12} className="inline mr-1" /> Search Address
+                                             </label>
+                                             <input
+                                                type="text"
+                                                placeholder="Start typing to search..."
+                                                value={prevAddrQuery[addr.id] || ''}
+                                                onChange={(e) => handlePrevAddrSearch(addr.id, e.target.value)}
+                                                onFocus={() => setShowPrevAddrSuggestions(prev => ({ ...prev, [addr.id]: true }))}
+                                                className="w-full px-3 py-2 border border-blue-300 dark:border-blue-500 rounded-lg text-sm bg-blue-50 dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                             />
+                                             {prevAddrLoading[addr.id] && (
+                                                <div className="absolute right-3 top-8 text-blue-500">
+                                                   <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                                </div>
+                                             )}
+                                             {showPrevAddrSuggestions[addr.id] && prevAddrSuggestions[addr.id]?.length > 0 && (
+                                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                                   {prevAddrSuggestions[addr.id].map((suggestion: any, idx: number) => (
+                                                      <button
+                                                         key={idx}
+                                                         type="button"
+                                                         onClick={() => handleSelectPrevAddr(addr.id, suggestion)}
+                                                         className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-slate-700 border-b border-gray-100 dark:border-slate-700 last:border-b-0"
+                                                      >
+                                                         {suggestion.description}
+                                                      </button>
+                                                   ))}
+                                                </div>
+                                             )}
+                                          </div>
                                           <div className="col-span-2">
                                              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Address Line 1</label>
                                              <input

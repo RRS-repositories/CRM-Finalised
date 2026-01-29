@@ -91,46 +91,16 @@ pool.on('error', (err, client) => {
 });
 
 // --- HELPER FUNCTION: Add Timestamp to Signature ---
+// Note: Timestamp is no longer added to the image itself, it's shown in the LOA HTML
 async function addTimestampToSignature(base64Data) {
     if (!base64Data) return null;
     try {
         const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
         const imageBuffer = Buffer.from(base64Image, 'base64');
-        const originalImage = await loadImage(imageBuffer);
-
-        // Calculate new canvas dimensions
-        // We add a small amount of padding and space for the timestamp if desired
-        // But the user wants the main date in HTML. We'll keep a small certified timestamp at the bottom.
-        const padding = 10;
-        const timestampHeight = 35; // Increased for larger font
-        const width = originalImage.width;
-        const height = originalImage.height + timestampHeight;
-
-        const canvas = createCanvas(width, height);
-        const ctx = canvas.getContext('2d');
-
-        // Transparent background
-        ctx.clearRect(0, 0, width, height);
-
-        // Draw original signature
-        ctx.drawImage(originalImage, 0, 0);
-
-        // Add small, professional certified timestamp at the very bottom
-        const now = new Date();
-        const timestamp = now.toLocaleString('en-GB', {
-            day: '2-digit', month: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false
-        });
-
-        ctx.fillStyle = '#000000'; // Black color for visibility
-        ctx.font = 'bold 14px Arial'; // Bold
-        ctx.textAlign = 'left';
-        ctx.fillText(`Signed At: ${timestamp}`, 10, height - 10);
-
-        return canvas.toBuffer('image/png');
+        // Return the image buffer without adding timestamp text
+        return imageBuffer;
     } catch (error) {
-        console.error("Error adding timestamp to signature:", error);
+        console.error("Error processing signature:", error);
         return Buffer.from(base64Data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
     }
 }
@@ -600,7 +570,11 @@ async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
             line-height: 1.3;
         }
         .page-content {
-            padding-bottom: 100px;
+            padding-bottom: 80px;
+        }
+        .page-two {
+            page-break-before: always;
+            padding-bottom: 80px;
         }
     </style>
 </head>
@@ -661,24 +635,29 @@ async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
             <li>Executed copies of credit or loan agreements</li>
             <li>Full statements of account, detailing all payments made, interest charged, fees incurred, and any outstanding balances</li>
             <li>Records of any affordability assessments or creditworthiness checks conducted</li>
-            <li>Copies of all correspondence between your organisation and our client</li>
         </ul>
 
-        <div class="body-text" style="page-break-before: always;">
-            <p>This request is made under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018. We remind you that you are obligated to respond to this request within one calendar month from the date of receipt.</p>
+        <div class="page-two">
+            <ul class="bullet-list" style="margin-top: 0;">
+                <li>Copies of all correspondence between your organisation and our client</li>
+            </ul>
 
-            <p>Please forward all requested information directly to our office at the address shown above, or via email to irl@rowanrose.co.uk.</p>
+            <div class="body-text">
+                <p>This request is made under the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018. We remind you that you are obligated to respond to this request within one calendar month from the date of receipt.</p>
 
-            <p>Should you require verification of our authority to act on behalf of our client, please find enclosed the signed Letter of Authority.</p>
+                <p>Please forward all requested information directly to our office at the address shown above, or via email to irl@rowanrose.co.uk.</p>
 
-            <p>We look forward to your prompt response.</p>
-        </div>
+                <p>Should you require verification of our authority to act on behalf of our client, please find enclosed the signed Letter of Authority.</p>
 
-        <div class="signature-block">
-            <p>Yours faithfully,</p>
-            <br>
-            <p><strong>Fast Action Claims</strong><br>
-            On behalf of ${fullName}</p>
+                <p>We look forward to your prompt response.</p>
+            </div>
+
+            <div class="signature-block">
+                <p>Yours faithfully,</p>
+                <br>
+                <p><strong>Fast Action Claims</strong><br>
+                On behalf of ${fullName}</p>
+            </div>
         </div>
     </div>
 
@@ -700,7 +679,10 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         city,
         state_county,
         postal_code,
-        dob
+        dob,
+        previous_addresses,
+        previous_address_line_1,
+        previous_address_line_2
     } = contact;
 
     const fullName = `${first_name} ${last_name}`;
@@ -721,6 +703,28 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         } catch (e) {
             formattedDOB = dob;
         }
+    }
+
+    // Format Previous Addresses
+    let previousAddressHTML = '';
+    if (previous_addresses && Array.isArray(previous_addresses) && previous_addresses.length > 0) {
+        // Handle JSONB array of previous addresses
+        previousAddressHTML = previous_addresses.map((addr, index) => {
+            const addrParts = [
+                addr.line1 || addr.address_line_1,
+                addr.line2 || addr.address_line_2,
+                addr.city,
+                addr.county || addr.state_county,
+                addr.postalCode || addr.postal_code
+            ].filter(Boolean).join(', ');
+            return previous_addresses.length > 1
+                ? `<div style="margin-bottom: 4px;"><strong>${index + 1}.</strong> ${addrParts}</div>`
+                : `<strong>${addrParts}</strong>`;
+        }).join('');
+    } else if (previous_address_line_1) {
+        // Legacy single previous address
+        const addrParts = [previous_address_line_1, previous_address_line_2].filter(Boolean).join(', ');
+        previousAddressHTML = `<strong>${addrParts}</strong>`;
     }
 
     return `
@@ -807,7 +811,7 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
             </tr>
             <tr>
                 <td class="label">Previous Address:</td>
-                <td></td>
+                <td>${previousAddressHTML || ''}</td>
             </tr>
         </table>
     </div>
@@ -825,13 +829,14 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
     </div>
 
     <div class="signature-section">
-        <table class="sign-table">
+        <table class="sign-table" style="width: 100%;">
             <tr>
-                <td style="width: 40%; font-weight: bold; font-size: 13px; height: 80px; vertical-align: middle;">
-                    <strong>SIGNATURE</strong>
+                <td style="width: 40%; vertical-align: top; padding-right: 10px;">
+                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">SIGNATURE</div>
+                    <div style="font-size: 10px; color: #333;">Created at: ${new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</div>
                 </td>
-                <td style="width: 60%; text-align: center; vertical-align: middle;">
-                    ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-img" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
+                <td style="width: 60%; text-align: left; vertical-align: top;">
+                    ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 60px; max-width: 200px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
                 </td>
             </tr>
         </table>
@@ -856,7 +861,8 @@ const processPendingLOAs = async () => {
             SELECT c.id as case_id, c.lender, c.created_at,
                    cnt.id as contact_id, cnt.first_name, cnt.last_name,
                    cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code,
-                   cnt.signature_2_url, cnt.dob
+                   cnt.signature_2_url, cnt.dob,
+                   cnt.previous_addresses, cnt.previous_address_line_1, cnt.previous_address_line_2
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
             WHERE (c.status = 'Lender Selection Form Completed' OR c.status = 'New Lead' OR c.status = 'LOA Sent')

@@ -22,7 +22,10 @@
       "Bash(ssh:*)",
       "Bash(python3:*)",
       "Bash(tree:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(cd:*)",
+      "Read(//Users/sayedmohammadfirdousi/Desktop/**)",
+      "Bash(grep:*)"
     ]
   }
 }

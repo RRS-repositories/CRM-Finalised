@@ -135,6 +135,11 @@ pool.on('error', (err, client) => {
                         ALTER TABLE contacts ADD COLUMN previous_postal_code TEXT;
                     END IF;
 
+                    -- Add previous_addresses JSONB column to contacts table (for storing array of addresses)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_addresses') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_addresses JSONB;
+                    END IF;
+
                     -- Create submission_tokens table if not exists
                     CREATE TABLE IF NOT EXISTS submission_tokens (
                         id SERIAL PRIMARY KEY,
@@ -826,46 +831,16 @@ const CLAUDE_TOOLS = [
 ];
 
 // --- HELPER FUNCTION: Add Timestamp to Signature ---
+// Note: Timestamp is no longer added to the image itself, it's shown in the LOA HTML
 async function addTimestampToSignature(base64Data) {
     if (!base64Data) return null;
     try {
         const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
         const imageBuffer = Buffer.from(base64Image, 'base64');
-        const originalImage = await loadImage(imageBuffer);
-
-        // Calculate new canvas dimensions
-        // We add a small amount of padding and space for the timestamp if desired
-        // But the user wants the main date in HTML. We'll keep a small certified timestamp at the bottom.
-        const padding = 10;
-        const timestampHeight = 35; // Increased for larger font
-        const width = originalImage.width;
-        const height = originalImage.height + timestampHeight;
-
-        const canvas = createCanvas(width, height);
-        const ctx = canvas.getContext('2d');
-
-        // Transparent background
-        ctx.clearRect(0, 0, width, height);
-
-        // Draw original signature
-        ctx.drawImage(originalImage, 0, 0);
-
-        // Add small, professional certified timestamp at the very bottom
-        const now = new Date();
-        const timestamp = now.toLocaleString('en-GB', {
-            day: '2-digit', month: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false
-        });
-
-        ctx.fillStyle = '#000000'; // Black color for visibility
-        ctx.font = 'bold 14px Arial'; // Bold
-        ctx.textAlign = 'left';
-        ctx.fillText(`Signed At: ${timestamp}`, 10, height - 10);
-
-        return canvas.toBuffer('image/png');
+        // Return the image buffer without adding timestamp text
+        return imageBuffer;
     } catch (error) {
-        console.error("Error adding timestamp to signature:", error);
+        console.error("Error processing signature:", error);
         return Buffer.from(base64Data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
     }
 }
@@ -1216,7 +1191,10 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         city,
         state_county,
         postal_code,
-        dob
+        dob,
+        previous_addresses,
+        previous_address_line_1,
+        previous_address_line_2
     } = contact;
 
     const fullName = `${first_name} ${last_name}`;
@@ -1237,6 +1215,28 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         } catch (e) {
             formattedDOB = dob;
         }
+    }
+
+    // Format Previous Addresses
+    let previousAddressHTML = '';
+    if (previous_addresses && Array.isArray(previous_addresses) && previous_addresses.length > 0) {
+        // Handle JSONB array of previous addresses
+        previousAddressHTML = previous_addresses.map((addr, index) => {
+            const addrParts = [
+                addr.line1 || addr.address_line_1,
+                addr.line2 || addr.address_line_2,
+                addr.city,
+                addr.county || addr.state_county,
+                addr.postalCode || addr.postal_code
+            ].filter(Boolean).join(', ');
+            return previous_addresses.length > 1
+                ? `<div style="margin-bottom: 4px;"><strong>${index + 1}.</strong> ${addrParts}</div>`
+                : `<strong>${addrParts}</strong>`;
+        }).join('');
+    } else if (previous_address_line_1) {
+        // Legacy single previous address
+        const addrParts = [previous_address_line_1, previous_address_line_2].filter(Boolean).join(', ');
+        previousAddressHTML = `<strong>${addrParts}</strong>`;
     }
 
     return `
@@ -1323,7 +1323,7 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
             </tr>
             <tr>
                 <td class="label">Previous Address:</td>
-                <td></td>
+                <td>${previousAddressHTML || ''}</td>
             </tr>
         </table>
     </div>
@@ -1341,13 +1341,14 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
     </div>
 
     <div class="signature-section">
-        <table class="sign-table">
+        <table class="sign-table" style="width: 100%;">
             <tr>
-                <td style="width: 40%; font-weight: bold; font-size: 13px; height: 80px; vertical-align: middle;">
-                    <strong>SIGNATURE</strong>
+                <td style="width: 40%; vertical-align: top; padding-right: 10px;">
+                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">SIGNATURE</div>
+                    <div style="font-size: 10px; color: #333;">Created at: ${new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</div>
                 </td>
-                <td style="width: 60%; text-align: center; vertical-align: middle;">
-                    ${signatureBase64 ? `<img src="${signatureBase64}" class="signature-img" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
+                <td style="width: 60%; text-align: left; vertical-align: top;">
+                    ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 60px; max-width: 200px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
                 </td>
             </tr>
         </table>
@@ -3137,7 +3138,7 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
     const {
         bank_name, account_name, sort_code, bank_account_number,
         previous_address_line_1, previous_address_line_2, previous_city,
-        previous_county, previous_postal_code
+        previous_county, previous_postal_code, previous_addresses
     } = req.body;
 
     try {
@@ -3154,6 +3155,7 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
         if (previous_city !== undefined) { updates.push(`previous_city = $${paramCount++}`); values.push(previous_city); }
         if (previous_county !== undefined) { updates.push(`previous_county = $${paramCount++}`); values.push(previous_county); }
         if (previous_postal_code !== undefined) { updates.push(`previous_postal_code = $${paramCount++}`); values.push(previous_postal_code); }
+        if (previous_addresses !== undefined) { updates.push(`previous_addresses = $${paramCount++}`); values.push(previous_addresses); }
 
         if (updates.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
@@ -3200,6 +3202,15 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
         const values = [];
         let paramCount = 1;
 
+        // List of numeric (DECIMAL) fields that cannot accept empty strings
+        const numericFields = [
+            'apr', 'outstanding_balance', 'offer_made', 'late_payment_charges',
+            'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+            'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
+            'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
+            'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans'
+        ];
+
         const fields = {
             lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
             lender_reference, dates_timeline, apr, outstanding_balance,
@@ -3213,7 +3224,12 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
         for (const [key, value] of Object.entries(fields)) {
             if (value !== undefined) {
                 updates.push(`${key} = $${paramCount++}`);
-                values.push(value);
+                // Convert empty strings to null for numeric fields
+                if (numericFields.includes(key) && value === '') {
+                    values.push(null);
+                } else {
+                    values.push(value);
+                }
             }
         }
 

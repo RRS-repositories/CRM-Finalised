@@ -116,34 +116,6 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
 
       </div>
 
-      <div className="mt-8 bg-slate-50 p-6 rounded-xl border border-slate-200">
-        <label className="flex items-start gap-4 cursor-pointer group">
-          <div className="relative flex items-center mt-1">
-            <input
-              type="checkbox"
-              className="peer h-5 w-5 cursor-pointer appearance-none rounded border border-slate-300 transition-all checked:border-navy-900 checked:bg-navy-900"
-              checked={noIdChecked}
-              onChange={(e) => setNoIdChecked(e.target.checked)}
-            />
-            <div className="pointer-events-none absolute top-2/4 left-2/4 -translate-x-2/4 -translate-y-2/4 text-white opacity-0 transition-opacity peer-checked:opacity-100">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-            </div>
-          </div>
-          <div className="flex-1">
-            <span className="text-sm font-bold text-navy-900 group-hover:text-gold-600 transition-colors">I do NOT hold a Passport or Driving Licence</span>
-            <br /><br />
-            {noIdChecked && (
-              <div className="mt-3 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg slide-up shadow-sm">
-                <p className="text-sm text-slate-800 leading-relaxed">
-                  If you do not hold a passport or driving licence, please upload a clear photo or screenshot of a <strong className="font-bold">Bank Statement or Utility Bill</strong> dated within the last 4 weeks.
-                </p>
-              </div>
-            )}
-          </div>
-        </label>
-      </div>
-      <br /><br />
-
       <div
         className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all duration-300 cursor-pointer
           ${isDragOver
@@ -231,11 +203,38 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
       </div>
 
 
-      <div className="mt-8">
+      {/* No ID Checkbox - placed just above submit button */}
+      <div className="mt-8 bg-slate-50 p-6 rounded-xl border-2 border-slate-300">
+        <label className="flex items-start gap-4 cursor-pointer group">
+          <div className="relative flex items-center mt-0.5">
+            <input
+              type="checkbox"
+              className="peer h-6 w-6 cursor-pointer appearance-none rounded border-2 border-navy-900 bg-white transition-all checked:border-navy-900 checked:bg-navy-900"
+              checked={noIdChecked}
+              onChange={(e) => setNoIdChecked(e.target.checked)}
+            />
+            <div className="pointer-events-none absolute top-2/4 left-2/4 -translate-x-2/4 -translate-y-2/4 text-white opacity-0 transition-opacity peer-checked:opacity-100">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+            </div>
+          </div>
+          <div className="flex-1">
+            <span className="text-sm font-bold text-navy-900 group-hover:text-gold-600 transition-colors">I do NOT hold a Passport or Driving Licence</span>
+            {noIdChecked && (
+              <div className="mt-3 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg slide-up shadow-sm">
+                <p className="text-sm text-slate-800 leading-relaxed">
+                  If you do not hold a passport or driving licence, please upload a clear photo or screenshot of a <strong className="font-bold">Bank Statement or Utility Bill</strong> dated within the last 4 weeks.
+                </p>
+              </div>
+            )}
+          </div>
+        </label>
+      </div>
+
+      <div className="mt-6">
         <button
           onClick={handleSubmit}
           disabled={!file || uploading}
-          className={`w-full py-4 bg-sky-500 text-white font-medium tracking-wide text-lg shadow-xl shadow-sky-500/20 transition-all hover:bg-sky-600 hover:shadow-2xl hover:-translate-y-1
+          className={`w-full py-4 bg-sky-400 text-white font-medium tracking-wide text-lg rounded-lg shadow-xl shadow-sky-400/20 transition-all hover:bg-sky-500 hover:shadow-2xl hover:-translate-y-1
             ${(!file || uploading) ? 'opacity-50 cursor-not-allowed transform-none' : ''}`}
         >
           {uploading ? (

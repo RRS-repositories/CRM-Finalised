@@ -600,9 +600,9 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
       </div>
 
       <div className="mb-10">
-        <div className="flex flex-col items-start bg-slate-50 p-6 rounded-lg border border-slate-200">
-          <label className="flex items-start gap-3 cursor-pointer group select-none">
-            <div className="relative flex items-center mt-1">
+        <div className="flex flex-col items-start bg-slate-50 p-6 rounded-lg border-2 border-slate-300">
+          <label className="flex items-start gap-4 cursor-pointer group select-none">
+            <div className="relative flex items-center mt-0.5">
               <input
                 type="checkbox"
                 checked={termsAccepted}
@@ -620,12 +620,12 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
                     })
                   }
                 }}
-                className={`peer h-5 w-5 cursor-pointer appearance-none rounded border transition-all 
-                    ${errors.terms ? 'border-red-500' : 'border-slate-300'} 
+                className={`peer h-6 w-6 cursor-pointer appearance-none rounded border-2 transition-all
+                    ${errors.terms ? 'border-red-500 bg-red-50' : 'border-navy-900 bg-white'}
                     checked:border-navy-900 checked:bg-navy-900`}
               />
               <div className="pointer-events-none absolute top-2/4 left-2/4 -translate-x-2/4 -translate-y-2/4 text-white opacity-0 transition-opacity peer-checked:opacity-100">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
               </div>
             </div>
             <span className={`text-sm ${errors.terms ? 'text-red-600' : 'text-slate-700'}`}>
@@ -645,7 +645,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
               )}
             </span>
           </label>
-          {errors.terms && <span className="text-xs text-red-500 mt-2 pl-8">Required: Please accept the terms to proceed.</span>}
+          {errors.terms && <span className="text-xs text-red-500 mt-2 pl-10">Required: Please accept the terms to proceed.</span>}
         </div>
       </div>
 

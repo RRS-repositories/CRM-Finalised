@@ -105,78 +105,83 @@ const AppContent = () => {
   }
 
   return (
-    <>
-      <Layout
-        currentView={currentView}
-        onChangeView={handleChangeView}
-        onToggleAI={() => setIsAIOpen(true)}
-      >
-        <Routes>
-          {/* Dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+    <Routes>
+      {/* Public standalone routes - NO sidebar/layout (must be first to take priority) */}
+      <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
+      <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
+      <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
+      <Route path="/loa-form/*" element={<LoaSelectionForm />} />
 
-          {/* Contacts */}
-          <Route path="/contacts" element={<Contacts />} />
+      {/* All other routes wrapped in Layout with sidebar */}
+      <Route path="*" element={
+        <>
+          <Layout
+            currentView={currentView}
+            onChangeView={handleChangeView}
+            onToggleAI={() => setIsAIOpen(true)}
+          >
+            <Routes>
+              {/* Dashboard */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
 
-          {/* Cases/Pipeline */}
-          <Route path="/cases" element={<Pipeline />} />
+              {/* Contacts */}
+              <Route path="/contacts" element={<Contacts />} />
 
-          {/* Calendar */}
-          <Route path="/calendar" element={<Calendar />} />
+              {/* Cases/Pipeline */}
+              <Route path="/cases" element={<Pipeline />} />
 
-          {/* Conversations */}
-          <Route path="/conversations" element={<Conversations platformFilter="all" />} />
-          <Route path="/conversations/facebook" element={<Conversations platformFilter="facebook" />} />
-          <Route path="/conversations/whatsapp" element={<Conversations platformFilter="whatsapp" />} />
-          <Route path="/conversations/sms" element={<Conversations platformFilter="sms" />} />
-          <Route path="/conversations/email" element={<EmailConversations />} />
+              {/* Calendar */}
+              <Route path="/calendar" element={<Calendar />} />
 
-          {/* Marketing */}
-          <Route path="/marketing" element={<Marketing />} />
+              {/* Conversations */}
+              <Route path="/conversations" element={<Conversations platformFilter="all" />} />
+              <Route path="/conversations/facebook" element={<Conversations platformFilter="facebook" />} />
+              <Route path="/conversations/whatsapp" element={<Conversations platformFilter="whatsapp" />} />
+              <Route path="/conversations/sms" element={<Conversations platformFilter="sms" />} />
+              <Route path="/conversations/email" element={<EmailConversations />} />
 
-          {/* Documents */}
-          <Route path="/documents" element={<Documents />} />
+              {/* Marketing */}
+              <Route path="/marketing" element={<Marketing />} />
 
-          {/* Forms */}
-          <Route path="/forms" element={<Forms />} />
+              {/* Documents */}
+              <Route path="/documents" element={<Documents />} />
 
-          {/* Automation/Workflow */}
-          <Route path="/automation" element={<Workflows />} />
+              {/* Forms */}
+              <Route path="/forms" element={<Forms />} />
 
-          {/* Settings */}
-          <Route path="/settings" element={<Settings />} />
+              {/* Automation/Workflow */}
+              <Route path="/automation" element={<Workflows />} />
 
-          {/* Management (Admin Panel) */}
-          <Route path="/management" element={<AdminPanel />} />
+              {/* Settings */}
+              <Route path="/settings" element={<Settings />} />
 
-          {/* Accounts/Lenders */}
-          <Route path="/accounts" element={
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
-              <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
-              <p>The Accounts module is under development.</p>
-            </div>
-          } />
+              {/* Management (Admin Panel) */}
+              <Route path="/management" element={<AdminPanel />} />
 
-          {/* Client Intake (internal) */}
-          <Route path="/client-intake" element={<ClientIntake />} />
+              {/* Accounts/Lenders */}
+              <Route path="/accounts" element={
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                  <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                  <p>The Accounts module is under development.</p>
+                </div>
+              } />
 
-          {/* Public standalone routes (also accessible when logged in) */}
-          <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
-          <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
-          <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
-          <Route path="/loa-form/*" element={<LoaSelectionForm />} />
+              {/* Client Intake (internal) */}
+              <Route path="/client-intake" element={<ClientIntake />} />
 
-          {/* Fallback - redirect unknown routes to dashboard */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </Layout>
+              {/* Fallback - redirect unknown routes to dashboard */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </Layout>
 
-      <AIAssistant
-        isOpen={isAIOpen}
-        onClose={() => setIsAIOpen(false)}
-      />
-    </>
+          <AIAssistant
+            isOpen={isAIOpen}
+            onClose={() => setIsAIOpen(false)}
+          />
+        </>
+      } />
+    </Routes>
   );
 };
 
