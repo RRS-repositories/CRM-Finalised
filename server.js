@@ -169,6 +169,79 @@ pool.on('error', (err, client) => {
 
                     -- Fix capitalization of status values
                     UPDATE cases SET status = 'Lender Selection Form Completed' WHERE status = 'LENDER SELECTION FORM COMPLETED';
+
+                    -- ============================================
+                    -- TASKS & REMINDERS SYSTEM TABLES
+                    -- ============================================
+
+                    -- Create tasks table for calendar events/tasks
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        id SERIAL PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        type VARCHAR(50) DEFAULT 'appointment',
+                        status VARCHAR(50) DEFAULT 'pending',
+                        date DATE NOT NULL,
+                        start_time TIME,
+                        end_time TIME,
+                        assigned_to INTEGER,
+                        assigned_by INTEGER,
+                        assigned_at TIMESTAMP,
+                        is_recurring BOOLEAN DEFAULT FALSE,
+                        recurrence_pattern VARCHAR(50),
+                        recurrence_end_date DATE,
+                        parent_task_id INTEGER,
+                        created_by INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        completed_by INTEGER
+                    );
+
+                    -- Create task_contacts junction table
+                    CREATE TABLE IF NOT EXISTS task_contacts (
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (task_id, contact_id)
+                    );
+
+                    -- Create task_claims junction table
+                    CREATE TABLE IF NOT EXISTS task_claims (
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        claim_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+                        PRIMARY KEY (task_id, claim_id)
+                    );
+
+                    -- Create task_reminders table
+                    CREATE TABLE IF NOT EXISTS task_reminders (
+                        id SERIAL PRIMARY KEY,
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        reminder_time TIMESTAMP NOT NULL,
+                        reminder_type VARCHAR(50) DEFAULT 'in_app',
+                        is_sent BOOLEAN DEFAULT FALSE,
+                        sent_at TIMESTAMP
+                    );
+
+                    -- Create persistent_notifications table
+                    CREATE TABLE IF NOT EXISTS persistent_notifications (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        type VARCHAR(50) NOT NULL,
+                        title VARCHAR(255) NOT NULL,
+                        message TEXT,
+                        link VARCHAR(500),
+                        related_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+                        is_read BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- Create indexes for better performance
+                    CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+                    CREATE INDEX IF NOT EXISTS idx_task_reminders_time ON task_reminders(reminder_time);
+                    CREATE INDEX IF NOT EXISTS idx_notifications_user ON persistent_notifications(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_notifications_unread ON persistent_notifications(user_id, is_read);
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
@@ -4554,6 +4627,699 @@ app.get('/api/contacts/:id/action-timeline', async (req, res) => {
     }
 });
 
+
+// ============================================
+// TASKS & CALENDAR ENDPOINTS
+// ============================================
+
+// Get all tasks (with optional filters)
+app.get('/api/tasks', async (req, res) => {
+    try {
+        const { startDate, endDate, status, assignedTo, type } = req.query;
+
+        let query = `
+            SELECT t.*,
+                u1.full_name as assigned_to_name,
+                u2.full_name as assigned_by_name,
+                u3.full_name as created_by_name,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tc.contact_id, 'name', c.full_name))
+                     FROM task_contacts tc
+                     JOIN contacts c ON tc.contact_id = c.id
+                     WHERE tc.task_id = t.id), '[]'
+                ) as linked_contacts,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tcl.claim_id, 'lender', cs.lender))
+                     FROM task_claims tcl
+                     JOIN cases cs ON tcl.claim_id = cs.id
+                     WHERE tcl.task_id = t.id), '[]'
+                ) as linked_claims,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tr.id, 'reminder_time', tr.reminder_time, 'is_sent', tr.is_sent))
+                     FROM task_reminders tr
+                     WHERE tr.task_id = t.id), '[]'
+                ) as reminders
+            FROM tasks t
+            LEFT JOIN users u1 ON t.assigned_to = u1.id
+            LEFT JOIN users u2 ON t.assigned_by = u2.id
+            LEFT JOIN users u3 ON t.created_by = u3.id
+            WHERE 1=1
+        `;
+
+        const params = [];
+        let paramIndex = 1;
+
+        if (startDate) {
+            query += ` AND t.date >= $${paramIndex}`;
+            params.push(startDate);
+            paramIndex++;
+        }
+        if (endDate) {
+            query += ` AND t.date <= $${paramIndex}`;
+            params.push(endDate);
+            paramIndex++;
+        }
+        if (status) {
+            query += ` AND t.status = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+        if (assignedTo) {
+            query += ` AND t.assigned_to = $${paramIndex}`;
+            params.push(assignedTo);
+            paramIndex++;
+        }
+        if (type) {
+            query += ` AND t.type = $${paramIndex}`;
+            params.push(type);
+            paramIndex++;
+        }
+
+        query += ` ORDER BY t.date ASC, t.start_time ASC`;
+
+        const { rows } = await pool.query(query, params);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching tasks:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get single task
+app.get('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await pool.query(`
+            SELECT t.*,
+                u1.full_name as assigned_to_name,
+                u2.full_name as assigned_by_name,
+                u3.full_name as created_by_name,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tc.contact_id, 'name', c.full_name))
+                     FROM task_contacts tc
+                     JOIN contacts c ON tc.contact_id = c.id
+                     WHERE tc.task_id = t.id), '[]'
+                ) as linked_contacts,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tcl.claim_id, 'lender', cs.lender))
+                     FROM task_claims tcl
+                     JOIN cases cs ON tcl.claim_id = cs.id
+                     WHERE tcl.task_id = t.id), '[]'
+                ) as linked_claims,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tr.id, 'reminder_time', tr.reminder_time, 'is_sent', tr.is_sent))
+                     FROM task_reminders tr
+                     WHERE tr.task_id = t.id), '[]'
+                ) as reminders
+            FROM tasks t
+            LEFT JOIN users u1 ON t.assigned_to = u1.id
+            LEFT JOIN users u2 ON t.assigned_by = u2.id
+            LEFT JOIN users u3 ON t.created_by = u3.id
+            WHERE t.id = $1
+        `, [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('Error fetching task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create task
+app.post('/api/tasks', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const {
+            title, description, type, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, contactIds, claimIds, reminders, createdBy
+        } = req.body;
+
+        // Insert task
+        const taskResult = await client.query(`
+            INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                assigned_to, assigned_by, assigned_at, is_recurring, recurrence_pattern,
+                recurrence_end_date, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+        `, [
+            title, description, type || 'appointment', date, startTime, endTime,
+            assignedTo || null, assignedBy || null, assignedTo ? new Date() : null,
+            isRecurring || false, recurrencePattern || null,
+            recurrenceEndDate || null, createdBy || null
+        ]);
+
+        const taskId = taskResult.rows[0].id;
+
+        // Link contacts
+        if (contactIds && contactIds.length > 0) {
+            for (const contactId of contactIds) {
+                await client.query(
+                    'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                    [taskId, contactId]
+                );
+            }
+        }
+
+        // Link claims
+        if (claimIds && claimIds.length > 0) {
+            for (const claimId of claimIds) {
+                await client.query(
+                    'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                    [taskId, claimId]
+                );
+            }
+        }
+
+        // Add reminders
+        if (reminders && reminders.length > 0) {
+            for (const reminder of reminders) {
+                await client.query(
+                    'INSERT INTO task_reminders (task_id, reminder_time, reminder_type) VALUES ($1, $2, $3)',
+                    [taskId, reminder.reminderTime, reminder.reminderType || 'in_app']
+                );
+            }
+        }
+
+        // Create notification for assignee if assigned to someone else
+        if (assignedTo && assignedTo !== createdBy) {
+            await client.query(`
+                INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                VALUES ($1, 'task_assigned', $2, $3, $4)
+            `, [assignedTo, `Task assigned: ${title}`, `You have been assigned a new task scheduled for ${date}`, taskId]);
+        }
+
+        // Log action
+        if (contactIds && contactIds.length > 0) {
+            await client.query(`
+                INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                VALUES ($1, 'agent', $2, 'task_created', 'system', $3)
+            `, [contactIds[0], createdBy, `Task "${title}" created`]);
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({ success: true, id: taskId, task: taskResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error creating task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update task
+app.patch('/api/tasks/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const {
+            title, description, type, status, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, contactIds, claimIds, reminders
+        } = req.body;
+
+        // Get current task for comparison
+        const currentTask = await client.query('SELECT * FROM tasks WHERE id = $1', [id]);
+        if (currentTask.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        // Update task
+        const updateResult = await client.query(`
+            UPDATE tasks SET
+                title = COALESCE($1, title),
+                description = COALESCE($2, description),
+                type = COALESCE($3, type),
+                status = COALESCE($4, status),
+                date = COALESCE($5, date),
+                start_time = COALESCE($6, start_time),
+                end_time = COALESCE($7, end_time),
+                assigned_to = COALESCE($8, assigned_to),
+                assigned_by = COALESCE($9, assigned_by),
+                assigned_at = CASE WHEN $8 IS NOT NULL AND $8 != assigned_to THEN NOW() ELSE assigned_at END,
+                is_recurring = COALESCE($10, is_recurring),
+                recurrence_pattern = COALESCE($11, recurrence_pattern),
+                recurrence_end_date = COALESCE($12, recurrence_end_date),
+                updated_at = NOW()
+            WHERE id = $13
+            RETURNING *
+        `, [title, description, type, status, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, id]);
+
+        // Update linked contacts if provided
+        if (contactIds !== undefined) {
+            await client.query('DELETE FROM task_contacts WHERE task_id = $1', [id]);
+            for (const contactId of contactIds) {
+                await client.query(
+                    'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                    [id, contactId]
+                );
+            }
+        }
+
+        // Update linked claims if provided
+        if (claimIds !== undefined) {
+            await client.query('DELETE FROM task_claims WHERE task_id = $1', [id]);
+            for (const claimId of claimIds) {
+                await client.query(
+                    'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                    [id, claimId]
+                );
+            }
+        }
+
+        // Update reminders if provided
+        if (reminders !== undefined) {
+            await client.query('DELETE FROM task_reminders WHERE task_id = $1', [id]);
+            for (const reminder of reminders) {
+                await client.query(
+                    'INSERT INTO task_reminders (task_id, reminder_time, reminder_type) VALUES ($1, $2, $3)',
+                    [id, reminder.reminderTime, reminder.reminderType || 'in_app']
+                );
+            }
+        }
+
+        // Notify if reassigned
+        if (assignedTo && assignedTo !== currentTask.rows[0].assigned_to) {
+            await client.query(`
+                INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                VALUES ($1, 'task_assigned', $2, $3, $4)
+            `, [assignedTo, `Task assigned: ${title || currentTask.rows[0].title}`, `You have been assigned a task`, id]);
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, task: updateResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error updating task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Complete task
+app.post('/api/tasks/:id/complete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { completedBy } = req.body;
+
+        const { rows } = await pool.query(`
+            UPDATE tasks SET
+                status = 'completed',
+                completed_at = NOW(),
+                completed_by = $1,
+                updated_at = NOW()
+            WHERE id = $2
+            RETURNING *
+        `, [completedBy, id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        res.json({ success: true, task: rows[0] });
+    } catch (error) {
+        console.error('Error completing task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reschedule task (creates follow-up if auto-reschedule)
+app.post('/api/tasks/:id/reschedule', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const { newDate, newStartTime, newEndTime, autoFollowUp, rescheduledBy } = req.body;
+
+        // Get current task
+        const currentTask = await client.query('SELECT * FROM tasks WHERE id = $1', [id]);
+        if (currentTask.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        const task = currentTask.rows[0];
+
+        // Mark original as rescheduled
+        await client.query(`
+            UPDATE tasks SET status = 'rescheduled', updated_at = NOW() WHERE id = $1
+        `, [id]);
+
+        // Create new task with new date
+        const newTaskResult = await client.query(`
+            INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                assigned_to, assigned_by, is_recurring, recurrence_pattern,
+                recurrence_end_date, parent_task_id, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+        `, [
+            task.title, task.description, task.type, newDate,
+            newStartTime || task.start_time, newEndTime || task.end_time,
+            task.assigned_to, task.assigned_by, task.is_recurring,
+            task.recurrence_pattern, task.recurrence_end_date, id, rescheduledBy
+        ]);
+
+        const newTaskId = newTaskResult.rows[0].id;
+
+        // Copy contact links
+        await client.query(`
+            INSERT INTO task_contacts (task_id, contact_id)
+            SELECT $1, contact_id FROM task_contacts WHERE task_id = $2
+        `, [newTaskId, id]);
+
+        // Copy claim links
+        await client.query(`
+            INSERT INTO task_claims (task_id, claim_id)
+            SELECT $1, claim_id FROM task_claims WHERE task_id = $2
+        `, [newTaskId, id]);
+
+        // Log action
+        const contacts = await client.query('SELECT contact_id FROM task_contacts WHERE task_id = $1 LIMIT 1', [id]);
+        if (contacts.rows.length > 0) {
+            await client.query(`
+                INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                VALUES ($1, 'agent', $2, 'task_rescheduled', 'system', $3)
+            `, [contacts.rows[0].contact_id, rescheduledBy, `Task "${task.title}" rescheduled to ${newDate}`]);
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, originalTaskId: id, newTaskId, newTask: newTaskResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error rescheduling task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Delete task
+app.delete('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING *', [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        res.json({ success: true, message: 'Task deleted' });
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get task history (all versions including rescheduled)
+app.get('/api/tasks/:id/history', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get all tasks in the chain (parent and children)
+        const { rows } = await pool.query(`
+            WITH RECURSIVE task_chain AS (
+                SELECT t.*, 0 as depth FROM tasks t WHERE t.id = $1
+                UNION ALL
+                SELECT t.*, tc.depth + 1 FROM tasks t
+                JOIN task_chain tc ON t.parent_task_id = tc.id
+            )
+            SELECT * FROM task_chain ORDER BY created_at ASC
+        `, [id]);
+
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching task history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// PERSISTENT NOTIFICATIONS ENDPOINTS
+// ============================================
+
+// Get notifications for a user
+app.get('/api/notifications', async (req, res) => {
+    try {
+        const { userId, unreadOnly } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        let query = `
+            SELECT n.*, t.title as task_title, t.date as task_date
+            FROM persistent_notifications n
+            LEFT JOIN tasks t ON n.related_task_id = t.id
+            WHERE n.user_id = $1
+        `;
+
+        if (unreadOnly === 'true') {
+            query += ' AND n.is_read = FALSE';
+        }
+
+        query += ' ORDER BY n.created_at DESC LIMIT 50';
+
+        const { rows } = await pool.query(query, [userId]);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching notifications:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get unread notification count
+app.get('/api/notifications/count', async (req, res) => {
+    try {
+        const { userId } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        const { rows } = await pool.query(
+            'SELECT COUNT(*) as count FROM persistent_notifications WHERE user_id = $1 AND is_read = FALSE',
+            [userId]
+        );
+
+        res.json({ count: parseInt(rows[0].count) });
+    } catch (error) {
+        console.error('Error fetching notification count:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark notification as read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE id = $1', [id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking notification read:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark all notifications as read for a user
+app.patch('/api/notifications/read-all', async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE user_id = $1', [userId]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking all notifications read:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Check and create reminder notifications (called by background job or frontend)
+app.post('/api/reminders/check', async (req, res) => {
+    try {
+        // Find due reminders that haven't been sent
+        const { rows: dueReminders } = await pool.query(`
+            SELECT tr.*, t.title, t.date, t.assigned_to, t.created_by
+            FROM task_reminders tr
+            JOIN tasks t ON tr.task_id = t.id
+            WHERE tr.is_sent = FALSE
+            AND tr.reminder_time <= NOW()
+            AND t.status = 'pending'
+        `);
+
+        const notifications = [];
+
+        for (const reminder of dueReminders) {
+            const userId = reminder.assigned_to || reminder.created_by;
+            if (userId) {
+                // Create notification
+                await pool.query(`
+                    INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                    VALUES ($1, 'follow_up_due', $2, $3, $4)
+                `, [userId, `Reminder: ${reminder.title}`, `Task scheduled for ${reminder.date}`, reminder.task_id]);
+
+                // Mark reminder as sent
+                await pool.query('UPDATE task_reminders SET is_sent = TRUE, sent_at = NOW() WHERE id = $1', [reminder.id]);
+
+                notifications.push({ taskId: reminder.task_id, userId });
+            }
+        }
+
+        res.json({ success: true, processedCount: notifications.length, notifications });
+    } catch (error) {
+        console.error('Error checking reminders:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Auto follow-up check (reschedule incomplete tasks from yesterday)
+app.post('/api/tasks/auto-followup', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Find incomplete tasks from yesterday
+        const { rows: incompleteTasks } = await client.query(`
+            SELECT t.*,
+                COALESCE((SELECT json_agg(contact_id) FROM task_contacts WHERE task_id = t.id), '[]') as contact_ids,
+                COALESCE((SELECT json_agg(claim_id) FROM task_claims WHERE task_id = t.id), '[]') as claim_ids
+            FROM tasks t
+            WHERE t.status = 'pending'
+            AND t.date < CURRENT_DATE
+            AND t.is_recurring = FALSE
+        `);
+
+        const rescheduled = [];
+
+        for (const task of incompleteTasks) {
+            // Mark as rescheduled
+            await client.query(`UPDATE tasks SET status = 'rescheduled', updated_at = NOW() WHERE id = $1`, [task.id]);
+
+            // Create new task for today
+            const newTaskResult = await client.query(`
+                INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                    assigned_to, assigned_by, parent_task_id, created_by)
+                VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+            `, [task.title, task.description, task.type, task.start_time, task.end_time,
+                task.assigned_to, task.assigned_by, task.id, task.assigned_to || task.created_by]);
+
+            const newTaskId = newTaskResult.rows[0].id;
+
+            // Copy contact links
+            if (task.contact_ids && task.contact_ids.length > 0) {
+                for (const contactId of task.contact_ids) {
+                    await client.query(
+                        'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                        [newTaskId, contactId]
+                    );
+                }
+            }
+
+            // Copy claim links
+            if (task.claim_ids && task.claim_ids.length > 0) {
+                for (const claimId of task.claim_ids) {
+                    await client.query(
+                        'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                        [newTaskId, claimId]
+                    );
+                }
+            }
+
+            // Create notification
+            const userId = task.assigned_to || task.created_by;
+            if (userId) {
+                await client.query(`
+                    INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                    VALUES ($1, 'follow_up_due', $2, $3, $4)
+                `, [userId, `Auto-rescheduled: ${task.title}`, 'Task was not completed and has been rescheduled to today', newTaskId]);
+            }
+
+            rescheduled.push({ originalId: task.id, newId: newTaskId, title: task.title });
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, rescheduledCount: rescheduled.length, rescheduled });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error in auto-followup:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Get combined timeline (calendar + CRM activities) for a contact
+app.get('/api/contacts/:id/combined-timeline', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get tasks linked to this contact
+        const tasksQuery = await pool.query(`
+            SELECT t.id, t.title, t.type, t.status, t.date, t.start_time,
+                'task' as item_type, t.created_at as timestamp
+            FROM tasks t
+            JOIN task_contacts tc ON t.id = tc.task_id
+            WHERE tc.contact_id = $1
+            ORDER BY t.date DESC
+        `, [id]);
+
+        // Get action logs
+        const actionsQuery = await pool.query(`
+            SELECT id, action_type as type, description as title, action_category,
+                'action' as item_type, timestamp
+            FROM action_logs
+            WHERE client_id = $1
+            ORDER BY timestamp DESC
+            LIMIT 50
+        `, [id]);
+
+        // Get communications
+        const commsQuery = await pool.query(`
+            SELECT id, channel as type, subject as title, direction,
+                'communication' as item_type, timestamp
+            FROM communications
+            WHERE client_id = $1
+            ORDER BY timestamp DESC
+            LIMIT 50
+        `, [id]);
+
+        // Combine and sort
+        const timeline = [
+            ...tasksQuery.rows,
+            ...actionsQuery.rows,
+            ...commsQuery.rows
+        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.json(timeline.slice(0, 100));
+    } catch (error) {
+        console.error('Error fetching combined timeline:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // --- BACKGROUND WORKER: PROCESS PENDING LOAs ---
 // Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)

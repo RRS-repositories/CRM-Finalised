@@ -398,6 +398,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       specStatus: 'New Claim'
    });
    const [claimFileSaving, setClaimFileSaving] = useState(false);
+   const [claimAutoSaveStatus, setClaimAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
    const [showDeleteClaimConfirm, setShowDeleteClaimConfirm] = useState(false);
    const [showClaimDocUpload, setShowClaimDocUpload] = useState(false);
    const [claimDocFile, setClaimDocFile] = useState<File | null>(null);
@@ -443,6 +444,28 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          handleOpenClaimFile(initialClaimId);
       }
    }, [initialClaimId, activeTab]);
+
+   // Autosave claim form to localStorage when changes are made
+   useEffect(() => {
+      if (!viewingClaimId) return;
+
+      // Debounce the autosave to avoid too many writes
+      const timeoutId = setTimeout(() => {
+         const autosaveKey = `claim_autosave_${viewingClaimId}`;
+         const dataToSave = {
+            claimFileForm,
+            timestamp: Date.now()
+         };
+         localStorage.setItem(autosaveKey, JSON.stringify(dataToSave));
+         setClaimAutoSaveStatus('saving');
+         // Show "saved" status briefly
+         setTimeout(() => setClaimAutoSaveStatus('saved'), 300);
+         // Reset to idle after showing saved
+         setTimeout(() => setClaimAutoSaveStatus('idle'), 2000);
+      }, 1000); // 1 second debounce
+
+      return () => clearTimeout(timeoutId);
+   }, [claimFileForm, viewingClaimId]);
 
    // Initialize bank details, addresses from contact
    useEffect(() => {
@@ -556,8 +579,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       return true;
    });
 
-   // Filter action logs based on timeline filter
+   // Filter action logs based on timeline filter and current contact
    const filteredActionLogs = actionLogs.filter(log => {
+      // Only show logs for the current contact
+      if (String(log.clientId) !== String(contactId)) return false;
+
       if (timelineFilter === 'all') return true;
       if (timelineFilter === 'claims') return log.actionCategory === 'claims';
       if (timelineFilter === 'communication') return log.actionCategory === 'communication';
@@ -883,6 +909,27 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // Open claim file view
    const handleOpenClaimFile = async (claimId: string) => {
       setViewingClaimId(claimId);
+
+      // Check for autosaved data first
+      const autosaveKey = `claim_autosave_${claimId}`;
+      const autosaveData = localStorage.getItem(autosaveKey);
+
+      if (autosaveData) {
+         try {
+            const parsed = JSON.parse(autosaveData);
+            // Restore autosaved form data
+            setClaimFileForm(parsed.claimFileForm);
+            // Still fetch the full claim for claimFileData but don't overwrite form
+            const fullClaim = await fetchFullClaim(claimId);
+            setClaimFileData(fullClaim);
+            return; // Exit early, autosaved data restored
+         } catch (e) {
+            console.error('Error restoring autosaved data:', e);
+            // If parsing fails, continue with normal flow
+            localStorage.removeItem(autosaveKey);
+         }
+      }
+
       const fullClaim = await fetchFullClaim(claimId);
       setClaimFileData(fullClaim);
 
@@ -1090,6 +1137,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          };
 
          await updateClaimExtended(viewingClaimId, dataToSave);
+
+         // Clear autosaved data after successful save
+         const autosaveKey = `claim_autosave_${viewingClaimId}`;
+         localStorage.removeItem(autosaveKey);
 
          // Also update the basic claim status if changed
          const basicClaim = claims.find(c => c.id === viewingClaimId);
@@ -1923,6 +1974,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               <ArrowLeft size={16} /> Back to Claims
                            </button>
                            <div className="flex items-center gap-3">
+                              {/* Autosave indicator */}
+                              {claimAutoSaveStatus === 'saved' && (
+                                 <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                                    <Check size={12} /> Auto-saved
+                                 </span>
+                              )}
+                              {claimAutoSaveStatus === 'saving' && (
+                                 <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                    <RotateCcw size={12} className="animate-spin" /> Saving...
+                                 </span>
+                              )}
                               <button
                                  onClick={handleSaveClaimFile}
                                  disabled={claimFileSaving}

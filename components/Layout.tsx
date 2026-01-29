@@ -17,10 +17,33 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, onToggleAI }) => {
-  const { currentUser, theme, notifications, removeNotification, logout } = useCRM();
+  const {
+    currentUser,
+    theme,
+    notifications,
+    removeNotification,
+    logout,
+    persistentNotifications,
+    unreadNotificationCount,
+    fetchPersistentNotifications,
+    markNotificationRead,
+    markAllNotificationsRead
+  } = useCRM();
 
   // State for collapsible menus
   const [conversationsOpen, setConversationsOpen] = useState(false);
+
+  // State for notification dropdown
+  const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
+
+  // Fetch persistent notifications on mount and periodically
+  useEffect(() => {
+    fetchPersistentNotifications();
+    const interval = setInterval(() => {
+      fetchPersistentNotifications();
+    }, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, [fetchPersistentNotifications]);
 
   // Auto-expand menu if a sub-item is active
   useEffect(() => {
@@ -204,10 +227,129 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
             <div className="h-8 w-px bg-gray-200 dark:bg-slate-700 mx-2"></div>
 
-            <button className="text-gray-500 hover:text-navy-700 dark:text-gray-400 dark:hover:text-white relative">
-              <Bell size={20} />
-              <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-800"></span>
-            </button>
+            {/* Notification Bell with Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setNotificationDropdownOpen(!notificationDropdownOpen)}
+                className="text-gray-500 hover:text-navy-700 dark:text-gray-400 dark:hover:text-white relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Bell size={20} />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full border-2 border-white dark:border-slate-800 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification Dropdown */}
+              {notificationDropdownOpen && (
+                <>
+                  {/* Backdrop to close dropdown */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setNotificationDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 z-50 overflow-hidden">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                      <h3 className="font-semibold text-gray-800 dark:text-white">Notifications</h3>
+                      {unreadNotificationCount > 0 && (
+                        <button
+                          onClick={() => markAllNotificationsRead()}
+                          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Notification List */}
+                    <div className="max-h-96 overflow-y-auto">
+                      {persistentNotifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                          <Bell size={32} className="mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No notifications yet</p>
+                        </div>
+                      ) : (
+                        persistentNotifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            onClick={() => {
+                              if (!notification.isRead) {
+                                markNotificationRead(notification.id);
+                              }
+                              if (notification.link) {
+                                // Handle navigation based on link
+                                if (notification.link.includes('calendar')) {
+                                  onChangeView(ViewState.CALENDAR);
+                                } else if (notification.link.includes('contact')) {
+                                  onChangeView(ViewState.CONTACTS);
+                                }
+                              }
+                              setNotificationDropdownOpen(false);
+                            }}
+                            className={`px-4 py-3 border-b border-gray-100 dark:border-slate-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 ${
+                              !notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/20' : ''
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {/* Notification Icon */}
+                              <div className={`p-2 rounded-full shrink-0 ${
+                                notification.type === 'task_assigned' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' :
+                                notification.type === 'meeting_scheduled' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
+                                notification.type === 'follow_up_due' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' :
+                                notification.type === 'task_completed' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' :
+                                'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                              }`}>
+                                {notification.type === 'task_assigned' && <Users size={14} />}
+                                {notification.type === 'meeting_scheduled' && <Calendar size={14} />}
+                                {notification.type === 'follow_up_due' && <AlertCircle size={14} />}
+                                {notification.type === 'task_completed' && <Check size={14} />}
+                              </div>
+
+                              {/* Notification Content */}
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm ${!notification.isRead ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {notification.title}
+                                </p>
+                                {notification.message && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                                    {notification.message}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                                  {formatNotificationTime(notification.createdAt)}
+                                </p>
+                              </div>
+
+                              {/* Unread Indicator */}
+                              {!notification.isRead && (
+                                <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Footer - View All */}
+                    {persistentNotifications.length > 0 && (
+                      <div className="px-4 py-2 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                        <button
+                          onClick={() => {
+                            onChangeView(ViewState.CALENDAR);
+                            setNotificationDropdownOpen(false);
+                          }}
+                          className="w-full text-center text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium py-1"
+                        >
+                          View Calendar →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="flex items-center gap-3 pl-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 p-1 rounded-lg transition-colors">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${currentUser?.role === 'Management' ? 'bg-purple-600' : 'bg-blue-600'}`}>
@@ -269,5 +411,21 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
 // Helper for title lookup
 const allNavItems = (a: any[], b: any[]) => [...a, ...b];
+
+// Helper to format notification time
+const formatNotificationTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+};
 
 export default Layout;

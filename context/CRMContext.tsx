@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry } from '../types';
+import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
@@ -177,6 +177,27 @@ interface CRMContextType {
   pendingContactNavigation: { contactId: string; tab: string; claimId?: string } | null;
   navigateToContact: (contactId: string, tab?: string, claimId?: string) => void;
   clearContactNavigation: () => void;
+
+  // ============================================
+  // TASKS & CALENDAR SYSTEM
+  // ============================================
+  tasks: Task[];
+  fetchTasks: (filters?: { startDate?: string; endDate?: string; status?: string; assignedTo?: string }) => Promise<void>;
+  addTask: (task: Partial<Task>) => Promise<{ success: boolean; message: string; id?: string }>;
+  updateTask: (taskId: string, updates: Partial<Task>) => Promise<{ success: boolean; message: string }>;
+  deleteTask: (taskId: string) => Promise<{ success: boolean; message: string }>;
+  completeTask: (taskId: string) => Promise<{ success: boolean; message: string }>;
+  rescheduleTask: (taskId: string, newDate: string, newStartTime?: string) => Promise<{ success: boolean; message: string; newTaskId?: string }>;
+
+  // Persistent Notifications
+  persistentNotifications: PersistentNotification[];
+  unreadNotificationCount: number;
+  fetchPersistentNotifications: () => Promise<void>;
+  markNotificationRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+
+  // Combined Timeline
+  fetchCombinedTimeline: (contactId: string) => Promise<TimelineItem[]>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -260,6 +281,11 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [workflowTriggers, setWorkflowTriggers] = useState<WorkflowTrigger[]>([]);
   const [crmNotes, setCrmNotes] = useState<CRMNote[]>([]);
   const [actionLogs, setActionLogs] = useState<ActionLogEntry[]>([]);
+
+  // Tasks & Persistent Notifications State
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [persistentNotifications, setPersistentNotifications] = useState<PersistentNotification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // Auth Persistence Initialization
   useEffect(() => {
@@ -364,6 +390,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         lastActivity: 'Active',
         source: c.source,
         dateOfBirth: c.dob,
+        createdAt: c.created_at,
         address: {
           line1: c.address_line_1,
           line2: c.address_line_2,
@@ -1918,6 +1945,311 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // ============================================
+  // TASKS & CALENDAR METHODS
+  // ============================================
+
+  const fetchTasks = useCallback(async (filters?: { startDate?: string; endDate?: string; status?: string; assignedTo?: string }) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters?.startDate) params.append('startDate', filters.startDate);
+      if (filters?.endDate) params.append('endDate', filters.endDate);
+      if (filters?.status) params.append('status', filters.status);
+      if (filters?.assignedTo) params.append('assignedTo', filters.assignedTo);
+
+      const response = await fetch(`${API_BASE_URL}/tasks?${params.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch tasks');
+      const data = await response.json();
+
+      const mappedTasks: Task[] = data.map((t: any) => ({
+        id: t.id.toString(),
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        status: t.status,
+        date: t.date,
+        startTime: t.start_time,
+        endTime: t.end_time,
+        assignedTo: t.assigned_to?.toString(),
+        assignedToName: t.assigned_to_name,
+        assignedBy: t.assigned_by?.toString(),
+        assignedByName: t.assigned_by_name,
+        assignedAt: t.assigned_at,
+        isRecurring: t.is_recurring,
+        recurrencePattern: t.recurrence_pattern,
+        recurrenceEndDate: t.recurrence_end_date,
+        parentTaskId: t.parent_task_id?.toString(),
+        contactIds: t.linked_contacts?.map((c: any) => c.id.toString()) || [],
+        linkedContacts: t.linked_contacts || [],
+        claimIds: t.linked_claims?.map((c: any) => c.id.toString()) || [],
+        linkedClaims: t.linked_claims || [],
+        reminders: t.reminders?.map((r: any) => ({
+          id: r.id.toString(),
+          taskId: t.id.toString(),
+          reminderTime: r.reminder_time,
+          reminderType: 'in_app',
+          isSent: r.is_sent
+        })) || [],
+        createdBy: t.created_by?.toString(),
+        createdByName: t.created_by_name,
+        createdAt: t.created_at,
+        updatedAt: t.updated_at,
+        completedAt: t.completed_at,
+        completedBy: t.completed_by?.toString()
+      }));
+
+      setTasks(mappedTasks);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+    }
+  }, []);
+
+  const addTask = async (taskData: Partial<Task>): Promise<{ success: boolean; message: string; id?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: taskData.title,
+          description: taskData.description,
+          type: taskData.type || 'appointment',
+          date: taskData.date,
+          startTime: taskData.startTime,
+          endTime: taskData.endTime,
+          assignedTo: taskData.assignedTo ? parseInt(taskData.assignedTo) : null,
+          assignedBy: currentUser?.id ? parseInt(currentUser.id) : null,
+          isRecurring: taskData.isRecurring || false,
+          recurrencePattern: taskData.recurrencePattern,
+          recurrenceEndDate: taskData.recurrenceEndDate,
+          contactIds: taskData.contactIds?.map(id => parseInt(id)),
+          claimIds: taskData.claimIds?.map(id => parseInt(id)),
+          reminders: taskData.reminders?.map(r => ({
+            reminderTime: r.reminderTime,
+            reminderType: r.reminderType
+          })),
+          createdBy: currentUser?.id ? parseInt(currentUser.id) : null
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to create task');
+
+      await fetchTasks();
+      addNotification('success', 'Task created successfully');
+      return { success: true, message: 'Task created', id: result.id.toString() };
+    } catch (error: any) {
+      console.error('Error creating task:', error);
+      addNotification('error', `Failed to create task: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  };
+
+  const updateTask = async (taskId: string, updates: Partial<Task>): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: updates.title,
+          description: updates.description,
+          type: updates.type,
+          status: updates.status,
+          date: updates.date,
+          startTime: updates.startTime,
+          endTime: updates.endTime,
+          assignedTo: updates.assignedTo ? parseInt(updates.assignedTo) : undefined,
+          assignedBy: updates.assignedBy ? parseInt(updates.assignedBy) : undefined,
+          isRecurring: updates.isRecurring,
+          recurrencePattern: updates.recurrencePattern,
+          recurrenceEndDate: updates.recurrenceEndDate,
+          contactIds: updates.contactIds?.map(id => parseInt(id)),
+          claimIds: updates.claimIds?.map(id => parseInt(id)),
+          reminders: updates.reminders?.map(r => ({
+            reminderTime: r.reminderTime,
+            reminderType: r.reminderType
+          }))
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update task');
+
+      await fetchTasks();
+      addNotification('success', 'Task updated');
+      return { success: true, message: 'Task updated' };
+    } catch (error: any) {
+      console.error('Error updating task:', error);
+      addNotification('error', `Failed to update task: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  };
+
+  const deleteTask = async (taskId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete task');
+
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      addNotification('success', 'Task deleted');
+      return { success: true, message: 'Task deleted' };
+    } catch (error: any) {
+      console.error('Error deleting task:', error);
+      addNotification('error', `Failed to delete task: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  };
+
+  const completeTask = async (taskId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completedBy: currentUser?.id ? parseInt(currentUser.id) : null })
+      });
+
+      if (!response.ok) throw new Error('Failed to complete task');
+
+      await fetchTasks();
+      addNotification('success', 'Task marked as completed');
+      return { success: true, message: 'Task completed' };
+    } catch (error: any) {
+      console.error('Error completing task:', error);
+      addNotification('error', `Failed to complete task: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  };
+
+  const rescheduleTask = async (taskId: string, newDate: string, newStartTime?: string): Promise<{ success: boolean; message: string; newTaskId?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/reschedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newDate,
+          newStartTime,
+          rescheduledBy: currentUser?.id ? parseInt(currentUser.id) : null
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to reschedule task');
+      const result = await response.json();
+
+      await fetchTasks();
+      addNotification('success', 'Task rescheduled');
+      return { success: true, message: 'Task rescheduled', newTaskId: result.newTaskId?.toString() };
+    } catch (error: any) {
+      console.error('Error rescheduling task:', error);
+      addNotification('error', `Failed to reschedule task: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  };
+
+  // ============================================
+  // PERSISTENT NOTIFICATIONS METHODS
+  // ============================================
+
+  const fetchPersistentNotifications = useCallback(async () => {
+    if (!currentUser?.id) return;
+
+    try {
+      const [notifResponse, countResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/notifications?userId=${currentUser.id}`),
+        fetch(`${API_BASE_URL}/notifications/count?userId=${currentUser.id}`)
+      ]);
+
+      if (notifResponse.ok) {
+        const data = await notifResponse.json();
+        const mapped: PersistentNotification[] = data.map((n: any) => ({
+          id: n.id.toString(),
+          userId: n.user_id.toString(),
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          link: n.link,
+          relatedTaskId: n.related_task_id?.toString(),
+          taskTitle: n.task_title,
+          taskDate: n.task_date,
+          isRead: n.is_read,
+          createdAt: n.created_at
+        }));
+        setPersistentNotifications(mapped);
+      }
+
+      if (countResponse.ok) {
+        const countData = await countResponse.json();
+        setUnreadNotificationCount(countData.count);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  }, [currentUser?.id]);
+
+  const markNotificationRead = async (notificationId: string): Promise<void> => {
+    try {
+      await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, { method: 'PATCH' });
+      setPersistentNotifications(prev =>
+        prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n)
+      );
+      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking notification read:', error);
+    }
+  };
+
+  const markAllNotificationsRead = async (): Promise<void> => {
+    if (!currentUser?.id) return;
+
+    try {
+      await fetch(`${API_BASE_URL}/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: parseInt(currentUser.id) })
+      });
+      setPersistentNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setUnreadNotificationCount(0);
+    } catch (error) {
+      console.error('Error marking all notifications read:', error);
+    }
+  };
+
+  const fetchCombinedTimeline = async (contactId: string): Promise<TimelineItem[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/contacts/${contactId}/combined-timeline`);
+      if (!response.ok) throw new Error('Failed to fetch timeline');
+      const data = await response.json();
+
+      return data.map((item: any) => ({
+        id: item.id.toString(),
+        title: item.title,
+        type: item.type,
+        itemType: item.item_type,
+        timestamp: item.timestamp,
+        status: item.status,
+        direction: item.direction,
+        actionCategory: item.action_category
+      }));
+    } catch (error) {
+      console.error('Error fetching combined timeline:', error);
+      return [];
+    }
+  };
+
+  // Fetch tasks and notifications on user login
+  useEffect(() => {
+    if (currentUser) {
+      fetchTasks();
+      fetchPersistentNotifications();
+
+      // Check for reminders every minute
+      const reminderInterval = setInterval(() => {
+        fetch(`${API_BASE_URL}/reminders/check`, { method: 'POST' })
+          .then(() => fetchPersistentNotifications())
+          .catch(console.error);
+      }, 60000);
+
+      return () => clearInterval(reminderInterval);
+    }
+  }, [currentUser, fetchTasks, fetchPersistentNotifications]);
+
   return (
     <CRMContext.Provider value={{
       currentUser, users, login, logout,
@@ -1941,7 +2273,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       actionLogs, fetchActionLogs, fetchAllActionLogs,
       updateContactExtended, updateClaimExtended, fetchFullClaim,
       // Data Refresh
-      refreshAllData
+      refreshAllData,
+      // Tasks & Calendar
+      tasks, fetchTasks, addTask, updateTask, deleteTask, completeTask, rescheduleTask,
+      // Persistent Notifications
+      persistentNotifications, unreadNotificationCount, fetchPersistentNotifications,
+      markNotificationRead, markAllNotificationsRead, fetchCombinedTimeline
     }}>
       {children}
     </CRMContext.Provider>

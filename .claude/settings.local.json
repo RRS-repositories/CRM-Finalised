@@ -26,7 +26,8 @@
       "Bash(cd:*)",
       "Read(//Users/sayedmohammadfirdousi/Desktop/**)",
       "Bash(grep:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(tasklist:*)"
     ]
   }
 }

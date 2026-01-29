@@ -566,3 +566,99 @@ export interface Email {
   inReplyTo?: string;
   contactId?: string;
 }
+
+// ============================================
+// TASKS, REMINDERS & NOTIFICATIONS
+// ============================================
+
+export type TaskType = 'appointment' | 'call' | 'meeting' | 'deadline' | 'reminder' | 'follow_up';
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'rescheduled';
+
+export interface TaskReminder {
+  id: string;
+  taskId: string;
+  reminderTime: string;
+  reminderType: 'in_app';
+  isSent: boolean;
+  sentAt?: string;
+}
+
+export interface LinkedContact {
+  id: string;
+  name: string;
+}
+
+export interface LinkedClaim {
+  id: string;
+  lender: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  type: TaskType;
+  status: TaskStatus;
+
+  // Scheduling
+  date: string;
+  startTime?: string;
+  endTime?: string;
+
+  // Assignment
+  assignedTo?: string;
+  assignedToName?: string;
+  assignedBy?: string;
+  assignedByName?: string;
+  assignedAt?: string;
+
+  // Recurrence
+  isRecurring: boolean;
+  recurrencePattern?: 'daily' | 'weekly' | 'monthly';
+  recurrenceEndDate?: string;
+  parentTaskId?: string;
+
+  // Entity Linking
+  contactIds: string[];
+  linkedContacts?: LinkedContact[];
+  claimIds?: string[];
+  linkedClaims?: LinkedClaim[];
+
+  // Reminders
+  reminders: TaskReminder[];
+
+  // Audit
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt?: string;
+  completedAt?: string;
+  completedBy?: string;
+}
+
+export type NotificationType = 'task_assigned' | 'meeting_scheduled' | 'follow_up_due' | 'task_completed';
+
+export interface PersistentNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message?: string;
+  link?: string;
+  relatedTaskId?: string;
+  taskTitle?: string;
+  taskDate?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface TimelineItem {
+  id: string;
+  title: string;
+  type: string;
+  itemType: 'task' | 'action' | 'communication';
+  timestamp: string;
+  status?: TaskStatus;
+  direction?: 'inbound' | 'outbound';
+  actionCategory?: string;
+}

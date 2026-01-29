@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -12,24 +12,20 @@ import {
   Bell,
   Trash2,
   Edit3,
-  Check
+  Check,
+  Search,
+  Repeat,
+  Users,
+  UserPlus,
+  History,
+  CheckCircle,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
+import { Task, TaskType, TaskStatus, TaskReminder } from '../types';
 
 type CalendarView = 'month' | 'week' | 'day';
-
-interface CalendarEvent {
-  id: string;
-  title: string;
-  date: string;
-  startTime?: string;
-  endTime?: string;
-  contactId?: string;
-  contactName?: string;
-  description?: string;
-  type: 'appointment' | 'call' | 'meeting' | 'deadline' | 'reminder';
-  color?: string;
-}
 
 const EVENT_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   appointment: { bg: 'bg-blue-100 dark:bg-blue-900/30', border: 'border-blue-500', text: 'text-blue-700 dark:text-blue-300' },
@@ -37,18 +33,32 @@ const EVENT_COLORS: Record<string, { bg: string; border: string; text: string }>
   meeting: { bg: 'bg-purple-100 dark:bg-purple-900/30', border: 'border-purple-500', text: 'text-purple-700 dark:text-purple-300' },
   deadline: { bg: 'bg-red-100 dark:bg-red-900/30', border: 'border-red-500', text: 'text-red-700 dark:text-red-300' },
   reminder: { bg: 'bg-orange-100 dark:bg-orange-900/30', border: 'border-orange-500', text: 'text-orange-700 dark:text-orange-300' },
+  follow_up: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', border: 'border-yellow-500', text: 'text-yellow-700 dark:text-yellow-300' },
+};
+
+const STATUS_STYLES: Record<TaskStatus, string> = {
+  pending: '',
+  in_progress: 'ring-2 ring-blue-400',
+  completed: 'opacity-60 line-through',
+  cancelled: 'opacity-40 line-through',
+  rescheduled: 'opacity-50 italic',
 };
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 const Calendar: React.FC = () => {
-  const { appointments, addAppointment, contacts, addNotification } = useCRM();
+  const {
+    tasks, fetchTasks, addTask, updateTask, deleteTask, completeTask, rescheduleTask,
+    contacts, claims, users, currentUser, addNotification
+  } = useCRM();
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>('month');
   const [showEventModal, setShowEventModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Form state for new/edit event
   const [eventForm, setEventForm] = useState({
@@ -56,28 +66,70 @@ const Calendar: React.FC = () => {
     date: '',
     startTime: '09:00',
     endTime: '10:00',
-    contactId: '',
     description: '',
-    type: 'appointment' as CalendarEvent['type'],
+    type: 'appointment' as TaskType,
+    // Assignment
+    assignedTo: '',
+    selfAssigned: true,
+    // Recurrence
+    isRecurring: false,
+    recurrencePattern: '' as 'daily' | 'weekly' | 'monthly' | '',
+    recurrenceEndDate: '',
+    // Entity Linking
+    contactIds: [] as string[],
+    claimIds: [] as string[],
+    // Reminders
+    reminders: [] as { time: string; unit: 'minutes' | 'hours' | 'days' }[],
   });
 
-  // Convert appointments from context to CalendarEvent format
-  const events: CalendarEvent[] = useMemo(() => {
-    return appointments.map(apt => {
-      const contact = contacts.find(c => c.id === apt.contactId);
-      return {
-        id: apt.id,
-        title: apt.title,
-        date: apt.date,
-        startTime: apt.date.includes('T') ? apt.date.split('T')[1]?.substring(0, 5) : '09:00',
-        endTime: '10:00',
-        contactId: apt.contactId,
-        contactName: contact?.fullName,
-        description: apt.description,
-        type: 'appointment' as const,
-      };
+  // Fetch tasks on mount
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Contact search state for searchable dropdown
+  const [contactSearch, setContactSearch] = useState('');
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+
+  // Generate RR-YYMMDD-XXXX format reference ID for a contact
+  const getContactRefId = (contact: typeof contacts[0]) => {
+    if (contact.clientId) return contact.clientId;
+
+    // Generate RR-YYMMDD-XXXX format from createdAt and id
+    const date = contact.createdAt ? new Date(contact.createdAt) : new Date();
+    const yy = date.getFullYear().toString().slice(-2);
+    const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+    const dd = date.getDate().toString().padStart(2, '0');
+    const xxxx = contact.id.toString().padStart(4, '0');
+
+    return `RR-${yy}${mm}${dd}-${xxxx}`;
+  };
+
+  // Filter contacts based on search (name or reference ID)
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch.trim()) return contacts;
+    const search = contactSearch.toLowerCase();
+    return contacts.filter(c => {
+      const refId = getContactRefId(c).toLowerCase();
+      return c.fullName.toLowerCase().includes(search) ||
+        refId.includes(search) ||
+        c.id.toLowerCase().includes(search);
     });
-  }, [appointments, contacts]);
+  }, [contacts, contactSearch]);
+
+  // Get display text for selected contact
+  const getContactDisplayText = (contactId: string) => {
+    if (!contactId) return '';
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return '';
+    return `${contact.fullName} (${getContactRefId(contact)})`;
+  };
+
+  // Get tasks for display (tasks already have the right format)
+  const getTasksForDate = (date: Date) => {
+    const dateKey = formatDateKey(date);
+    return tasks.filter(t => t.date.startsWith(dateKey));
+  };
 
   // Calendar calculations
   const getDaysInMonth = (date: Date) => {
@@ -102,10 +154,6 @@ const Calendar: React.FC = () => {
     return date.toISOString().split('T')[0];
   };
 
-  const getEventsForDate = (date: Date) => {
-    const dateKey = formatDateKey(date);
-    return events.filter(e => e.date.startsWith(dateKey));
-  };
 
   // Navigation
   const navigate = (direction: number) => {
@@ -124,6 +172,13 @@ const Calendar: React.FC = () => {
     setCurrentDate(new Date());
   };
 
+  // Close event modal with cleanup
+  const closeEventModal = () => {
+    setShowEventModal(false);
+    setContactSearch('');
+    setShowContactDropdown(false);
+  };
+
   // Event handlers
   const handleDateClick = (date: Date) => {
     setSelectedDate(date);
@@ -134,35 +189,119 @@ const Calendar: React.FC = () => {
     setShowEventModal(true);
   };
 
-  const handleEventClick = (event: CalendarEvent, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedEvent(event);
-  };
-
-  const handleSaveEvent = () => {
+  const handleSaveEvent = async () => {
     if (!eventForm.title || !eventForm.date) {
       addNotification('error', 'Please fill in required fields');
       return;
     }
 
-    const dateTime = `${eventForm.date}T${eventForm.startTime}:00`;
-    addAppointment({
-      title: eventForm.title,
-      date: dateTime,
-      contactId: eventForm.contactId || undefined,
-      description: eventForm.description,
+    // Convert reminder times to actual timestamps
+    const reminderTimestamps: TaskReminder[] = eventForm.reminders.map((r, idx) => {
+      const eventDate = new Date(`${eventForm.date}T${eventForm.startTime || '09:00'}:00`);
+      let reminderTime = new Date(eventDate);
+
+      const timeValue = parseInt(r.time) || 0;
+      if (r.unit === 'minutes') {
+        reminderTime.setMinutes(reminderTime.getMinutes() - timeValue);
+      } else if (r.unit === 'hours') {
+        reminderTime.setHours(reminderTime.getHours() - timeValue);
+      } else if (r.unit === 'days') {
+        reminderTime.setDate(reminderTime.getDate() - timeValue);
+      }
+
+      return {
+        id: `temp_${idx}`,
+        taskId: '',
+        reminderTime: reminderTime.toISOString(),
+        reminderType: 'in_app' as const,
+        isSent: false
+      };
     });
 
-    setShowEventModal(false);
+    const taskData = {
+      title: eventForm.title,
+      description: eventForm.description,
+      type: eventForm.type,
+      date: eventForm.date,
+      startTime: eventForm.startTime,
+      endTime: eventForm.endTime,
+      assignedTo: eventForm.selfAssigned ? currentUser?.id : eventForm.assignedTo || undefined,
+      isRecurring: eventForm.isRecurring,
+      recurrencePattern: eventForm.isRecurring ? eventForm.recurrencePattern as 'daily' | 'weekly' | 'monthly' : undefined,
+      recurrenceEndDate: eventForm.isRecurring ? eventForm.recurrenceEndDate : undefined,
+      contactIds: eventForm.contactIds,
+      claimIds: eventForm.claimIds,
+      reminders: reminderTimestamps,
+    };
+
+    if (isEditing && selectedTask) {
+      await updateTask(selectedTask.id, taskData);
+    } else {
+      await addTask(taskData);
+    }
+
+    closeEventModal();
+    resetEventForm();
+  };
+
+  const resetEventForm = () => {
     setEventForm({
       title: '',
       date: '',
       startTime: '09:00',
       endTime: '10:00',
-      contactId: '',
       description: '',
       type: 'appointment',
+      assignedTo: '',
+      selfAssigned: true,
+      isRecurring: false,
+      recurrencePattern: '',
+      recurrenceEndDate: '',
+      contactIds: [],
+      claimIds: [],
+      reminders: [],
     });
+    setIsEditing(false);
+    setSelectedTask(null);
+  };
+
+  const handleTaskClick = (task: Task, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTask(task);
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEventForm({
+      title: task.title,
+      date: task.date.split('T')[0],
+      startTime: task.startTime || '09:00',
+      endTime: task.endTime || '10:00',
+      description: task.description || '',
+      type: task.type,
+      assignedTo: task.assignedTo || '',
+      selfAssigned: task.assignedTo === currentUser?.id,
+      isRecurring: task.isRecurring,
+      recurrencePattern: task.recurrencePattern || '',
+      recurrenceEndDate: task.recurrenceEndDate || '',
+      contactIds: task.contactIds || [],
+      claimIds: task.claimIds || [],
+      reminders: [],
+    });
+    setIsEditing(true);
+    setSelectedTask(task);
+    setShowEventModal(true);
+  };
+
+  const handleCompleteTask = async (taskId: string) => {
+    await completeTask(taskId);
+    setSelectedTask(null);
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (confirm('Are you sure you want to delete this task?')) {
+      await deleteTask(taskId);
+      setSelectedTask(null);
+    }
   };
 
   // Render month view
@@ -193,7 +332,7 @@ const Calendar: React.FC = () => {
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
       const isToday = formatDateKey(date) === formatDateKey(today);
-      const dayEvents = getEventsForDate(date);
+      const dayEvents = getTasksForDate(date);
 
       days.push(
         <div
@@ -213,16 +352,18 @@ const Calendar: React.FC = () => {
             )}
           </div>
           <div className="mt-1 space-y-1">
-            {dayEvents.slice(0, 3).map((event) => {
-              const colors = EVENT_COLORS[event.type];
+            {dayEvents.slice(0, 3).map((task) => {
+              const colors = EVENT_COLORS[task.type] || EVENT_COLORS.appointment;
+              const statusStyle = STATUS_STYLES[task.status] || '';
               return (
                 <div
-                  key={event.id}
-                  className={`text-xs p-1 rounded truncate border-l-2 ${colors.bg} ${colors.border} ${colors.text}`}
-                  onClick={(e) => handleEventClick(event, e)}
+                  key={task.id}
+                  className={`text-xs p-1 rounded truncate border-l-2 ${colors.bg} ${colors.border} ${colors.text} ${statusStyle}`}
+                  onClick={(e) => handleTaskClick(task, e)}
                 >
-                  {event.startTime && <span className="font-medium">{event.startTime} </span>}
-                  {event.title}
+                  {task.isRecurring && <Repeat size={10} className="inline mr-1" />}
+                  {task.startTime && <span className="font-medium">{task.startTime} </span>}
+                  {task.title}
                 </div>
               );
             })}
@@ -297,7 +438,7 @@ const Calendar: React.FC = () => {
               </div>
               {weekDates.map((date, i) => {
                 const hourStr = hour.toString().padStart(2, '0');
-                const dayEvents = getEventsForDate(date).filter(
+                const dayEvents = getTasksForDate(date).filter(
                   e => e.startTime?.startsWith(hourStr)
                 );
                 return (
@@ -317,15 +458,17 @@ const Calendar: React.FC = () => {
                       setShowEventModal(true);
                     }}
                   >
-                    {dayEvents.map((event) => {
-                      const colors = EVENT_COLORS[event.type];
+                    {dayEvents.map((task) => {
+                      const colors = EVENT_COLORS[task.type] || EVENT_COLORS.appointment;
+                      const statusStyle = STATUS_STYLES[task.status] || '';
                       return (
                         <div
-                          key={event.id}
-                          className={`text-xs p-1 rounded mb-1 truncate border-l-2 ${colors.bg} ${colors.border} ${colors.text}`}
-                          onClick={(e) => handleEventClick(event, e)}
+                          key={task.id}
+                          className={`text-xs p-1 rounded mb-1 truncate border-l-2 ${colors.bg} ${colors.border} ${colors.text} ${statusStyle}`}
+                          onClick={(e) => handleTaskClick(task, e)}
                         >
-                          {event.title}
+                          {task.isRecurring && <Repeat size={10} className="inline mr-1" />}
+                          {task.title}
                         </div>
                       );
                     })}
@@ -343,7 +486,7 @@ const Calendar: React.FC = () => {
   const renderDayView = () => {
     const today = new Date();
     const isToday = formatDateKey(currentDate) === formatDateKey(today);
-    const dayEvents = getEventsForDate(currentDate);
+    const dayEvents = getTasksForDate(currentDate);
 
     return (
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
@@ -382,25 +525,37 @@ const Calendar: React.FC = () => {
                     setShowEventModal(true);
                   }}
                 >
-                  {hourEvents.map((event) => {
-                    const colors = EVENT_COLORS[event.type];
+                  {hourEvents.map((task) => {
+                    const colors = EVENT_COLORS[task.type] || EVENT_COLORS.appointment;
+                    const statusStyle = STATUS_STYLES[task.status] || '';
+                    const contactNames = task.linkedContacts?.map(c => c.name).join(', ');
                     return (
                       <div
-                        key={event.id}
-                        className={`p-2 rounded mb-1 border-l-4 ${colors.bg} ${colors.border} cursor-pointer`}
-                        onClick={(e) => handleEventClick(event, e)}
+                        key={task.id}
+                        className={`p-2 rounded mb-1 border-l-4 ${colors.bg} ${colors.border} cursor-pointer ${statusStyle}`}
+                        onClick={(e) => handleTaskClick(task, e)}
                       >
-                        <div className={`font-medium ${colors.text}`}>{event.title}</div>
-                        {event.contactName && (
+                        <div className={`font-medium ${colors.text} flex items-center gap-1`}>
+                          {task.isRecurring && <Repeat size={12} />}
+                          {task.status === 'completed' && <CheckCircle size={12} />}
+                          {task.title}
+                        </div>
+                        {contactNames && (
                           <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1">
                             <User size={12} />
-                            {event.contactName}
+                            {contactNames}
                           </div>
                         )}
-                        {event.startTime && (
+                        {task.assignedToName && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                            <UserPlus size={12} />
+                            {task.assignedToName}
+                          </div>
+                        )}
+                        {task.startTime && (
                           <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                             <Clock size={12} />
-                            {event.startTime} - {event.endTime || ''}
+                            {task.startTime} - {task.endTime || ''}
                           </div>
                         )}
                       </div>
@@ -499,72 +654,85 @@ const Calendar: React.FC = () => {
       {view === 'week' && renderWeekView()}
       {view === 'day' && renderDayView()}
 
-      {/* Upcoming Events Sidebar */}
+      {/* Upcoming Tasks Sidebar */}
       <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
-        <h3 className="text-lg font-bold text-navy-900 dark:text-white mb-4">Upcoming Events</h3>
+        <h3 className="text-lg font-bold text-navy-900 dark:text-white mb-4">Upcoming Tasks</h3>
         <div className="space-y-3">
-          {events
-            .filter(e => new Date(e.date) >= new Date())
+          {tasks
+            .filter(t => new Date(t.date) >= new Date() && t.status !== 'completed' && t.status !== 'cancelled')
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
             .slice(0, 5)
-            .map((event) => {
-              const colors = EVENT_COLORS[event.type];
-              const eventDate = new Date(event.date);
+            .map((task) => {
+              const colors = EVENT_COLORS[task.type] || EVENT_COLORS.appointment;
+              const taskDate = new Date(task.date);
+              const contactNames = task.linkedContacts?.map(c => c.name).join(', ');
               return (
                 <div
-                  key={event.id}
+                  key={task.id}
                   className={`flex items-start gap-3 p-3 rounded-lg border-l-4 ${colors.bg} ${colors.border} cursor-pointer hover:shadow-sm transition-shadow`}
-                  onClick={() => setSelectedEvent(event)}
+                  onClick={() => setSelectedTask(task)}
                 >
                   <div className="shrink-0">
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {eventDate.toLocaleDateString('en-GB', { weekday: 'short' })}
+                      {taskDate.toLocaleDateString('en-GB', { weekday: 'short' })}
                     </div>
                     <div className="text-lg font-bold text-navy-900 dark:text-white">
-                      {eventDate.getDate()}
+                      {taskDate.getDate()}
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={`font-medium truncate ${colors.text}`}>{event.title}</div>
-                    {event.startTime && (
+                    <div className={`font-medium truncate ${colors.text} flex items-center gap-1`}>
+                      {task.isRecurring && <Repeat size={12} />}
+                      {task.title}
+                    </div>
+                    {task.startTime && (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <Clock size={12} />
-                        {event.startTime}
+                        {task.startTime}
                       </div>
                     )}
-                    {event.contactName && (
+                    {contactNames && (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <User size={12} />
-                        {event.contactName}
+                        {contactNames}
+                      </div>
+                    )}
+                    {task.assignedToName && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                        <UserPlus size={12} />
+                        {task.assignedToName}
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
-          {events.filter(e => new Date(e.date) >= new Date()).length === 0 && (
+          {tasks.filter(t => new Date(t.date) >= new Date() && t.status !== 'completed').length === 0 && (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
               <CalendarIcon className="mx-auto mb-2 opacity-50" size={32} />
-              <p>No upcoming events</p>
+              <p>No upcoming tasks</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* New Event Modal */}
+      {/* New/Edit Task Modal */}
       {showEventModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-navy-900 dark:text-white">New Event</h3>
+              <h3 className="text-lg font-bold text-navy-900 dark:text-white">
+                {isEditing ? 'Edit Task' : 'New Task'}
+              </h3>
               <button
-                onClick={() => setShowEventModal(false)}
+                onClick={closeEventModal}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
               >
                 <X size={20} />
               </button>
             </div>
             <div className="p-6 space-y-4">
+              {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Title *
@@ -574,17 +742,18 @@ const Calendar: React.FC = () => {
                   value={eventForm.title}
                   onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white"
-                  placeholder="Event title"
+                  placeholder="Task title"
                 />
               </div>
 
+              {/* Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Event Type
+                  Task Type
                 </label>
                 <select
                   value={eventForm.type}
-                  onChange={(e) => setEventForm({ ...eventForm, type: e.target.value as CalendarEvent['type'] })}
+                  onChange={(e) => setEventForm({ ...eventForm, type: e.target.value as TaskType })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white"
                 >
                   <option value="appointment">Appointment</option>
@@ -592,9 +761,11 @@ const Calendar: React.FC = () => {
                   <option value="meeting">Meeting</option>
                   <option value="deadline">Deadline</option>
                   <option value="reminder">Reminder</option>
+                  <option value="follow_up">Follow-up</option>
                 </select>
               </div>
 
+              {/* Date and Time */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Date *
@@ -632,24 +803,223 @@ const Calendar: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Link to Contact
+              {/* Assignment Section */}
+              <div className="border border-gray-200 dark:border-slate-600 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                  <UserPlus size={16} />
+                  Assignment
                 </label>
-                <select
-                  value={eventForm.contactId}
-                  onChange={(e) => setEventForm({ ...eventForm, contactId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white"
-                >
-                  <option value="">No contact linked</option>
-                  {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.fullName}
-                    </option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={eventForm.selfAssigned}
+                      onChange={(e) => setEventForm({
+                        ...eventForm,
+                        selfAssigned: e.target.checked,
+                        assignedTo: e.target.checked ? '' : eventForm.assignedTo
+                      })}
+                      className="rounded border-gray-300 text-brand-orange focus:ring-brand-orange"
+                    />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">Self-assign to me</span>
+                  </label>
+                  {!eventForm.selfAssigned && (
+                    <select
+                      value={eventForm.assignedTo}
+                      onChange={(e) => setEventForm({ ...eventForm, assignedTo: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                    >
+                      <option value="">Select team member...</option>
+                      {users.map(u => (
+                        <option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
 
+              {/* Recurrence Section */}
+              <div className="border border-gray-200 dark:border-slate-600 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                  <Repeat size={16} />
+                  Recurrence
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={eventForm.isRecurring}
+                      onChange={(e) => setEventForm({ ...eventForm, isRecurring: e.target.checked })}
+                      className="rounded border-gray-300 text-brand-orange focus:ring-brand-orange"
+                    />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">Recurring task</span>
+                  </label>
+                  {eventForm.isRecurring && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={eventForm.recurrencePattern}
+                        onChange={(e) => setEventForm({ ...eventForm, recurrencePattern: e.target.value as any })}
+                        className="px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                      >
+                        <option value="">Select pattern...</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                      <input
+                        type="date"
+                        value={eventForm.recurrenceEndDate}
+                        onChange={(e) => setEventForm({ ...eventForm, recurrenceEndDate: e.target.value })}
+                        placeholder="End date"
+                        className="px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Link to Contacts (Multi-select) */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
+                  <Users size={16} />
+                  Link to Contacts
+                </label>
+                {/* Selected contacts */}
+                {eventForm.contactIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {eventForm.contactIds.map(id => {
+                      const contact = contacts.find(c => c.id === id);
+                      return contact ? (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
+                          {contact.fullName}
+                          <button
+                            type="button"
+                            onClick={() => setEventForm({
+                              ...eventForm,
+                              contactIds: eventForm.contactIds.filter(cid => cid !== id)
+                            })}
+                            className="hover:text-blue-900"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search size={16} className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={contactSearch}
+                    onChange={(e) => {
+                      setContactSearch(e.target.value);
+                      setShowContactDropdown(true);
+                    }}
+                    onFocus={() => setShowContactDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowContactDropdown(false), 200)}
+                    placeholder="Search contacts..."
+                    className="w-full pl-10 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                  />
+                </div>
+                {showContactDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    {filteredContacts
+                      .filter(c => !eventForm.contactIds.includes(c.id))
+                      .slice(0, 10)
+                      .map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setEventForm({
+                              ...eventForm,
+                              contactIds: [...eventForm.contactIds, c.id]
+                            });
+                            setContactSearch('');
+                          }}
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-slate-600 dark:text-white"
+                        >
+                          <span className="font-medium">{c.fullName}</span>
+                          <span className="ml-2 text-gray-500 dark:text-gray-400">({getContactRefId(c)})</span>
+                        </button>
+                      ))}
+                    {filteredContacts.filter(c => !eventForm.contactIds.includes(c.id)).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        No more contacts
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Reminders Section */}
+              <div className="border border-gray-200 dark:border-slate-600 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                  <Bell size={16} />
+                  Reminders
+                </label>
+                <div className="space-y-2">
+                  {eventForm.reminders.map((reminder, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={reminder.time}
+                        onChange={(e) => {
+                          const newReminders = [...eventForm.reminders];
+                          newReminders[idx] = { ...reminder, time: e.target.value };
+                          setEventForm({ ...eventForm, reminders: newReminders });
+                        }}
+                        className="w-20 px-2 py-1 border border-gray-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                        min="1"
+                      />
+                      <select
+                        value={reminder.unit}
+                        onChange={(e) => {
+                          const newReminders = [...eventForm.reminders];
+                          newReminders[idx] = { ...reminder, unit: e.target.value as any };
+                          setEventForm({ ...eventForm, reminders: newReminders });
+                        }}
+                        className="px-2 py-1 border border-gray-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white text-sm"
+                      >
+                        <option value="minutes">minutes before</option>
+                        <option value="hours">hours before</option>
+                        <option value="days">days before</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEventForm({
+                            ...eventForm,
+                            reminders: eventForm.reminders.filter((_, i) => i !== idx)
+                          });
+                        }}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEventForm({
+                        ...eventForm,
+                        reminders: [...eventForm.reminders, { time: '30', unit: 'minutes' }]
+                      });
+                    }}
+                    className="text-sm text-brand-orange hover:text-orange-600 flex items-center gap-1"
+                  >
+                    <Plus size={14} />
+                    Add reminder
+                  </button>
+                </div>
+              </div>
+
+              {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Description
@@ -658,14 +1028,14 @@ const Calendar: React.FC = () => {
                   value={eventForm.description}
                   onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white resize-none"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-transparent dark:bg-slate-700 dark:text-white resize-none text-sm"
                   placeholder="Add notes or details..."
                 />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3">
               <button
-                onClick={() => setShowEventModal(false)}
+                onClick={() => { closeEventModal(); resetEventForm(); }}
                 className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               >
                 Cancel
@@ -675,29 +1045,40 @@ const Calendar: React.FC = () => {
                 className="px-4 py-2 bg-brand-orange text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
               >
                 <Check size={18} />
-                Save Event
+                {isEditing ? 'Update Task' : 'Save Task'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Event Detail Modal */}
-      {selectedEvent && (
+      {/* Task Detail Modal */}
+      {selectedTask && !showEventModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md">
-            <div className={`p-6 border-b ${EVENT_COLORS[selectedEvent.type].bg} ${EVENT_COLORS[selectedEvent.type].border} border-l-4 rounded-t-xl`}>
+            <div className={`p-6 border-b ${(EVENT_COLORS[selectedTask.type] || EVENT_COLORS.appointment).bg} ${(EVENT_COLORS[selectedTask.type] || EVENT_COLORS.appointment).border} border-l-4 rounded-t-xl`}>
               <div className="flex justify-between items-start">
                 <div>
-                  <span className={`text-xs font-medium uppercase ${EVENT_COLORS[selectedEvent.type].text}`}>
-                    {selectedEvent.type}
-                  </span>
-                  <h3 className="text-lg font-bold text-navy-900 dark:text-white mt-1">
-                    {selectedEvent.title}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium uppercase ${(EVENT_COLORS[selectedTask.type] || EVENT_COLORS.appointment).text}`}>
+                      {selectedTask.type}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      selectedTask.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      selectedTask.status === 'cancelled' ? 'bg-gray-100 text-gray-700' :
+                      selectedTask.status === 'rescheduled' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {selectedTask.status}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-navy-900 dark:text-white mt-1 flex items-center gap-2">
+                    {selectedTask.isRecurring && <Repeat size={16} />}
+                    {selectedTask.title}
                   </h3>
                 </div>
                 <button
-                  onClick={() => setSelectedEvent(null)}
+                  onClick={() => setSelectedTask(null)}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                 >
                   <X size={20} />
@@ -708,7 +1089,7 @@ const Calendar: React.FC = () => {
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
                 <CalendarIcon size={18} className="shrink-0" />
                 <span>
-                  {new Date(selectedEvent.date).toLocaleDateString('en-GB', {
+                  {new Date(selectedTask.date).toLocaleDateString('en-GB', {
                     weekday: 'long',
                     day: 'numeric',
                     month: 'long',
@@ -716,29 +1097,72 @@ const Calendar: React.FC = () => {
                   })}
                 </span>
               </div>
-              {selectedEvent.startTime && (
+              {selectedTask.startTime && (
                 <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
                   <Clock size={18} className="shrink-0" />
                   <span>
-                    {selectedEvent.startTime} - {selectedEvent.endTime || 'No end time'}
+                    {selectedTask.startTime} - {selectedTask.endTime || 'No end time'}
                   </span>
                 </div>
               )}
-              {selectedEvent.contactName && (
+              {selectedTask.linkedContacts && selectedTask.linkedContacts.length > 0 && (
                 <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
-                  <User size={18} className="shrink-0" />
-                  <span>{selectedEvent.contactName}</span>
+                  <Users size={18} className="shrink-0" />
+                  <span>{selectedTask.linkedContacts.map(c => c.name).join(', ')}</span>
                 </div>
               )}
-              {selectedEvent.description && (
+              {selectedTask.assignedToName && (
+                <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
+                  <UserPlus size={18} className="shrink-0" />
+                  <span>Assigned to: {selectedTask.assignedToName}</span>
+                </div>
+              )}
+              {selectedTask.isRecurring && (
+                <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
+                  <Repeat size={18} className="shrink-0" />
+                  <span>Repeats {selectedTask.recurrencePattern}</span>
+                </div>
+              )}
+              {selectedTask.reminders && selectedTask.reminders.length > 0 && (
+                <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
+                  <Bell size={18} className="shrink-0" />
+                  <span>{selectedTask.reminders.length} reminder(s) set</span>
+                </div>
+              )}
+              {selectedTask.description && (
                 <div className="pt-4 border-t border-gray-100 dark:border-slate-700">
-                  <p className="text-sm text-gray-600 dark:text-gray-300">{selectedEvent.description}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">{selectedTask.description}</p>
                 </div>
               )}
             </div>
-            <div className="p-6 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3">
+            <div className="p-6 border-t border-gray-100 dark:border-slate-700 flex flex-wrap justify-between gap-3">
+              <div className="flex gap-2">
+                {selectedTask.status === 'pending' && (
+                  <button
+                    onClick={() => handleCompleteTask(selectedTask.id)}
+                    className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1 text-sm"
+                  >
+                    <CheckCircle size={16} />
+                    Complete
+                  </button>
+                )}
+                <button
+                  onClick={() => handleEditTask(selectedTask)}
+                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1 text-sm"
+                >
+                  <Edit3 size={16} />
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDeleteTask(selectedTask.id)}
+                  className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1 text-sm"
+                >
+                  <Trash2 size={16} />
+                  Delete
+                </button>
+              </div>
               <button
-                onClick={() => setSelectedEvent(null)}
+                onClick={() => setSelectedTask(null)}
                 className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               >
                 Close
