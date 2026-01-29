@@ -25,7 +25,8 @@
       "Bash(npm install:*)",
       "Bash(cd:*)",
       "Read(//Users/sayedmohammadfirdousi/Desktop/**)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ]
   }
 }
