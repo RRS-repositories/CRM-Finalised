@@ -1631,15 +1631,16 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       const data = await response.json();
+      const noteData = data.note || data; // Server returns { success: true, note: {...} }
 
       const newNote: CRMNote = {
-        id: data.id.toString(),
-        clientId: data.client_id.toString(),
-        content: data.content,
-        pinned: data.pinned,
-        createdBy: data.created_by,
-        createdByName: data.created_by_name,
-        createdAt: data.created_at
+        id: noteData.id.toString(),
+        clientId: noteData.client_id.toString(),
+        content: noteData.content,
+        pinned: noteData.pinned,
+        createdBy: noteData.created_by,
+        createdByName: noteData.created_by_name,
+        createdAt: noteData.created_at
       };
 
       setCrmNotes(prev => [newNote, ...prev]);

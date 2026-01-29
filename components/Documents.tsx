@@ -78,13 +78,10 @@ const DocumentsContent: React.FC = () => {
       return '';
    };
 
-   // Helper to check if a document is an image/signature file (to hide from frontend display)
-   const isImageFile = (doc: Document) => {
-      if (doc.type === 'image') return true;
-      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'];
+   // Helper to check if a document is a signature file (to hide from frontend display)
+   // Note: We only hide signature files, NOT user-uploaded ID documents
+   const isSignatureFile = (doc: Document) => {
       const lowerName = doc.name.toLowerCase();
-      // Check file extension
-      if (imageExtensions.some(ext => lowerName.endsWith(ext))) return true;
       // Check if it's a signature file by name or tags
       if (lowerName.includes('signature') || lowerName.includes('_sig')) return true;
       if (doc.tags.some(tag => tag.toLowerCase().includes('signature'))) return true;
@@ -102,8 +99,8 @@ const DocumentsContent: React.FC = () => {
    };
 
    const filteredDocs = documents.filter(doc => {
-      // Hide image files (signatures, IDs, etc.) from frontend display
-      if (isImageFile(doc)) return false;
+      // Only hide signature files - allow all other documents including uploaded IDs
+      if (isSignatureFile(doc)) return false;
       const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
          getClientName(doc.associatedContactId).toLowerCase().includes(searchQuery.toLowerCase()) ||
          getLenderFromDoc(doc).toLowerCase().includes(searchQuery.toLowerCase());

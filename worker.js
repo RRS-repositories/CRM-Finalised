@@ -828,16 +828,17 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         <p>I/We authorise Fast Action Claims of 1.03, 12 Exchange Quay, Salford, M5 3EQ as my/our sole representatives to deal with my potential complaint/claim for compensation in relation to all loans/credit cards/car finance/overdrafts/Packaged Bank Accounts/Store Cards/Packaged Bank Account. I/We confirm that Fast Action Claims are instructed to pursue all aspects they consider necessary in relation to my/our dealings with your organisation. This letter of authority relates to ALL products and accounts I/We have or have had with you. I/We have read, understand and agree to Fast Action Claims' Terms and Conditions. I/We give them full authority, in accordance with the FCA's Dispute Resolution Guidelines, to act on my/our behalf as my/our to pursue all aspects they deem necessary in relation to all my/our financial affairs/tax affairs with the aforementioned Provider(s). I/We authorise you to accept any signatures on documents sent to you by Fast Action Claims which have been obtained electronically (e-signed). I/We confirm that in the event that you need to contact a third party to progress my/our case for any reason, I/we hereby give my/our authority and consent for the third party to provide Fast Action Claims with any information they request and may require to pursue my/our claim/complaint. I/We understand that, in addition to the present Letter of Authority I/We will need to provide further information when raising an expression of dissatisfaction to you (The Bank/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/HMRC), about the underlying products), service(s) and where known, specific account number(s) being complained about. I hereby authorise Fast Action Claims to submit my claim for irresponsible lending.</p>
     </div>
 
-    <div class="signature-section">
-        <table class="sign-table" style="width: 100%;">
+    <div class="signature-section" style="border: none; padding: 0;">
+        <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000;">
             <tr>
-                <td style="width: 40%; vertical-align: top; padding-right: 10px;">
-                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">SIGNATURE</div>
-                    <div style="font-size: 10px; color: #333;">Created at: ${new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</div>
+                <td style="width: 100px; padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">Signature:</td>
+                <td style="padding: 10px 15px; border: 1px solid #000; vertical-align: middle;">
+                    ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 50px; max-width: 250px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
                 </td>
-                <td style="width: 60%; text-align: left; vertical-align: top;">
-                    ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 60px; max-width: 200px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
-                </td>
+            </tr>
+            <tr>
+                <td style="width: 100px; padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">Date:</td>
+                <td style="padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
             </tr>
         </table>
     </div>

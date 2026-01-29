@@ -56,8 +56,8 @@ const MONTHS = [
   { value: '09', label: 'September' }, { value: '10', label: 'October' },
   { value: '11', label: 'November' }, { value: '12', label: 'December' }
 ];
-// Years from 1950 to 2020 (Descending order for better UX)
-const YEARS = Array.from({ length: 2020 - 1950 + 1 }, (_, i) => (2020 - i).toString());
+// Years from 1926 to 2008 (ages 18-100, descending order for better UX)
+const YEARS = Array.from({ length: 2008 - 1926 + 1 }, (_, i) => (2008 - i).toString());
 
 interface StepOneProps {
   onSuccess: (data: Page1Response) => void;
