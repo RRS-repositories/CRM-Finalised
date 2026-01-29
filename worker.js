@@ -832,13 +832,13 @@ async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
         <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000;">
             <tr>
                 <td style="width: 100px; padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">Signature:</td>
-                <td style="padding: 10px 15px; border: 1px solid #000; vertical-align: middle;">
+                <td style="padding: 10px 15px; border-left: 1px solid #000; border-top: 1px solid #000; border-right: 1px solid #000; border-bottom: none; vertical-align: middle;">
                     ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 50px; max-width: 250px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
                 </td>
             </tr>
             <tr>
                 <td style="width: 100px; padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">Date:</td>
-                <td style="padding: 10px 15px; border: 1px solid #000; font-size: 12px; vertical-align: middle;">${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                <td style="padding: 10px 15px; border-left: 1px solid #000; border-bottom: 1px solid #000; border-right: 1px solid #000; border-top: none; font-size: 12px; vertical-align: middle;">${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
             </tr>
         </table>
     </div>
