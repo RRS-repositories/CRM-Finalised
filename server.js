@@ -1918,62 +1918,33 @@ app.post('/api/documents/secure-url', async (req, res) => {
     try {
         if (!url) return res.status(400).json({ success: false, message: 'URL is required' });
 
-        // Extract Key from full URL (robust method)
-        // Supports:
-        // 1. https://BUCKET.s3.REGION.amazonaws.com/KEY (virtual-hosted style)
-        // 2. https://s3.REGION.amazonaws.com/BUCKET/KEY (path-style)
-        // 3. Any URL where we just need everything after .com/
-
+        // Extract Key from full URL
         let key = url;
         const bucketName = process.env.S3_BUCKET_NAME;
 
         if (url.startsWith('http')) {
             try {
                 const urlObj = new URL(url);
-                // If pathname starts with '/', slice it off
                 key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
-
-                // Decode URI component in case of spaces etc
                 key = decodeURIComponent(key);
 
-                // Handle path-style URLs: https://s3.REGION.amazonaws.com/BUCKET/KEY
-                // If the key starts with the bucket name, strip it
+                // Handle path-style URLs: strip bucket name if present
                 if (key.startsWith(bucketName + '/')) {
                     key = key.substring(bucketName.length + 1);
                 }
             } catch (e) {
-                // Fallback if URL parsing fails
                 console.warn('URL parsing failed, using raw string');
             }
         }
 
-        // Verify file exists before generating signed URL
-        const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
-        try {
-            await s3Client.send(new HeadObjectCommand({
-                Bucket: process.env.S3_BUCKET_NAME,
-                Key: key,
-            }));
-        } catch (headErr) {
-            if (headErr.name === 'NotFound' || headErr.$metadata?.httpStatusCode === 404) {
-                console.error(`[secure-url] File not found in S3. Key: ${key}`);
-                return res.status(404).json({
-                    success: false,
-                    message: 'Document not found in storage. It may have been deleted or moved.',
-                    key: key
-                });
-            }
-            throw headErr; // Re-throw other errors
-        }
+        console.log(`[secure-url] Key: ${key}`);
 
         const command = new GetObjectCommand({
-            Bucket: process.env.S3_BUCKET_NAME,
+            Bucket: bucketName,
             Key: key,
         });
 
-        // Generate signed URL valid for 1 hour
         const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
         res.json({ success: true, signedUrl });
     } catch (err) {
         console.error('Error generating signed URL:', err);

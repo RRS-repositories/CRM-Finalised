@@ -564,7 +564,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
       setPreviewLoading(true);
       try {
-         const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
+         const res = await fetch(`${API_BASE_URL}/api/documents/secure-url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: doc.url })
@@ -591,7 +591,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setSyncingDocs(true);
       setSyncMessage(null);
       try {
-         const res = await fetch(`${API_BASE_URL}/contacts/${contactId}/sync-documents`, {
+         const res = await fetch(`${API_BASE_URL}/api/contacts/${contactId}/sync-documents`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
          });
