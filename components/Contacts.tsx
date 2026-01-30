@@ -205,7 +205,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
       crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
       actionLogs, fetchActionLogs,
-      updateContactExtended, updateClaimExtended, fetchFullClaim, currentUser
+      updateContactExtended, updateClaimExtended, fetchFullClaim, currentUser,
+      refreshAllData, addNotification
    } = useCRM();
 
    const contact = contacts.find(c => c.id === contactId);
@@ -516,23 +517,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
    if (!contact) return <div className="p-6">Contact not found. <button onClick={onBack} className="text-blue-600 underline ml-2">Back</button></div>;
 
-   // Helper to check if a document is an image/signature file (to hide from frontend display)
-   const isImageFile = (doc: Document) => {
-      if (doc.type === 'image') return true;
-      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'];
-      const lowerName = doc.name.toLowerCase();
-      // Check file extension
-      if (imageExtensions.some(ext => lowerName.endsWith(ext))) return true;
-      // Check if it's a signature file by name or tags
-      if (lowerName.includes('signature') || lowerName.includes('_sig')) return true;
-      if (doc.tags.some(tag => tag.toLowerCase().includes('signature'))) return true;
-      return false;
-   };
-
-   // Filter documents for this contact, excluding image/signature files
+   // Filter documents for this contact, only hiding signature.png and signature2.png
    const contactDocs = documents.filter(d => {
-      if (d.associatedContactId !== contactId) return false;
-      if (isImageFile(d)) return false;
+      // Use string comparison to handle type mismatches (string vs number)
+      if (String(d.associatedContactId) !== String(contactId)) return false;
+      const lowerName = d.name.toLowerCase();
+      if (lowerName === 'signature.png' || lowerName === 'signature2.png') return false;
       return true;
    });
 
@@ -556,6 +546,74 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          return `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
       return dateStr;
+   };
+
+   // Preview loading state
+   const [previewLoading, setPreviewLoading] = useState(false);
+
+   // S3 Sync state
+   const [syncingDocs, setSyncingDocs] = useState(false);
+   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+   // Handle document preview - fetches fresh signed URL before displaying
+   const handleDocumentPreview = async (doc: Document) => {
+      if (!doc.url) {
+         setPreviewDoc(doc);
+         return;
+      }
+
+      setPreviewLoading(true);
+      try {
+         const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: doc.url })
+         });
+
+         const data = await res.json();
+         if (data.success && data.signedUrl) {
+            // Update the document with fresh URL and show preview
+            setPreviewDoc({ ...doc, url: data.signedUrl });
+         } else {
+            // Show error in preview modal
+            setPreviewDoc({ ...doc, url: '', content: `Error: ${data.message || 'Could not load document'}` });
+         }
+      } catch (err) {
+         console.error('Preview error:', err);
+         setPreviewDoc({ ...doc, url: '', content: 'Error: Failed to load document from storage' });
+      } finally {
+         setPreviewLoading(false);
+      }
+   };
+
+   // Handle S3 document sync - discovers and imports files from S3 that aren't in the database
+   const handleSyncDocuments = async () => {
+      setSyncingDocs(true);
+      setSyncMessage(null);
+      try {
+         const res = await fetch(`${API_BASE_URL}/contacts/${contactId}/sync-documents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+         });
+
+         const data = await res.json();
+         if (data.success) {
+            if (data.synced > 0) {
+               addNotification('success', `Synced ${data.synced} new document(s) from storage`);
+               await refreshAllData();
+            } else {
+               addNotification('info', 'No new documents found in storage');
+            }
+            setSyncMessage(`${data.synced} new, ${data.total} total in S3`);
+         } else {
+            addNotification('error', data.message || 'Sync failed');
+         }
+      } catch (err) {
+         console.error('Sync error:', err);
+         addNotification('error', 'Failed to sync documents from storage');
+      } finally {
+         setSyncingDocs(false);
+      }
    };
 
    // Filter logs for this contact (legacy activity logs)
@@ -2891,7 +2949,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                 </div>
                                              </div>
                                              <button
-                                                onClick={() => setPreviewDoc(doc)}
+                                                onClick={() => handleDocumentPreview(doc)}
                                                 className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                                              >
                                                 View
@@ -3202,12 +3260,23 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                <div className="space-y-4">
                   <div className="flex justify-between items-center mb-4">
                      <h2 className="text-lg font-bold text-navy-900 dark:text-white">Documents</h2>
-                     <button
-                        onClick={() => setShowUploadModal(true)}
-                        className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
-                     >
-                        <Upload size={14} /> Upload Document
-                     </button>
+                     <div className="flex gap-2">
+                        <button
+                           onClick={handleSyncDocuments}
+                           disabled={syncingDocs}
+                           className="text-xs font-bold bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+                           title="Sync documents from S3 storage"
+                        >
+                           <RotateCcw size={14} className={syncingDocs ? 'animate-spin' : ''} />
+                           {syncingDocs ? 'Syncing...' : 'Sync from S3'}
+                        </button>
+                        <button
+                           onClick={() => setShowUploadModal(true)}
+                           className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                        >
+                           <Upload size={14} /> Upload Document
+                        </button>
+                     </div>
                   </div>
 
                   {contactDocs.length > 0 ? (
@@ -3249,7 +3318,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              <FileIcon size={16} />
                                           </div>
                                           <button
-                                            onClick={() => setPreviewDoc(doc)}
+                                            onClick={() => handleDocumentPreview(doc)}
                                             className="text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left"
                                             title="Click to preview"
                                          >
@@ -3292,7 +3361,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     <td className="py-4 px-5 text-right">
                                        <div className="flex items-center justify-end gap-2">
                                           <button
-                                             onClick={() => setPreviewDoc(doc)}
+                                             onClick={() => handleDocumentPreview(doc)}
                                              className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors"
                                              title="Preview"
                                           >
@@ -3458,6 +3527,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         Upload
                      </button>
                   </div>
+               </div>
+            </div>
+         )}
+
+         {/* Preview Loading Indicator */}
+         {previewLoading && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-8 flex flex-col items-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+                  <p className="text-gray-600 dark:text-gray-300">Loading document...</p>
                </div>
             </div>
          )}

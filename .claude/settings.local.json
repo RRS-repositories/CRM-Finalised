@@ -27,7 +27,8 @@
       "Read(//Users/sayedmohammadfirdousi/Desktop/**)",
       "Bash(grep:*)",
       "Bash(chmod:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(scp:*)"
     ]
   }
 }

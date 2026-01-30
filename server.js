@@ -1919,12 +1919,14 @@ app.post('/api/documents/secure-url', async (req, res) => {
         if (!url) return res.status(400).json({ success: false, message: 'URL is required' });
 
         // Extract Key from full URL (robust method)
-        // Supports: 
-        // 1. https://BUCKET.s3.REGION.amazonaws.com/KEY
-        // 2. https://s3.REGION.amazonaws.com/BUCKET/KEY
+        // Supports:
+        // 1. https://BUCKET.s3.REGION.amazonaws.com/KEY (virtual-hosted style)
+        // 2. https://s3.REGION.amazonaws.com/BUCKET/KEY (path-style)
         // 3. Any URL where we just need everything after .com/
 
         let key = url;
+        const bucketName = process.env.S3_BUCKET_NAME;
+
         if (url.startsWith('http')) {
             try {
                 const urlObj = new URL(url);
@@ -1933,10 +1935,35 @@ app.post('/api/documents/secure-url', async (req, res) => {
 
                 // Decode URI component in case of spaces etc
                 key = decodeURIComponent(key);
+
+                // Handle path-style URLs: https://s3.REGION.amazonaws.com/BUCKET/KEY
+                // If the key starts with the bucket name, strip it
+                if (key.startsWith(bucketName + '/')) {
+                    key = key.substring(bucketName.length + 1);
+                }
             } catch (e) {
                 // Fallback if URL parsing fails
                 console.warn('URL parsing failed, using raw string');
             }
+        }
+
+        // Verify file exists before generating signed URL
+        const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+        try {
+            await s3Client.send(new HeadObjectCommand({
+                Bucket: process.env.S3_BUCKET_NAME,
+                Key: key,
+            }));
+        } catch (headErr) {
+            if (headErr.name === 'NotFound' || headErr.$metadata?.httpStatusCode === 404) {
+                console.error(`[secure-url] File not found in S3. Key: ${key}`);
+                return res.status(404).json({
+                    success: false,
+                    message: 'Document not found in storage. It may have been deleted or moved.',
+                    key: key
+                });
+            }
+            throw headErr; // Re-throw other errors
         }
 
         const command = new GetObjectCommand({
@@ -2478,6 +2505,123 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
         const { rows } = await pool.query('SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC', [req.params.id]);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- S3 DOCUMENT SYNC ---
+// Sync S3 documents folder to database for a specific contact
+app.post('/api/contacts/:id/sync-documents', async (req, res) => {
+    const contactId = req.params.id;
+
+    try {
+        // 1. Get contact info for folder path
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+
+        const { first_name, last_name } = contactRes.rows[0];
+        const folderPath = `${first_name}_${last_name}_${contactId}/Documents/`;
+
+        console.log(`[Sync] Starting S3 sync for contact ${contactId}, folder: ${folderPath}`);
+
+        // 2. List all objects in the Documents folder
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+        const listCommand = new ListObjectsV2Command({
+            Bucket: BUCKET_NAME,
+            Prefix: folderPath
+        });
+
+        const listedObjects = await s3Client.send(listCommand);
+
+        if (!listedObjects.Contents || listedObjects.Contents.length === 0) {
+            return res.json({ success: true, message: 'No files found in S3', synced: 0 });
+        }
+
+        // 3. Get existing documents from DB
+        const existingDocs = await pool.query(
+            'SELECT name FROM documents WHERE contact_id = $1',
+            [contactId]
+        );
+        const existingNames = new Set(existingDocs.rows.map(d => d.name));
+
+        // 4. Insert missing documents
+        let syncedCount = 0;
+        for (const obj of listedObjects.Contents) {
+            const fileName = obj.Key.split('/').pop(); // Get just the filename
+            if (!fileName || existingNames.has(fileName)) continue;
+
+            // Skip if it's just a folder marker
+            if (obj.Key.endsWith('/')) continue;
+
+            // Generate signed URL
+            const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: obj.Key
+            }), { expiresIn: 604800 }); // 7 days
+
+            // Determine file type from extension
+            const ext = fileName.split('.').pop()?.toLowerCase() || 'unknown';
+            const typeMap = {
+                'pdf': 'pdf', 'doc': 'docx', 'docx': 'docx',
+                'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image',
+                'xls': 'spreadsheet', 'xlsx': 'spreadsheet',
+                'txt': 'txt', 'html': 'html'
+            };
+            const fileType = typeMap[ext] || 'unknown';
+
+            // Calculate size
+            const sizeKB = obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown';
+
+            // Insert into database
+            await pool.query(
+                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [contactId, fileName, fileType, 'Client', signedUrl, sizeKB, ['Synced from S3']]
+            );
+
+            syncedCount++;
+            console.log(`[Sync] Added: ${fileName}`);
+        }
+
+        res.json({
+            success: true,
+            message: `Synced ${syncedCount} new documents`,
+            synced: syncedCount,
+            total: listedObjects.Contents.length
+        });
+
+    } catch (error) {
+        console.error('[Sync] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Cleanup documents with invalid S3 paths (like client.landing.page)
+app.post('/api/documents/cleanup-invalid', async (req, res) => {
+    try {
+        // Find documents with invalid paths
+        const { rows: invalidDocs } = await pool.query(
+            `SELECT id, name, url FROM documents WHERE url LIKE '%client.landing.page%'`
+        );
+
+        if (invalidDocs.length === 0) {
+            return res.json({ success: true, message: 'No invalid documents found', deleted: 0 });
+        }
+
+        // Delete them
+        await pool.query(`DELETE FROM documents WHERE url LIKE '%client.landing.page%'`);
+
+        console.log(`[Cleanup] Deleted ${invalidDocs.length} documents with invalid S3 paths`);
+        res.json({
+            success: true,
+            message: `Deleted ${invalidDocs.length} documents with invalid storage paths`,
+            deleted: invalidDocs.length,
+            deletedDocs: invalidDocs.map(d => d.name)
+        });
+    } catch (error) {
+        console.error('[Cleanup] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 
 // --- CONTACTS & CASES API ---
