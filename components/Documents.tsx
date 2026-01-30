@@ -143,7 +143,7 @@ const DocumentsContent: React.FC = () => {
       if (!doc.url) return;
 
       try {
-         const res = await fetch(`${API_BASE_URL}/api/documents/secure-url`, {
+         const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: doc.url })
