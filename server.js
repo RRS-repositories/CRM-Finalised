@@ -1994,18 +1994,6 @@ function standardizeLender(lenderName) {
 
 // Helper function to send LOA email
 async function sendLOAEmail(toEmail, clientName, loaLink) {
-    // Load logo as base64 for email
-    let logoBase64 = '';
-    try {
-        const logoPath = path.join(__dirname, 'public', 'fac.png');
-        if (fs.existsSync(logoPath)) {
-            const logoBuffer = fs.readFileSync(logoPath);
-            logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
-        }
-    } catch (e) {
-        console.warn('Could not load logo for email:', e.message);
-    }
-
     const mailOptions = {
         from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
         to: toEmail,
@@ -2017,56 +2005,76 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #fce7cf; color: #333333; }
-                .wrapper { width: 100%; table-layout: fixed; background-color: #fce7cf; padding-bottom: 40px; }
-                .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-                .header { background-color: #1e3a5f; padding: 30px 40px; text-align: center; }
-                .logo-img { max-width: 200px; height: auto; margin-bottom: 10px; }
-                .logo-text { color: #ffffff; font-size: 24px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
-                .content { padding: 40px; }
-                h1 { color: #1e3a5f; font-size: 24px; margin-top: 0; margin-bottom: 20px; font-weight: 700; }
-                p { font-size: 16px; line-height: 1.6; margin-bottom: 20px; color: #4b5563; }
-                .highlight-box { background-color: #f3f4f6; border-left: 4px solid #ff6b35; padding: 20px; margin: 25px 0; border-radius: 0 4px 4px 0; }
-                .highlight-text { font-weight: 600; color: #1f2937; margin: 0; display: block; }
-                .btn-container { text-align: center; margin: 35px 0; }
-                .btn { display: inline-block; background-color: #ff6b35; color: #ffffff; font-size: 18px; font-weight: bold; padding: 16px 36px; text-decoration: none; border-radius: 6px; box-shadow: 0 4px 6px rgba(255, 107, 53, 0.25); transition: background-color 0.3s ease; }
-                .btn:hover { background-color: #e85a2d; }
-                .footer { background-color: #f9fafb; padding: 30px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
-                .footer p { margin: 5px 0; font-size: 12px; color: #6b7280; }
-                .expiry-note { font-size: 14px; color: #ef4444; font-style: italic; margin-top: 10px; display: block; }
+                body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; }
+                .wrapper { width: 100%; table-layout: fixed; background-color: #f8fafc; padding: 40px 20px; }
+                .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 620px; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0; }
+                .header { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px 45px; text-align: center; }
+                .logo-text { font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase; }
+                .content { padding: 48px 45px; background: #ffffff; }
+                h1 { color: #0f172a; font-size: 28px; margin-top: 0; margin-bottom: 6px; font-weight: 700; letter-spacing: -0.5px; }
+                .subtitle { color: #64748b; font-size: 16px; margin-bottom: 30px; font-weight: 500; }
+                p { font-size: 18px; line-height: 1.75; margin-bottom: 16px; color: #475569; }
+                .greeting { font-size: 20px; color: #1e293b; margin-bottom: 16px; }
+                .highlight-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 26px 30px; margin: 32px 0; border-radius: 0 14px 14px 0; }
+                .highlight-text { font-weight: 700; color: #b45309; margin: 0; display: block; font-size: 20px; letter-spacing: -0.3px; }
+                .highlight-box p { color: #92400e; margin-bottom: 0; margin-top: 12px; font-size: 17px; line-height: 1.6; }
+                .info-box { background: #f0f9ff; border: 1px solid #bae6fd; padding: 20px 24px; border-radius: 12px; margin: 24px 0; }
+                .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
+                .info-box strong { color: #075985; }
+                .btn-container { text-align: center; margin: 40px 0 32px 0; }
+                .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+                .expiry-note { font-size: 14px; color: #ef4444; font-weight: 600; margin-top: 14px; display: block; }
+                .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
+                .signature { margin-top: 8px; }
+                .signature p { margin-bottom: 4px; font-size: 18px; }
+                .footer { background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 32px 40px; text-align: center; border-top: 1px solid #e2e8f0; }
+                .footer p { margin: 5px 0; font-size: 14px; color: #64748b; }
+                .footer-brand { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 8px !important; }
+                .footer a { color: #f97316; text-decoration: none; font-weight: 600; }
+                .footer a:hover { text-decoration: underline; }
+                .footer-sra { font-size: 12px; color: #94a3b8; margin-top: 12px !important; }
             </style>
         </head>
         <body>
             <div class="wrapper">
                 <div class="main">
                     <div class="header">
-                        ${logoBase64 ? `<img src="${logoBase64}" alt="Fast Action Claims" class="logo-img">` : ''}
-                        <div class="logo-text">FAST ACTION CLAIMS</div>
+                        <p class="logo-text">Rowan Rose Solicitors</p>
                     </div>
                     <div class="content">
-                        <h1>Expert Legal Support</h1>
-                        <p>Hi ${clientName},</p>
-                        <p>Thank you for starting your claim with us. We are currently processing your initial information.</p>
+                        <h1>Your Claim is Being Processed</h1>
+                        <p class="subtitle">Expert Legal Support for Your Financial Claims</p>
+
+                        <p class="greeting">Dear ${clientName},</p>
+                        <p>Thank you for choosing Rowan Rose Solicitors. We are currently reviewing your initial information and preparing your case.</p>
 
                         <div class="highlight-box">
                             <span class="highlight-text">Action Required: Select Additional Lenders</span>
-                            <p style="margin-bottom: 0; margin-top: 8px;">To maximize your potential compensation, please tell us about any other lenders you have used in the last 15 years.</p>
+                            <p>To maximize your potential compensation, please tell us about any other lenders you have used in the last 15 years.</p>
                         </div>
 
-                        <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case.</p>
+                        <div class="info-box">
+                            <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case and can increase your compensation.</p>
+                        </div>
 
                         <div class="btn-container">
                             <a href="${loaLink}" class="btn">Complete Lender Selection</a>
-                            <span class="expiry-note">Link expires in 7 days</span>
+                            <span class="expiry-note">This secure link expires in 7 days</span>
                         </div>
 
-                        <p>If you have any questions, our dedicated team is here to help.</p>
-                        <p>Best regards,<br><strong>The Fast Action Claims Team</strong></p>
+                        <div class="divider"></div>
+
+                        <p>If you have any questions, our dedicated team is here to assist you.</p>
+                        <div class="signature">
+                            <p>Kind regards,</p>
+                            <p><strong>The Rowan Rose Solicitors Team</strong></p>
+                        </div>
                     </div>
                     <div class="footer">
-                        <p>Fast Action Claims | 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
-                        <p>A trading style of Rowan Rose Solicitors - Authorized and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
-                        <p>0161 533 1706 | info@fastactionclaims.co.uk</p>
+                        <p class="footer-brand">Rowan Rose Solicitors</p>
+                        <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                        <p><a href="tel:01615331706">0161 533 1706</a> &nbsp;|&nbsp; <a href="mailto:irl@rowanrose.co.uk">irl@rowanrose.co.uk</a></p>
+                        <p class="footer-sra">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
                     </div>
                 </div>
             </div>
@@ -3763,6 +3771,18 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         // Build base URL dynamically for assets
         const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
+        // Load mail_top.png as base64 for reliable display
+        let mailTopBase64 = '';
+        try {
+            const mailTopPath = path.join(__dirname, 'public', 'mail_top.png');
+            if (fs.existsSync(mailTopPath)) {
+                const mailTopBuffer = fs.readFileSync(mailTopPath);
+                mailTopBase64 = `data:image/png;base64,${mailTopBuffer.toString('base64')}`;
+            }
+        } catch (e) {
+            console.warn('Could not load mail_top.png:', e.message);
+        }
+
         // Return HTML form page
         res.send(`
                                 <!DOCTYPE html>
@@ -3771,460 +3791,499 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                         <meta charset="UTF-8">
                                             <meta name="viewport" content="width=device-width, initial-scale=1.0">
                                                 <title>LOA Form - ${contactName}</title>
-                                                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+                                                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
                                                     <style>
                                                         * {margin: 0; padding: 0; box-sizing: border-box; }
                                                         body {
-                                                            font - family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                                                        background: #f8f9fa;
-                                                        padding: 20px;
-                                                        line-height: 1.8;
-                                                        font-size: 18px;
-        }
-                                                        .container {
-                                                            max - width: 900px;
-                                                        margin: 0 auto;
-                                                        background: white;
-                                                        padding: 40px 50px;
-                                                        border-radius: 12px;
-                                                        box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
-        }
-                                                        .header {
-                                                            text - align: center;
-                                                        margin-bottom: 40px;
-                                                        padding-bottom: 30px;
-                                                        border-bottom: 3px solid #e5e7eb; 
-        }
-                                                        .logo-container {
-                                                            margin - bottom: 20px;
-        }
-                                                        .logo {
-                                                            max - width: 280px;
-                                                        height: auto;
-                                                        display: block;
-                                                        margin: 0 auto;
-        }
-                                                        .contact-info {
-                                                            font - size: 16px;
-                                                        color: #4b5563;
-                                                        margin: 20px 0;
-                                                        line-height: 2;
-                                                        text-align: center;
-                                                        font-weight: 500;
-        }
-                                                        .contact-info a {
-                                                            color: #2563eb;
-                                                        text-decoration: none;
-                                                        font-weight: 600;
-        }
-                                                        .contact-info a:hover {
-                                                            text - decoration: underline;
-        }
-                                                        .greeting {
-                                                            font - size: 32px;
-                                                        font-weight: 700;
-                                                        color: #111827;
-                                                        margin: 30px 0 20px 0;
-                                                        text-align: left;
-        }
-                                                        .intro {
-                                                            font - size: 19px;
-                                                        color: #1f2937;
-                                                        line-height: 1.8;
-                                                        margin-bottom: 35px;
-                                                        text-align: left;
-        }
-                                                        .intro strong {
-                                                            font - weight: 700;
-                                                        color: #111827;
-        }
-                                                        .good-news-banner {
-                                                            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-                                                        padding: 18px 24px;
-                                                        border-radius: 12px;
-                                                        display: flex;
-                                                        align-items: center;
-                                                        gap: 12px;
-                                                        font-size: 22px;
-                                                        font-weight: 700;
-                                                        color: #065f46;
-                                                        border: 2px solid #10b981;
-        }
-                                                        .good-news-icon {
-                                                            font-size: 28px;
-        }
-                                                        .friendly-note {
-                                                            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-                                                        padding: 20px 24px;
-                                                        border-radius: 12px;
-                                                        margin-top: 25px;
-                                                        border: 2px solid #3b82f6;
-                                                        text-align: center;
-        }
-                                                        .friendly-note p {
+                                                            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+                                                            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                                                            padding: 20px;
+                                                            line-height: 1.8;
                                                             font-size: 17px;
-                                                        color: #1e40af;
-                                                        font-weight: 600;
-                                                        margin: 0;
-                                                        line-height: 1.6;
-        }
+                                                            min-height: 100vh;
+                                                        }
+                                                        .container {
+                                                            max-width: 960px;
+                                                            margin: 0 auto;
+                                                            background: white;
+                                                            padding: 0;
+                                                            border-radius: 24px;
+                                                            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.05);
+                                                            overflow: hidden;
+                                                        }
+                                                        .header {
+                                                            background: #ffffff;
+                                                            padding: 0;
+                                                            margin-bottom: 0;
+                                                        }
+                                                        .header-image {
+                                                            width: 100%;
+                                                            display: block;
+                                                            height: auto;
+                                                        }
+                                                        .content-wrapper {
+                                                            padding: 45px 50px;
+                                                        }
+                                                        .greeting {
+                                                            font-size: 36px;
+                                                            font-weight: 800;
+                                                            color: #0f172a;
+                                                            margin: 0 0 28px 0;
+                                                            text-align: left;
+                                                            letter-spacing: -0.5px;
+                                                        }
+                                                        .intro {
+                                                            font-size: 22px;
+                                                            color: #334155;
+                                                            line-height: 1.8;
+                                                            margin-bottom: 36px;
+                                                            text-align: left;
+                                                        }
+                                                        .intro strong {
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                        }
+                                                        .intro p {
+                                                            margin-bottom: 18px;
+                                                            font-size: 22px;
+                                                        }
+                                                        .good-news-banner {
+                                                            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+                                                            padding: 26px 32px;
+                                                            border-radius: 16px;
+                                                            display: flex;
+                                                            align-items: center;
+                                                            gap: 16px;
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            color: #047857;
+                                                            border: 3px solid #34d399;
+                                                            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.12);
+                                                        }
+                                                        .good-news-icon {
+                                                            font-size: 36px;
+                                                        }
+                                                        .friendly-note {
+                                                            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+                                                            padding: 28px 32px;
+                                                            border-radius: 16px;
+                                                            margin-top: 32px;
+                                                            border: 3px solid #7dd3fc;
+                                                            text-align: center;
+                                                            box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1);
+                                                        }
+                                                        .friendly-note p {
+                                                            font-size: 22px;
+                                                            color: #0369a1;
+                                                            font-weight: 600;
+                                                            margin: 0;
+                                                            line-height: 1.7;
+                                                        }
                                                         .category {
                                                             margin: 40px 0;
-                                                        padding: 25px;
-                                                        border-radius: 10px;
-        }
+                                                            padding: 32px;
+                                                            border-radius: 18px;
+                                                            border: 2px solid #e2e8f0;
+                                                            transition: box-shadow 0.2s;
+                                                        }
+                                                        .category:hover {
+                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+                                                        }
                                                         .category:nth-child(odd) {
                                                             background: #ffffff;
-        }
+                                                        }
                                                         .category:nth-child(even) {
-                                                            background: #f3f4f6;
-        }
+                                                            background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+                                                        }
                                                         .category-title {
-                                                            font - size: 18px;
-                                                        font-weight: 700;
-                                                        color: #111827;
-                                                        margin-bottom: 20px;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.5px;
-                                                        font-style: italic;
-        }
+                                                            font-size: 20px;
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                            margin-bottom: 24px;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.8px;
+                                                            padding-bottom: 14px;
+                                                            border-bottom: 3px solid #f97316;
+                                                            display: inline-block;
+                                                        }
                                                         .lender-item {
                                                             display: flex;
-                                                        align-items: center;
-                                                        padding: 16px 18px;
-                                                        margin: 8px 0;
-                                                        border-radius: 8px;
-                                                        transition: background 0.2s;
-                                                        min-height: 56px;
-        }
-                                                        .lender-item:hover {background: #e5e7eb; }
+                                                            align-items: center;
+                                                            padding: 20px 22px;
+                                                            margin: 10px 0;
+                                                            border-radius: 14px;
+                                                            transition: all 0.2s;
+                                                            min-height: 72px;
+                                                            border: 2px solid transparent;
+                                                            background: #fafafa;
+                                                        }
+                                                        .lender-item:hover {
+                                                            background: #fff7ed;
+                                                            border-color: #fdba74;
+                                                        }
                                                         .lender-item input[type="checkbox"] {
-                                                            width: 32px;
-                                                        height: 32px;
-                                                        margin-right: 18px;
-                                                        cursor: pointer;
-                                                        accent-color: #2563eb;
-                                                        flex-shrink: 0;
-        }
+                                                            width: 44px;
+                                                            height: 44px;
+                                                            margin-right: 20px;
+                                                            cursor: pointer;
+                                                            accent-color: #f97316;
+                                                            flex-shrink: 0;
+                                                            border-radius: 8px;
+                                                        }
                                                         .lender-item label {
-                                                            font - size: 18px;
-                                                        color: #1f2937;
-                                                        cursor: pointer;
-                                                        user-select: none;
-                                                        font-weight: 600;
-                                                        line-height: 1.6;
-        }
+                                                            font-size: 22px;
+                                                            color: #1e293b;
+                                                            cursor: pointer;
+                                                            user-select: none;
+                                                            font-weight: 600;
+                                                            line-height: 1.5;
+                                                        }
                                                         .questions {
-                                                            margin: 45px 0;
-                                                        padding: 30px;
-                                                        background: #fef3c7;
-                                                        border-radius: 12px;
-                                                        border: 3px solid #fbbf24;
-        }
+                                                            margin: 48px 0;
+                                                            padding: 36px;
+                                                            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+                                                            border-radius: 18px;
+                                                            border: 3px solid #fbbf24;
+                                                            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.15);
+                                                        }
                                                         .question-item {
                                                             display: flex;
-                                                        align-items: center;
-                                                        margin: 22px 0;
-                                                        min-height: 56px;
-        }
+                                                            align-items: center;
+                                                            margin: 24px 0;
+                                                            min-height: 72px;
+                                                        }
                                                         .question-item input[type="checkbox"] {
-                                                            width: 32px;
-                                                        height: 32px;
-                                                        margin-right: 18px;
-                                                        cursor: pointer;
-                                                        accent-color: #f59e0b;
-                                                        flex-shrink: 0;
-        }
+                                                            width: 44px;
+                                                            height: 44px;
+                                                            margin-right: 20px;
+                                                            cursor: pointer;
+                                                            accent-color: #f59e0b;
+                                                            flex-shrink: 0;
+                                                        }
                                                         .question-item label {
-                                                            font - size: 18px;
-                                                        font-weight: 700;
-                                                        color: #78350f;
-                                                        cursor: pointer;
-                                                        line-height: 1.6;
-        }
+                                                            font-size: 22px;
+                                                            font-weight: 700;
+                                                            color: #92400e;
+                                                            cursor: pointer;
+                                                            line-height: 1.6;
+                                                        }
                                                         .signature-section {
-                                                            margin: 45px 0;
-                                                        background: #f8fafc;
-                                                        padding: 30px;
-                                                        border-radius: 16px;
-                                                        border: 2px solid #e2e8f0;
-        }
+                                                            margin: 48px 0;
+                                                            background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+                                                            padding: 40px;
+                                                            border-radius: 22px;
+                                                            border: 3px solid #1e3a5f;
+                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+                                                        }
+                                                        .authorization-text {
+                                                            font-size: 22px;
+                                                            color: #334155;
+                                                            line-height: 1.75;
+                                                            padding: 28px 32px;
+                                                            background: #ffffff;
+                                                            border-radius: 16px;
+                                                            border: 2px solid #e2e8f0;
+                                                            margin-bottom: 28px;
+                                                            text-align: center;
+                                                        }
+                                                        .authorization-text strong {
+                                                            color: #f97316;
+                                                            font-weight: 700;
+                                                        }
                                                         .signature-title {
-                                                            font - size: 22px;
-                                                        font-weight: 700;
-                                                        color: #111827;
-                                                        margin-bottom: 8px;
-        }
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                            margin-bottom: 8px;
+                                                        }
                                                         .signature-subtitle {
-                                                            font-size: 14px;
-                                                        color: #64748b;
-                                                        margin-bottom: 18px;
-        }
+                                                            font-size: 18px;
+                                                            color: #64748b;
+                                                            margin-bottom: 20px;
+                                                        }
                                                         .signature-container {
                                                             position: relative;
-                                                        width: 100%;
-                                                        background: white;
-                                                        border: 2px solid #e2e8f0;
-                                                        border-radius: 12px;
-                                                        overflow: hidden;
-                                                        transition: border-color 0.2s;
-        }
+                                                            width: 100%;
+                                                            background: white;
+                                                            border: 3px solid #e2e8f0;
+                                                            border-radius: 16px;
+                                                            overflow: hidden;
+                                                            transition: all 0.2s;
+                                                        }
                                                         .signature-container:hover {
-                                                            border-color: #94a3b8;
-        }
+                                                            border-color: #f97316;
+                                                            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1);
+                                                        }
                                                         .signature-canvas {
                                                             cursor: crosshair;
-                                                        display: block;
-                                                        width: 100%;
-                                                        height: 180px;
-                                                        touch-action: none;
-        }
+                                                            display: block;
+                                                            width: 100%;
+                                                            height: 200px;
+                                                            touch-action: none;
+                                                        }
                                                         .signature-placeholder {
                                                             position: absolute;
-                                                        top: 50%;
-                                                        left: 50%;
-                                                        transform: translate(-50%, -50%);
-                                                        color: #cbd5e1;
-                                                        font-size: 28px;
-                                                        font-style: italic;
-                                                        font-family: serif;
-                                                        pointer-events: none;
-        }
+                                                            top: 50%;
+                                                            left: 50%;
+                                                            transform: translate(-50%, -50%);
+                                                            color: #cbd5e1;
+                                                            font-size: 32px;
+                                                            font-style: italic;
+                                                            font-family: serif;
+                                                            pointer-events: none;
+                                                        }
                                                         .signature-footer {
                                                             display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        margin-top: 12px;
-                                                        padding: 0 4px;
-        }
+                                                            justify-content: space-between;
+                                                            align-items: center;
+                                                            margin-top: 16px;
+                                                            padding: 0 4px;
+                                                        }
                                                         .signature-hint {
-                                                            font-size: 12px;
-                                                        font-weight: 700;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.5px;
-                                                        color: #94a3b8;
-        }
+                                                            font-size: 16px;
+                                                            font-weight: 700;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.5px;
+                                                            color: #94a3b8;
+                                                        }
                                                         .signature-buttons {
                                                             display: flex;
-                                                        gap: 15px;
-        }
+                                                            gap: 15px;
+                                                        }
                                                         .btn {
-                                                            padding: 16px 28px;
-                                                        border: none;
-                                                        border-radius: 10px;
-                                                        font-size: 18px;
-                                                        font-weight: 700;
-                                                        cursor: pointer;
-                                                        transition: all 0.2s;
-                                                        font-family: 'Inter', sans-serif;
-                                                        min-height: 56px;
-        }
+                                                            padding: 20px 34px;
+                                                            border: none;
+                                                            border-radius: 14px;
+                                                            font-size: 20px;
+                                                            font-weight: 700;
+                                                            cursor: pointer;
+                                                            transition: all 0.2s;
+                                                            font-family: 'Inter', sans-serif;
+                                                            min-height: 64px;
+                                                        }
                                                         .btn-clear {
                                                             background: transparent;
-                                                        color: #0f172a;
-                                                        padding: 0;
-                                                        min-height: auto;
-                                                        font-size: 12px;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.5px;
-        }
+                                                            color: #64748b;
+                                                            padding: 0;
+                                                            min-height: auto;
+                                                            font-size: 18px;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.5px;
+                                                            transition: color 0.2s;
+                                                        }
                                                         .btn-clear:hover {
                                                             color: #ef4444;
-        }
+                                                        }
                                                         .btn-submit {
-                                                            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                                                        color: white;
-                                                        padding: 22px 60px;
-                                                        font-size: 22px;
-                                                        font-weight: 700;
-                                                        width: 100%;
-                                                        margin-top: 40px;
-                                                        min-height: 64px;
-                                                        border-radius: 12px;
-                                                        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-        }
+                                                            background: linear-gradient(145deg, #f97316 0%, #ea580c 100%);
+                                                            color: white;
+                                                            padding: 26px 60px;
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            width: 100%;
+                                                            margin-top: 44px;
+                                                            min-height: 80px;
+                                                            border-radius: 16px;
+                                                            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.35);
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 1.5px;
+                                                        }
                                                         .btn-submit:hover {
-                                                            background: linear-gradient(135deg, #059669 0%, #047857 100%);
-                                                        transform: translateY(-2px);
-                                                        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
-        }
+                                                            background: linear-gradient(145deg, #ea580c 0%, #c2410c 100%);
+                                                            transform: translateY(-3px);
+                                                            box-shadow: 0 8px 26px rgba(249, 115, 22, 0.5);
+                                                        }
                                                         .btn-submit:disabled {
                                                             background: #9ca3af;
-                                                        cursor: not-allowed;
-                                                        transform: none;
-                                                        box-shadow: none;
-        }
+                                                            cursor: not-allowed;
+                                                            transform: none;
+                                                            box-shadow: none;
+                                                        }
                                                         .disclaimer {
-                                                            font - size: 14px;
-                                                        color: #4b5563;
-                                                        margin-top: 25px;
-                                                        padding: 20px;
-                                                        background: #f9fafb;
-                                                        border-radius: 10px;
-                                                        line-height: 1.8; 
-        }
+                                                            font-size: 18px;
+                                                            color: #64748b;
+                                                            margin-top: 28px;
+                                                            padding: 24px 28px;
+                                                            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                                                            border-radius: 14px;
+                                                            line-height: 1.75;
+                                                            border: 1px solid #e2e8f0;
+                                                        }
                                                         .loading {
                                                             display: none;
-                                                        text-align: center;
-                                                        padding: 40px;
-                                                        font-size: 20px;
-        }
+                                                            text-align: center;
+                                                            padding: 60px;
+                                                            font-size: 24px;
+                                                            color: #64748b;
+                                                        }
+                                                        .loading p {
+                                                            margin-top: 20px;
+                                                        }
                                                         .success-message {
                                                             display: none;
-                                                        text-align: center;
-                                                        padding: 60px; 
-        }
+                                                            text-align: center;
+                                                            padding: 70px 50px;
+                                                        }
                                                         .success-message h2 {
-                                                            color: #10b981;
-                                                        margin-bottom: 20px;
-                                                        font-size: 32px;
-        }
+                                                            color: #059669;
+                                                            margin-bottom: 20px;
+                                                            font-size: 36px;
+                                                            font-weight: 800;
+                                                        }
                                                         .success-message p {
-                                                            font - size: 20px;
-                                                        color: #1f2937;
-        }
+                                                            font-size: 22px;
+                                                            color: #475569;
+                                                            line-height: 1.7;
+                                                        }
                                                         .error-message {
                                                             display: none;
-                                                        background: #fee2e2;
-                                                        color: #991b1b;
-                                                        padding: 20px;
-                                                        margin: 20px 0;
-                                                        border-radius: 8px;
-                                                        border: 1px solid #fca5a5;
-                                                        font-size: 18px;
-                                                        font-weight: 500;
-                                                        text-align: center;
-        }
+                                                            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+                                                            color: #b91c1c;
+                                                            padding: 18px 22px;
+                                                            margin: 20px 0;
+                                                            border-radius: 12px;
+                                                            border: 1px solid #fca5a5;
+                                                            font-size: 16px;
+                                                            font-weight: 600;
+                                                            text-align: center;
+                                                        }
 
                                                         /* Mobile Responsiveness */
                                                         @media (max-width: 768px) {
                                                             body {
-                                                            padding: 10px;
-                                                        font-size: 18px;
-            }
-                                                        .container {
-                                                            padding: 30px 20px;
-            }
-                                                        .greeting {
-                                                            font - size: 28px;
-            }
-                                                        .intro {
-                                                            font - size: 18px;
-            }
-                                                        .intro p {
-                                                            font - size: 17px;
-            }
-                                                        .good-news-banner {
-                                                            font - size: 20px;
-                                                        padding: 16px 20px;
-            }
-                                                        .friendly-note {
-                                                            padding: 18px 20px;
-            }
-                                                        .friendly-note p {
-                                                            font - size: 16px;
-            }
-                                                        .category {
-                                                            padding: 20px 15px;
-                                                        margin: 30px 0;
-            }
-                                                        .category-title {
-                                                            font - size: 17px;
-            }
-                                                        .lender-item {
-                                                            padding: 14px 12px;
-                                                        min-height: 60px;
-            }
-                                                        .lender-item label {
-                                                            font - size: 17px;
-            }
-                                                        .question-item {
-                                                            min - height: 60px;
-            }
-                                                        .question-item label {
-                                                            font - size: 17px;
-            }
-                                                        .signature-canvas {
-                                                            height: 180px;
-            }
-                                                        .btn {
-                                                            font - size: 17px;
-                                                        padding: 14px 24px;
-            }
-                                                        .btn-submit {
-                                                            font - size: 20px;
-                                                        padding: 20px 40px;
-            }
-        }
+                                                                padding: 12px;
+                                                                font-size: 16px;
+                                                            }
+                                                            .container {
+                                                                border-radius: 16px;
+                                                            }
+                                                            .content-wrapper {
+                                                                padding: 28px 24px;
+                                                            }
+                                                            .header-info-row {
+                                                                padding: 16px 20px;
+                                                                flex-direction: column;
+                                                                text-align: center;
+                                                            }
+                                                            .header-address, .header-contact {
+                                                                text-align: center;
+                                                            }
+                                                            .greeting {
+                                                                font-size: 26px;
+                                                            }
+                                                            .intro {
+                                                                font-size: 16px;
+                                                            }
+                                                            .good-news-banner {
+                                                                font-size: 18px;
+                                                                padding: 16px 20px;
+                                                            }
+                                                            .friendly-note {
+                                                                padding: 18px 20px;
+                                                            }
+                                                            .friendly-note p {
+                                                                font-size: 15px;
+                                                            }
+                                                            .category {
+                                                                padding: 20px 18px;
+                                                                margin: 24px 0;
+                                                            }
+                                                            .category-title {
+                                                                font-size: 14px;
+                                                            }
+                                                            .lender-item {
+                                                                padding: 12px 14px;
+                                                                min-height: 48px;
+                                                            }
+                                                            .lender-item label {
+                                                                font-size: 15px;
+                                                            }
+                                                            .question-item {
+                                                                min-height: 48px;
+                                                            }
+                                                            .question-item label {
+                                                                font-size: 14px;
+                                                            }
+                                                            .signature-section {
+                                                                padding: 24px 20px;
+                                                            }
+                                                            .signature-canvas {
+                                                                height: 150px;
+                                                            }
+                                                            .btn {
+                                                                font-size: 16px;
+                                                                padding: 14px 24px;
+                                                            }
+                                                            .btn-submit {
+                                                                font-size: 17px;
+                                                                padding: 18px 36px;
+                                                            }
+                                                        }
 
                                                         @media (max-width: 480px) {
-            .container {
-                                                            padding: 25px 15px;
-            }
-                                                        .greeting {
-                                                            font - size: 24px;
-            }
-                                                        .intro {
-                                                            font - size: 17px;
-            }
-                                                        .intro p {
-                                                            font - size: 16px;
-            }
-                                                        .good-news-banner {
-                                                            font - size: 18px;
-                                                        padding: 14px 16px;
-                                                        flex-direction: column;
-                                                        text-align: center;
-            }
-                                                        .good-news-icon {
-                                                            font - size: 24px;
-            }
-                                                        .friendly-note {
-                                                            padding: 16px 18px;
-            }
-                                                        .friendly-note p {
-                                                            font - size: 15px;
-            }
-                                                        .category-title {
-                                                            font - size: 16px;
-            }
-                                                        .lender-item label,
-                                                        .question-item label {
-                                                            font - size: 16px;
-            }
-                                                        .signature-title {
-                                                            font - size: 20px;
-            }
-                                                        .btn-submit {
-                                                            font - size: 18px;
-                                                        padding: 18px 30px;
-            }
-        }
+                                                            .container {
+                                                                border-radius: 12px;
+                                                            }
+                                                            .content-wrapper {
+                                                                padding: 24px 18px;
+                                                            }
+                                                            .greeting {
+                                                                font-size: 22px;
+                                                            }
+                                                            .intro {
+                                                                font-size: 15px;
+                                                            }
+                                                            .good-news-banner {
+                                                                font-size: 16px;
+                                                                padding: 14px 16px;
+                                                                flex-direction: column;
+                                                                text-align: center;
+                                                            }
+                                                            .good-news-icon {
+                                                                font-size: 22px;
+                                                            }
+                                                            .friendly-note {
+                                                                padding: 14px 16px;
+                                                            }
+                                                            .friendly-note p {
+                                                                font-size: 14px;
+                                                            }
+                                                            .category-title {
+                                                                font-size: 13px;
+                                                            }
+                                                            .lender-item label,
+                                                            .question-item label {
+                                                                font-size: 14px;
+                                                            }
+                                                            .signature-title {
+                                                                font-size: 18px;
+                                                            }
+                                                            .btn-submit {
+                                                                font-size: 16px;
+                                                                padding: 16px 28px;
+                                                            }
+                                                        }
                                                     </style>
                                                 </head>
                                                 <body>
                                                     <div class="container">
                                                         <div class="header">
-                                                            <div class="logo-container">
-                                                                <img src="${baseUrl}/fac.png" alt="Fast Action Claims" class="logo" onerror="this.style.display='none'">
-                                                            </div>
-                                                            <div class="contact-info">
-                                                                Email: <a href="mailto:info@fastactionclaims.co.uk">info@fastactionclaims.co.uk</a><br>
-                                                                    Tel: <a href="tel:01615331706">0161 533 1706</a><br>
-                                                                        Web: <a href="https://fastactionclaims.co.uk/" target="_blank">https://fastactionclaims.co.uk/</a>
-                                                                    </div>
-                                                            </div>
+                                                            ${mailTopBase64
+                ? `<img src="${mailTopBase64}" alt="Rowan Rose Solicitors" class="header-image">`
+                : `<div style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 40px; text-align: center;"><span style="font-size: 32px; font-weight: 800; color: white; letter-spacing: 2px;">ROWAN ROSE SOLICITORS</span></div>`}
+                                                        </div>
 
+                                                        <div class="content-wrapper">
                                                             <div class="greeting">Hi ${contactName},</div>
                                                             <div class="intro">
                                                                 <div class="good-news-banner">
                                                                     <span class="good-news-icon">&#127881;</span>
                                                                     <span>Great news — your claim is progressing smoothly!</span>
                                                                 </div>
-                                                                <p style="margin-top: 20px;">We're reaching out because <strong>millions of pounds have already been repaid to consumers</strong> just like you from lenders for irresponsible lending practices.</p>
-                                                                <p style="margin-top: 15px;">To help maximise your potential refund, please take a quick look at the list below and <strong>tick any lenders you've used in the last 15 years</strong>.</p>
-                                                                <p style="margin-top: 15px; color: #059669;">It only takes a minute and could make a real difference to your claim!</p>
-                                                                <p style="margin-top: 15px; font-size: 16px; color: #6b7280;">Questions? We're here to help — just get in touch.</p>
+                                                                <p style="margin-top: 24px; font-size: 22px;">We're reaching out because <strong>millions of pounds have already been repaid to consumers</strong> just like you from lenders for irresponsible lending practices.</p>
+                                                                <p style="margin-top: 18px; font-size: 22px;">To help maximise your potential refund, please take a quick look at the list below and <strong>tick any lenders you've used in the last 15 years</strong>.</p>
+                                                                <p style="margin-top: 18px; font-size: 22px; color: #059669; font-weight: 600;">It only takes a minute and could make a real difference to your claim!</p>
+                                                                <p style="margin-top: 18px; font-size: 20px; color: #64748b;">Questions? We're here to help — just get in touch.</p>
                                                             </div>
                                                                                 <div id="errorMessage" class="error-message"></div>
                                                                                 <form id="lenderForm">
@@ -4238,8 +4297,11 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                                                         <p>Thank you for taking the time to complete this form. Your responses help us build the strongest possible case for your claim. We're committed to getting you the best outcome!</p>
                                                                                     </div>
                                                                                     <div class="signature-section">
+                                                                                        <div class="authorization-text">
+                                                                                            I, <strong>${contactName}</strong>, authorise Rowan Rose Solicitors to investigate and pursue any case or claim against the lender(s) I have selected within this form.
+                                                                                        </div>
                                                                                         <div class="signature-title">Digital Signature</div>
-                                                                                        <div class="signature-subtitle">By signing below, you agree to our terms of service and authorize us to review your claim.</div>
+                                                                                        <div class="signature-subtitle">By signing below, you confirm the above authorisation and agree to our terms of service.</div>
                                                                                         <div class="signature-container">
                                                                                             <canvas id="signatureCanvas" class="signature-canvas"></canvas>
                                                                                             <div class="signature-placeholder" id="signaturePlaceholder">Sign here</div>
@@ -4248,13 +4310,23 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                                                             <span class="signature-hint">Draw with finger or mouse</span>
                                                                                             <button type="button" class="btn btn-clear" onclick="clearSignature()">Clear</button>
                                                                                         </div>
-                                                                                        <div class="disclaimer">Fast Action Claims (Rowan Rose Solicitors) is a trading name of Rowan Rose Solicitors Limited, a limited company registered in England and Wales. Company number: 12345678. Registered office: [Address]. Rowan Rose Solicitors Limited is authorised and regulated by the Solicitors Regulation Authority. SRA number: 123456.</div>
                                                                                     </div>
-                                                                                    <button type="submit" class="btn btn-submit" id="submitBtn">Submit</button>
+                                                                                    <button type="submit" class="btn btn-submit" id="submitBtn">Submit Your Selection</button>
                                                                                 </form>
-                                                                                <div class="loading" id="loading"><p>Submitting your form...</p></div>
-                                                                                <div class="success-message" id="success"><h2>✓ Form Submitted Successfully!</h2><p>Thank you for completing the lender selection form. We will process your information shortly.</p></div>
+                                                                                <div class="loading" id="loading">
+                                                                                    <div style="width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#f97316;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
+                                                                                    <p style="margin-top:16px;color:#475569;font-weight:500;">Submitting your form...</p>
+                                                                                </div>
+                                                                                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+                                                                                <div class="success-message" id="success">
+                                                                                    <div style="width:64px;height:64px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px auto;">
+                                                                                        <span style="font-size:32px;color:#059669;">✓</span>
+                                                                                    </div>
+                                                                                    <h2>Form Submitted Successfully!</h2>
+                                                                                    <p>Thank you for completing the lender selection form. We will process your information and be in touch shortly.</p>
+                                                                                </div>
                                                                             </div>
+                                                                        </div>
                                                                             <script>
                                                                                 const lenderCategories = ${JSON.stringify(filteredCategories)};
                                                                                 const container = document.getElementById('lenderCategories');
@@ -4293,7 +4365,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                                                                                     const container = canvas.parentElement;
                                                                                     const ratio = window.devicePixelRatio || 1;
                                                                                     const width = container.clientWidth;
-                                                                                    const height = 180;
+                                                                                    const height = 200;
                                                                                     canvas.width = width * ratio;
                                                                                     canvas.height = height * ratio;
                                                                                     canvas.style.width = width + 'px';
@@ -5224,7 +5296,7 @@ app.post('/api/tasks/auto-followup', async (req, res) => {
                 VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7, $8, $9)
                 RETURNING *
             `, [task.title, task.description, task.type, task.start_time, task.end_time,
-                task.assigned_to, task.assigned_by, task.id, task.assigned_to || task.created_by]);
+            task.assigned_to, task.assigned_by, task.id, task.assigned_to || task.created_by]);
 
             const newTaskId = newTaskResult.rows[0].id;
 

@@ -72,7 +72,6 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showFillFormError, setShowFillFormError] = useState(false);
   const [countryCode, setCountryCode] = useState('+44');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
 
@@ -120,16 +119,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     return () => clearInterval(intervalId);
   }, []);
 
-  const isFormFilled = () => {
-    return formData.first_name && formData.last_name && formData.street_address && formData.city && formData.postal_code && formData.phone;
-  };
-
-  const handleTermsClick = (e: React.MouseEvent) => {
-    if (!isFormFilled()) {
-      e.preventDefault();
-      setShowFillFormError(true);
-    }
-  };
+  // Removed form fill validation for terms - users can open terms anytime
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -568,7 +558,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 relative z-0">
           <InputField
-            label="Street Address"
+            label="House Numeber/Street Address"
             name="street_address"
             colSpan="md:col-span-2"
             value={formData.street_address}
@@ -600,17 +590,13 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
       </div>
 
       <div className="mb-10">
-        <div className="flex flex-col items-start bg-slate-50 p-6 rounded-lg border-2 border-slate-300">
-          <label className="flex items-start gap-4 cursor-pointer group select-none">
-            <div className="relative flex items-center mt-0.5">
+        <div className="flex flex-col items-start bg-gradient-to-br from-slate-50 to-slate-100 p-8 rounded-2xl border-2 border-slate-200 shadow-sm">
+          <label className="flex items-start gap-5 cursor-pointer group select-none">
+            <div className="relative flex items-center mt-1">
               <input
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={(e) => {
-                  if (!isFormFilled() && e.target.checked) {
-                    setShowFillFormError(true);
-                    return;
-                  }
                   setTermsAccepted(e.target.checked);
                   if (e.target.checked && errors.terms) {
                     setErrors(prev => {
@@ -620,32 +606,36 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
                     })
                   }
                 }}
-                className={`peer h-6 w-6 cursor-pointer appearance-none rounded border-2 transition-all
-                    ${errors.terms ? 'border-red-500 bg-red-50' : 'border-navy-900 bg-white'}
+                className={`peer h-7 w-7 cursor-pointer appearance-none rounded-lg border-2 transition-all shadow-sm
+                    ${errors.terms ? 'border-red-500 bg-red-50' : 'border-navy-900 bg-white hover:border-gold-500'}
                     checked:border-navy-900 checked:bg-navy-900`}
               />
               <div className="pointer-events-none absolute top-2/4 left-2/4 -translate-x-2/4 -translate-y-2/4 text-white opacity-0 transition-opacity peer-checked:opacity-100">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
               </div>
             </div>
-            <span className={`text-sm ${errors.terms ? 'text-red-600' : 'text-slate-700'}`}>
-              I have reviewed the terms of business and fully understand the no-win-no-fee agreement {" "}
+            <span className={`text-base leading-relaxed ${errors.terms ? 'text-red-600' : 'text-slate-700'}`}>
+              I have ticked the box to confirm, I have reviewed and accept the terms of business of this agreement{' '}
               <a
-                href={isFormFilled() ? "#terms" : "#"}
-                onClick={handleTermsClick}
-                className="text-navy-900 font-bold underline decoration-gold-500 hover:text-gold-600 transition-colors"
+                href="/terms%20and%20conditions.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-navy-900 font-bold underline decoration-2 decoration-gold-500 hover:text-gold-600 hover:decoration-gold-600 transition-colors"
               >
                 Terms and Conditions
               </a>
-              {showFillFormError && !isFormFilled() && (
-                <span className="block text-xs text-red-500 font-bold mt-1 animate-bounce">
-                  <i className="fas fa-exclamation-triangle mr-1"></i>
-                  Please fill form first
-                </span>
-              )}
+              {' & '}
+              <a
+                href="/Privacy%20Policy.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-navy-900 font-bold underline decoration-2 decoration-gold-500 hover:text-gold-600 hover:decoration-gold-600 transition-colors"
+              >
+                Privacy Policy
+              </a>
             </span>
           </label>
-          {errors.terms && <span className="text-xs text-red-500 mt-2 pl-10">Required: Please accept the terms to proceed.</span>}
+          {errors.terms && <span className="text-sm text-red-500 mt-3 pl-12 font-medium">Please accept the terms to proceed.</span>}
         </div>
       </div>
 

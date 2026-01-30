@@ -458,10 +458,21 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     }
 }
 
+// --- HELPER FUNCTION: GENERATE CLIENT ID (RR-YYMMDD-XXXX format) ---
+function generateClientId(contactId, createdAt) {
+    const date = createdAt ? new Date(createdAt) : new Date();
+    const yy = String(date.getFullYear()).slice(-2);
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const idPart = String(contactId).slice(-4).padStart(4, '0');
+    return `RR-${yy}${mm}${dd}-${idPart}`;
+}
+
 // --- HELPER FUNCTION: GENERATE COVER LETTER HTML ---
 async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
-    const { first_name, last_name } = contact;
+    const { first_name, last_name, id: contactId, created_at: createdAt } = contact;
     const fullName = `${first_name} ${last_name}`;
+    const clientId = generateClientId(contactId, createdAt);
 
     // Get today's date
     const today = new Date().toLocaleDateString('en-GB', {
@@ -608,7 +619,7 @@ async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
         </div>
 
         <div class="reference-block">
-            <strong>Our Reference:</strong> ${caseId}<br>
+            <strong>Our Reference:</strong> ${clientId}/${caseId}<br>
             <strong>Client Name:</strong> ${fullName}<br>
             <strong>Lender:</strong> ${lender}
         </div>
@@ -862,7 +873,7 @@ const processPendingLOAs = async () => {
             SELECT c.id as case_id, c.lender, c.created_at,
                    cnt.id as contact_id, cnt.first_name, cnt.last_name,
                    cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code,
-                   cnt.signature_2_url, cnt.dob,
+                   cnt.signature_2_url, cnt.dob, cnt.created_at as contact_created_at,
                    cnt.previous_addresses, cnt.previous_address_line_1, cnt.previous_address_line_2
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
@@ -920,7 +931,8 @@ const processPendingLOAs = async () => {
                     state_county: record.state_county,
                     postal_code: record.postal_code,
                     dob: record.dob,
-                    id: record.contact_id
+                    id: record.contact_id,
+                    created_at: record.contact_created_at
                 };
 
                 // Generate HTML

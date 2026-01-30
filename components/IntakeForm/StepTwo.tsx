@@ -100,19 +100,21 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
   return (
     <div className="fade-in max-w-2xl mx-auto">
       <div className="text-center mb-10">
-        <h2 className="text-3xl font-serif text-navy-900 mb-3">Welcome, {firstName} {lastName}.</h2>
-        <p className="text-slate-500">
-          AS PART OF OUR ONBOARDING AND TO REPRESENT YOU AS A CLIENT PLEASE UPLOAD ONE FORM OF IDENTIFICATION EITHER A &nbsp;
-          <span className="inline-flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-navy-900 rounded-full"></span>
-            <strong className="font-bold text-navy-900">Driving Licence</strong>
-
-            <span className="text-slate-400 mx-2">OR</span>
-
-            <span className="w-1.5 h-1.5 bg-navy-900 rounded-full"></span>
-            <strong className="font-bold text-navy-900">Passport</strong>
-          </span>
+        <h2 className="text-4xl md:text-5xl font-serif text-navy-900 mb-6 font-bold">Welcome, {firstName} {lastName}.</h2>
+        <p className="text-slate-500 text-sm uppercase tracking-wide mb-4">
+          AS PART OF OUR ONBOARDING AND TO REPRESENT YOU AS A CLIENT PLEASE UPLOAD ONE FORM OF IDENTIFICATION
         </p>
+        <div className="flex flex-col items-center gap-3 mt-4">
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 bg-navy-900 rounded-full"></span>
+            <span className="text-2xl font-bold text-navy-900">Passport</span>
+          </div>
+          <span className="text-slate-400 text-sm">or</span>
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 bg-navy-900 rounded-full"></span>
+            <span className="text-2xl font-bold text-navy-900">Driving Licence</span>
+          </div>
+        </div>
 
       </div>
 
@@ -234,8 +236,10 @@ const StepTwo: React.FC<StepTwoProps> = ({ clientId, folderName, firstName, last
         <button
           onClick={handleSubmit}
           disabled={!file || uploading}
-          className={`w-full py-4 bg-sky-400 text-white font-medium tracking-wide text-lg rounded-lg shadow-xl shadow-sky-400/20 transition-all hover:bg-sky-500 hover:shadow-2xl hover:-translate-y-1
-            ${(!file || uploading) ? 'opacity-50 cursor-not-allowed transform-none' : ''}`}
+          className={`w-full py-4 text-white font-medium tracking-wide text-lg rounded-lg transition-all
+            ${(!file || uploading)
+              ? 'bg-sky-300 opacity-50 cursor-not-allowed shadow-md'
+              : 'bg-blue-600 shadow-xl shadow-blue-600/30 hover:bg-blue-700 hover:shadow-2xl hover:-translate-y-1 ring-2 ring-blue-400 ring-offset-2'}`}
         >
           {uploading ? (
             <span className="flex items-center justify-center gap-2">
