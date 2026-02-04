@@ -1,0 +1,1952 @@
+[
+    {
+        "lender": "118 LOANS",
+        "email": "dpo@118118money.com",
+        "address": {
+            "company_name": "Madison CF UK Limited",
+            "first_line_address": "71-73 Carter Lane",
+            "town_city": "London",
+            "postcode": "EC4V 5EQ"
+        }
+    },
+    {
+        "lender": "118 MONEY",
+        "email": "dpo@118118money.com",
+        "address": {
+            "company_name": "Madison CF UK Limited",
+            "first_line_address": "71-73 Carter Lane",
+            "town_city": "London",
+            "postcode": "EC4V 5EQ"
+        }
+    },
+    {
+        "lender": "1PLUS 1 LOANS",
+        "email": "info@1plus1loans.co.uk",
+        "address": {
+            "company_name": "1Plus1 Guarantor Loans Ltd",
+            "first_line_address": "Oakwood House, 414-422 Hackney Road",
+            "town_city": "London",
+            "postcode": "E2 7SY"
+        }
+    },
+    {
+        "lender": "247 MONEYBOX",
+        "email": "support@moneyboxapp.com",
+        "address": {
+            "company_name": "Moneybox Savings Limited",
+            "first_line_address": "Churchill House, 120 Bunns Lane",
+            "town_city": "London",
+            "postcode": "NW7 2AS"
+        }
+    },
+    {
+        "lender": "ADMIRAL LOAN",
+        "email": "InformationRightsTeam@admiralgroup.co.uk",
+        "address": {
+            "company_name": "Admiral Financial Services Limited",
+            "first_line_address": "Tŷ Admiral, David Street",
+            "town_city": "Cardiff",
+            "postcode": "CF10 2EH"
+        }
+    },
+    {
+        "lender": "ADVANTAGE FINANCE",
+        "email": "legalservices@advantage-finance.co.uk",
+        "address": {
+            "company_name": "Advantage Finance Ltd",
+            "first_line_address": "The Marquis Centre, 4 Gannel Road, Newquay",
+            "town_city": "Cornwall",
+            "postcode": "TR7 1SP"
+        }
+    },
+    {
+        "lender": "AMBROSE WILSON",
+        "email": "informationrequest@nbrown.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "AMERICAN EXPRESS",
+        "email": "amexukdpo@aexp.com",
+        "address": {
+            "company_name": "American Express Services Europe Limited",
+            "first_line_address": "1 John Street",
+            "town_city": "Brighton",
+            "postcode": "BN88 1NH"
+        }
+    },
+    {
+        "lender": "AMIGO LOANS",
+        "email": "hello@amigo.me",
+        "address": {
+            "company_name": "Amigo Loans Ltd",
+            "first_line_address": "C/O Grant Thornton UK Advisory & Tax LLP, 11th Floor, Landmark St Peters Square, 1 Oxford Street",
+            "town_city": "Manchester",
+            "postcode": "M1 4PB"
+        }
+    },
+    {
+        "lender": "ANICO FINANCE",
+        "email": "info@anicofinancialservices.com ",
+        "address": {
+            "company_name": "Anico Finance Limited",
+            "first_line_address": "Unit 4 Celtic Trade Park, Bruce Road",
+            "town_city": "Swansea",
+            "postcode": "SA1 8JB"
+        }
+    },
+    {
+        "lender": "AQUA",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "ARGOS",
+        "email": NaN,
+        "address": {
+            "company_name": "Home Retail Group Card Services Limited",
+            "first_line_address": "489-499 Avebury Boulevard",
+            "town_city": "Milton Keynes",
+            "postcode": "MK9 2NW"
+        }
+    },
+    {
+        "lender": "ASDA",
+        "email": "contactus@asdaloans.com",
+        "address": {
+            "company_name": "Asda Financial Services Ltd",
+            "first_line_address": "Great Wilson Street",
+            "town_city": "Leeds",
+            "postcode": "LS11 5AD"
+        }
+    },
+    {
+        "lender": "AUDI / VOLKSWAGEN FINANCE / SKODA",
+        "email": "subjectaccessrequests@vwfs.co.uk",
+        "address": {
+            "company_name": "Volkswagen Financial Services (UK) Limited",
+            "first_line_address": "Brunswick Court, Yeomans Drive",
+            "town_city": "Milton Keynes",
+            "postcode": "MK14 5LR"
+        }
+    },
+    {
+        "lender": "AVANT",
+        "email": "support@avantcredit.co.uk",
+        "address": {
+            "company_name": "AvantCredit of UK, LLC",
+            "first_line_address": "Two Embarcadero Center, Suite 1200",
+            "town_city": "San Francisco",
+            "postcode": "CA 94111"
+        }
+    },
+    {
+        "lender": "BAMBOO LOANS",
+        "email": "complaints@bambooloans.com",
+        "address": {
+            "company_name": "Bamboo Limited",
+            "first_line_address": "4th Floor, Peat House, 1 Waterloo Way",
+            "town_city": "Leicester",
+            "postcode": "LE1 6LP"
+        }
+    },
+    {
+        "lender": "BANK OF SCOTLAND",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Bank of Scotland plc",
+            "first_line_address": "The Mound",
+            "town_city": "Edinburgh",
+            "postcode": "EH1 1YZ"
+        }
+    },
+    {
+        "lender": "BARCLAYS / MONUMENT",
+        "email": "wandim.execcomplaints@barclays.com",
+        "address": {
+            "company_name": "Barclays Bank UK PLC",
+            "first_line_address": "1 Churchill Place",
+            "town_city": "London",
+            "postcode": "E14 5HP"
+        }
+    },
+    {
+        "lender": "BARCLAYS CREDIT CARD",
+        "email": "wandim.execcomplaints@barclays.com",
+        "address": {
+            "company_name": "Barclays Bank UK PLC",
+            "first_line_address": "1 Churchill Place",
+            "town_city": "London",
+            "postcode": "E14 5HP"
+        }
+    },
+    {
+        "lender": "BARCLAYS OVERDRAFT",
+        "email": "wandim.execcomplaints@barclays.com",
+        "address": {
+            "company_name": "Barclays Bank UK PLC",
+            "first_line_address": "1 Churchill Place",
+            "town_city": "London",
+            "postcode": "E14 5HP"
+        }
+    },
+    {
+        "lender": "BETTER BORROW",
+        "email": "contact@loans.betterborrow.co.uk",
+        "address": {
+            "company_name": "Better Borrow Ltd",
+            "first_line_address": "53 Fountain Street",
+            "town_city": "Manchester",
+            "postcode": "M2 2AN"
+        }
+    },
+    {
+        "lender": "BIP CREDIT CARD",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "BLACKHORSE",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Black Horse Limited",
+            "first_line_address": "25 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7HN"
+        }
+    },
+    {
+        "lender": "BLUE MOTOR FINANCE",
+        "email": "dsar@bluemotorfinance.co.uk",
+        "address": {
+            "company_name": "Blue Motor Finance Ltd",
+            "first_line_address": "5th Floor, Cannon Place, 78 Cannon Street",
+            "town_city": "London",
+            "postcode": "EC4N 6AF"
+        }
+    },
+    {
+        "lender": "BMW / MINI / ALPHERA FINANCE",
+        "email": "info.sar@bmwfin.com",
+        "address": {
+            "company_name": "BMW Financial Services (GB) Limited",
+            "first_line_address": "Summit ONE, Summit Avenue, Farnborough",
+            "town_city": "Hampshire",
+            "postcode": "GU14 0FB"
+        }
+    },
+    {
+        "lender": "BRIGHTHOUSE",
+        "email": NaN,
+        "address": {
+            "company_name": "Caversham Finance Limited (trading as BrightHouse)",
+            "first_line_address": "5 Hercules Way, Leavesden Park",
+            "town_city": "Watford",
+            "postcode": "WD25 7GS"
+        }
+    },
+    {
+        "lender": "CABOT",
+        "email": "SAR@cabotfinancial.com",
+        "address": {
+            "company_name": "Cabot Credit Management Group Limited",
+            "first_line_address": "Kings Hill Avenue",
+            "town_city": "West Malling",
+            "postcode": "ME19 4JQ"
+        }
+    },
+    {
+        "lender": "CAPITAL ONE",
+        "email": "dsarrequests@capitalone.com",
+        "address": {
+            "company_name": "Capital One (Europe) plc",
+            "first_line_address": "Trent House, Station Street",
+            "town_city": "Nottingham",
+            "postcode": "NG2 3HX"
+        }
+    },
+    {
+        "lender": "CAPQUEST/ ARROW",
+        "email": "DPO@capquest.co.uk",
+        "address": {
+            "company_name": "Arrow Global Group PLC",
+            "first_line_address": "Belvedere, 12 Booth Street",
+            "town_city": "Manchester",
+            "postcode": "M2 4AW"
+        }
+    },
+    {
+        "lender": "CAR CASH POINT",
+        "email": NaN,
+        "address": {
+            "company_name": "Car Cash Point Limited",
+            "first_line_address": "Unit 1B, 6 Wadsworth Road",
+            "town_city": "Perivale",
+            "postcode": "UB6 7JD"
+        }
+    },
+    {
+        "lender": "CASH 4 U NOW",
+        "email": NaN,
+        "address": {
+            "company_name": "Cash4Unow Ltd",
+            "first_line_address": "Unit 6 Axis Business Centre, 10 Commerce Way",
+            "town_city": "Croydon",
+            "postcode": "CR0 4XA"
+        }
+    },
+    {
+        "lender": "CASH ASAP",
+        "email": "info@cashasap.co.uk",
+        "address": {
+            "company_name": "Cashasap.co.uk Ltd",
+            "first_line_address": "3rd Floor, 86-90 Paul Street",
+            "town_city": "London",
+            "postcode": "EC2A 4NE"
+        }
+    },
+    {
+        "lender": "CASH CONVERTERS",
+        "email": "compliance.uk@cashconverters.com",
+        "address": {
+            "company_name": "Cash Converters (UK) Limited",
+            "first_line_address": "1 Valentine Place",
+            "town_city": "London",
+            "postcode": "SE1 8QH"
+        }
+    },
+    {
+        "lender": "CASH FLOAT",
+        "email": "dataprotection@westerncircle.co.uk",
+        "address": {
+            "company_name": "Western Circle Limited",
+            "first_line_address": "2 Brewery Wharf, Mowbray Street",
+            "town_city": "Sheffield",
+            "postcode": "S3 8EL"
+        }
+    },
+    {
+        "lender": "CASH PLUS",
+        "email": "complaints@cashplus.com",
+        "address": {
+            "company_name": "Advanced Payment Solutions Limited",
+            "first_line_address": "3 New Concordia Wharf, Mill Street",
+            "town_city": "London",
+            "postcode": "SE1 2BB"
+        }
+    },
+    {
+        "lender": "CASHFLOAT",
+        "email": "client-service@cashfloat.co.uk",
+        "address": {
+            "company_name": "Western Circle Limited",
+            "first_line_address": "2 Brewery Wharf, Mowbray Street",
+            "town_city": "Sheffield",
+            "postcode": "S3 8EL"
+        }
+    },
+    {
+        "lender": "CASTLE COMMUNITY BANK",
+        "email": "info@castlecommunitybank.co.uk",
+        "address": {
+            "company_name": "Castle & Crystal Credit Union Limited",
+            "first_line_address": "14 Chapel Gate, St Pauls Square",
+            "town_city": "Birmingham",
+            "postcode": "B3 1NY"
+        }
+    },
+    {
+        "lender": "CITI BANK",
+        "email": "Dataprotectionofficer@citi.com",
+        "address": {
+            "company_name": "Citibank UK Limited",
+            "first_line_address": "Citigroup Centre, Canada Square",
+            "town_city": "London",
+            "postcode": "E14 5LB"
+        }
+    },
+    {
+        "lender": "CLC FINANCE",
+        "email": "complaints@clcfinance.com",
+        "address": {
+            "company_name": "CLC Finance Limited",
+            "first_line_address": "CLC House, Hadleigh Road Business Centre, Hadleigh Road",
+            "town_city": "Ipswich",
+            "postcode": "IP2 0HQ"
+        }
+    },
+    {
+        "lender": "CLOSE BROTHERS",
+        "email": "cbmfdsarrequests@closebrothers.com",
+        "address": {
+            "company_name": "Close Brothers Limited",
+            "first_line_address": "10 Crown Place",
+            "town_city": "London",
+            "postcode": "EC2A 4FT"
+        }
+    },
+    {
+        "lender": "CO-OP BANK OVERDRAFT",
+        "email": NaN,
+        "address": {
+            "company_name": "The Co-operative Bank p.l.c.",
+            "first_line_address": "1 Balloon Street",
+            "town_city": "Manchester",
+            "postcode": "M60 4EP"
+        }
+    },
+    {
+        "lender": "CO-OPERATIVE BANK",
+        "email": "sars.lite@co-operativebank.co.uk",
+        "address": {
+            "company_name": "The Co-operative Bank p.l.c.",
+            "first_line_address": "1 Balloon Street",
+            "town_city": "Manchester",
+            "postcode": "M60 4EP"
+        }
+    },
+    {
+        "lender": "CONSOLADATION LOAN",
+        "email": NaN,
+        "address": {
+            "company_name": "Various Lenders",
+            "first_line_address": NaN,
+            "town_city": NaN,
+            "postcode": NaN
+        }
+    },
+    {
+        "lender": "CREATION FINANCE",
+        "email": "DSARRequests@Creation.co.uk",
+        "address": {
+            "company_name": "Creation Financial Services Limited",
+            "first_line_address": "Chadwick House, Blenheim Court, Solihull",
+            "town_city": "West Midlands",
+            "postcode": "B91 2AA"
+        }
+    },
+    {
+        "lender": "CREDIT SPRING",
+        "email": "info@creditspring.co.uk",
+        "address": {
+            "company_name": "Creditspring Limited",
+            "first_line_address": "7-10 Chandos Street",
+            "town_city": "London",
+            "postcode": "W1G 9DQ"
+        }
+    },
+    {
+        "lender": "DANSKE BANK",
+        "email": "yourprivacyrights@danskebank.co.uk",
+        "address": {
+            "company_name": "Danske Bank",
+            "first_line_address": "Donegall Square West",
+            "town_city": "Belfast",
+            "postcode": "BT1 6JS"
+        }
+    },
+    {
+        "lender": "DEBENHAMS",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "DOROTHY PERKINS",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "DOT DOT LOANS",
+        "email": "Customerservices@dotdotloans.co.uk",
+        "address": {
+            "company_name": "Morses Club PLC",
+            "first_line_address": "C/O Interpath Ltd, 10 Fleet Place",
+            "town_city": "London",
+            "postcode": "EC4M 7RB"
+        }
+    },
+    {
+        "lender": "DRAFTY",
+        "email": "customercare@drafty.co.uk",
+        "address": {
+            "company_name": "Drafty Limited",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "EQUIFAX",
+        "email": "UKDPO@equifax.com",
+        "address": {
+            "company_name": "Equifax Limited",
+            "first_line_address": "Capital House, 25 Chapel Street",
+            "town_city": "London",
+            "postcode": "NW1 5DS"
+        }
+    },
+    {
+        "lender": "EVANS CATALOGUE",
+        "email": "sales@evansvanodine.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "EVERDAY LENDING",
+        "email": "dpo@evlo.co.uk",
+        "address": {
+            "company_name": "Everyday Lending Limited",
+            "first_line_address": "Suite 3, 1st Floor Aquasulis House, 10-14 Bath Road",
+            "town_city": "Slough",
+            "postcode": "SL1 3SQ"
+        }
+    },
+    {
+        "lender": "EVERY DAY",
+        "email": "dpo@everyday-loans.co.uk",
+        "address": {
+            "company_name": "Everyday Loans Limited",
+            "first_line_address": "Suite 3, 1st Floor Aquasulis House, 10-14 Bath Road",
+            "town_city": "Slough",
+            "postcode": "SL1 3SQ"
+        }
+    },
+    {
+        "lender": "EVOLUTION FUNDING'",
+        "email": "complaints@evolutionfunding.com",
+        "address": {
+            "company_name": "Evolution Funding Limited",
+            "first_line_address": "7 Pride Point Drive, Pride Park",
+            "town_city": "Derby",
+            "postcode": "DE24 8BX"
+        }
+    },
+    {
+        "lender": "EVOLUTION LENDING",
+        "email": "complaints@evolutionmoney.co.uk",
+        "address": {
+            "company_name": "Evolution Money Limited",
+            "first_line_address": "1-3 Strand, Trafalgar Square",
+            "town_city": "London",
+            "postcode": "WC2N 5EH"
+        }
+    },
+    {
+        "lender": "EXPERIAN",
+        "email": "customerservices@uk.experian.com",
+        "address": {
+            "company_name": "Experian Limited",
+            "first_line_address": "The Sir John Peace Building, Experian Way",
+            "town_city": "Nottingham",
+            "postcode": "NG2 1EP"
+        }
+    },
+    {
+        "lender": "FAIR FINANCE",
+        "email": "collections@fairfinance.org.uk",
+        "address": {
+            "company_name": "Fair Finance Ltd",
+            "first_line_address": "19-21 Eastern Road",
+            "town_city": "London",
+            "postcode": "E2 9LY"
+        }
+    },
+    {
+        "lender": "FASHION WORLD",
+        "email": "informationrequest@nbrown.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "FERNOVO",
+        "email": "Customercare@fernovo.co.uk",
+        "address": {
+            "company_name": "Fernovo Limited",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "FINIO LOANS",
+        "email": "privacy@finioloans.com",
+        "address": {
+            "company_name": "Finio Loans Limited",
+            "first_line_address": "1 Triton Square, Regent's Place",
+            "town_city": "London",
+            "postcode": "NW1 3BF"
+        }
+    },
+    {
+        "lender": "FINIO/LIKELY LOANS",
+        "email": "privacy@finioloans.com",
+        "address": {
+            "company_name": "Finio Loans Limited",
+            "first_line_address": "1 Triton Square, Regent's Place",
+            "town_city": "London",
+            "postcode": "NW1 3BF"
+        }
+    },
+    {
+        "lender": "FINTERN/ABOUND",
+        "email": "contact@getabound.com",
+        "address": {
+            "company_name": "Abound Limited (formerly Fintern)",
+            "first_line_address": "16 Berkeley Street",
+            "town_city": "London",
+            "postcode": "W1J 8DZ"
+        }
+    },
+    {
+        "lender": "FLUID",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "FLURO",
+        "email": NaN,
+        "address": {
+            "company_name": "Fluro Ltd",
+            "first_line_address": "8 Devonshire Square",
+            "town_city": "London",
+            "postcode": "EC2M 4PL"
+        }
+    },
+    {
+        "lender": "FREEMANS CATALOUGE",
+        "email": "dataprotection@freemans.com",
+        "address": {
+            "company_name": "Freemans PLC",
+            "first_line_address": "139 Clapham Road",
+            "town_city": "London",
+            "postcode": "SW9 0HR"
+        }
+    },
+    {
+        "lender": "FUND OURSELVES",
+        "email": "Hello@fundourselves.com",
+        "address": {
+            "company_name": "Fund Ourselves Ltd",
+            "first_line_address": "The Foundry, 17 Oval Way",
+            "town_city": "London",
+            "postcode": "SE11 5RR"
+        }
+    },
+    {
+        "lender": "G.L.M. FINANCE",
+        "email": "info@glmfinance.co.uk",
+        "address": {
+            "company_name": "GLM Finance Ltd",
+            "first_line_address": "19 Queen Street, South Shields",
+            "town_city": "Tyne and Wear",
+            "postcode": "NE33 1EY"
+        }
+    },
+    {
+        "lender": "GE CAPITAL",
+        "email": "EFSRegulatoryandCompliance@ge.com",
+        "address": {
+            "company_name": "GE Capital Bank Limited",
+            "first_line_address": "12 Appold Street",
+            "town_city": "London",
+            "postcode": "EC2A 2AP"
+        }
+    },
+    {
+        "lender": "GEORGE BANCO",
+        "email": "customerservices@georgebanco.com",
+        "address": {
+            "company_name": "George Banco Limited",
+            "first_line_address": "Nova Building, 118-128 Commercial Road",
+            "town_city": "Bournemouth",
+            "postcode": "BH2 5LT"
+        }
+    },
+    {
+        "lender": "GLASGOW CREDIT UNION",
+        "email": "Team@glasgowcu.com",
+        "address": {
+            "company_name": "Glasgow Credit Union Limited",
+            "first_line_address": "95 Morrison Street",
+            "town_city": "Glasgow",
+            "postcode": "G5 8LN"
+        }
+    },
+    {
+        "lender": "GRATTAN",
+        "email": "dataprotection@freemans.com",
+        "address": {
+            "company_name": "Freemans PLC",
+            "first_line_address": "139 Clapham Road",
+            "town_city": "London",
+            "postcode": "SW9 0HR"
+        }
+    },
+    {
+        "lender": "GUARANTOR MY LOAN",
+        "email": NaN,
+        "address": {
+            "company_name": "Guarantor My Loan Ltd",
+            "first_line_address": "Rosedale House, Rosedale Road",
+            "town_city": "Richmond",
+            "postcode": "TW9 2SZ"
+        }
+    },
+    {
+        "lender": "GURRANTOR MY LOAN",
+        "email": "DPA@guarantormyloan.co.uk",
+        "address": {
+            "company_name": "Guarantor My Loan Ltd",
+            "first_line_address": "Rosedale House, Rosedale Road",
+            "town_city": "Richmond",
+            "postcode": "TW9 2SZ"
+        }
+    },
+    {
+        "lender": "H&T PAWNBROKERS",
+        "email": "complaints@handt.co.uk",
+        "address": {
+            "company_name": "H&T Group PLC",
+            "first_line_address": "Times Square, Sutton",
+            "town_city": "Surrey",
+            "postcode": "SM1 1LF"
+        }
+    },
+    {
+        "lender": "HALIFAX",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Halifax",
+            "first_line_address": "Trinity Road",
+            "town_city": "Halifax",
+            "postcode": "HX1 2RG"
+        }
+    },
+    {
+        "lender": "HERO LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "Hero Finance Limited",
+            "first_line_address": "26 Red Lion Square",
+            "town_city": "London",
+            "postcode": "WC1R 4AG"
+        }
+    },
+    {
+        "lender": "HSBC",
+        "email": "gdpr.rightsuk@hsbc.com",
+        "address": {
+            "company_name": "HSBC UK Bank plc",
+            "first_line_address": "1 Centenary Square",
+            "town_city": "Birmingham",
+            "postcode": "B1 1HQ"
+        }
+    },
+    {
+        "lender": "HSBC BANK",
+        "email": "jackie.uhi@hsbc.com",
+        "address": {
+            "company_name": "HSBC UK Bank plc",
+            "first_line_address": "1 Centenary Square",
+            "town_city": "Birmingham",
+            "postcode": "B1 1HQ"
+        }
+    },
+    {
+        "lender": "ICO",
+        "email": "ICOcasework@ICO.org.uk",
+        "address": {
+            "company_name": "Information Commissioner's Office",
+            "first_line_address": "Wycliffe House, Water Lane",
+            "town_city": "Wilmslow",
+            "postcode": "SK9 5AF"
+        }
+    },
+    {
+        "lender": "INTRUM",
+        "email": "enq.uk@intrum.co.uk",
+        "address": {
+            "company_name": "Intrum UK Limited",
+            "first_line_address": "The Omnibus Building, Lesbourne Road",
+            "town_city": "Reigate",
+            "postcode": "RH2 7JP"
+        }
+    },
+    {
+        "lender": "JD WILLIAMS / SIMPLY BE / JACAMO",
+        "email": "informationrequest@nbrown.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "JUO LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "Juo Loans Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "KAYS",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "KLARNA",
+        "email": "privacy@klarna.co.uk",
+        "address": {
+            "company_name": "Klarna Bank AB (UK Branch)",
+            "first_line_address": "One New Change",
+            "town_city": "London",
+            "postcode": "EC4M 9AF"
+        }
+    },
+    {
+        "lender": "KOYO LOANS",
+        "email": "Info@koyoloans.com / Bankrupt",
+        "address": {
+            "company_name": "Koyo Loans Ltd",
+            "first_line_address": "30 City Road",
+            "town_city": "London",
+            "postcode": "EC1Y 2AB"
+        }
+    },
+    {
+        "lender": "LANTERN",
+        "email": "data.protection@lanternuk.com",
+        "address": {
+            "company_name": "Lantern Debt Recovery Services Limited",
+            "first_line_address": "Buchanan Court, Main Street, Cumbernauld",
+            "town_city": "Glasgow",
+            "postcode": "G68 9HN"
+        }
+    },
+    {
+        "lender": "LENDABLE",
+        "email": "contact@lendable.co.uk",
+        "address": {
+            "company_name": "Lendable Ltd",
+            "first_line_address": "9 Kingsway",
+            "town_city": "London",
+            "postcode": "WC2B 6XF"
+        }
+    },
+    {
+        "lender": "LENDING STREAM",
+        "email": "send via post",
+        "address": {
+            "company_name": "Gain Credit LLC",
+            "first_line_address": "175 N. Patrick Blvd, Suite 120",
+            "town_city": "Brookfield",
+            "postcode": "WI 53045 USA"
+        }
+    },
+    {
+        "lender": "LENDING WORKS",
+        "email": "cs@lendingworks.co.uk",
+        "address": {
+            "company_name": "Lending Works Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "LIFE STYLE LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "Life Style Loans Limited",
+            "first_line_address": "125 London Road",
+            "town_city": "High Wycombe",
+            "postcode": "HP11 1BU"
+        }
+    },
+    {
+        "lender": "LINK FINANCIAL",
+        "email": "sip@linkfinancial.co.uk",
+        "address": {
+            "company_name": "Link Financial Outsourcing Limited",
+            "first_line_address": "St Georges House, 2nd Floor, 50 Poland Street",
+            "town_city": "London",
+            "postcode": "W1F 7NH"
+        }
+    },
+    {
+        "lender": "LITTLE LOANS",
+        "email": "Alex@comparitec.com",
+        "address": {
+            "company_name": "Little Loans Ltd",
+            "first_line_address": "4 Matthew Parker Street",
+            "town_city": "London",
+            "postcode": "SW1H 9NP"
+        }
+    },
+    {
+        "lender": "LITTLEWOODS / GREAT UNIVERSAL",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "LIVE LEND",
+        "email": NaN,
+        "address": {
+            "company_name": "Live Lend Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "LLOYDS BANK / BANK OF SCOTLAND / MBNA",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Lloyds Bank plc",
+            "first_line_address": "25 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7HN"
+        }
+    },
+    {
+        "lender": "LLOYDS OVERDRAFT",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Lloyds Bank plc",
+            "first_line_address": "25 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7HN"
+        }
+    },
+    {
+        "lender": "LOAN4YOU / NA",
+        "email": "info@loan4you.uk",
+        "address": {
+            "company_name": "Loan4You Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "LOANS 2 GO",
+        "email": "Ps@loans2go.co.uk",
+        "address": {
+            "company_name": "Loans 2 Go Limited",
+            "first_line_address": "Bridge Studios, 34a Deodar Road, Putney",
+            "town_city": "London",
+            "postcode": "SW15 2NN"
+        }
+    },
+    {
+        "lender": "LOANS AT HOME",
+        "email": "Loans.at.Home@uk.gt.com",
+        "address": {
+            "company_name": "S.D. Taylor Limited (trading as Loans at Home)",
+            "first_line_address": "3 Peel Court, St Cuthbert's Way",
+            "town_city": "Darlington",
+            "postcode": "DL1 1GB"
+        }
+    },
+    {
+        "lender": "LOANS BY MAL",
+        "email": "dpo@loansbymal.co.uk",
+        "address": {
+            "company_name": "Loans By Mal Ltd",
+            "first_line_address": "Brookfield Court, Selby Road",
+            "town_city": "Leeds",
+            "postcode": "LS25 1NB"
+        }
+    },
+    {
+        "lender": "LOGBOOK LENDING",
+        "email": "info@lbl247.co.uk",
+        "address": {
+            "company_name": "Logbook Lending Ltd",
+            "first_line_address": "Unit 6, Axis Business Centre, 10 Commerce Way",
+            "town_city": "Croydon",
+            "postcode": "CR0 4XA"
+        }
+    },
+    {
+        "lender": "LOGBOOK MONEY",
+        "email": " admin@logbookmoney.com ",
+        "address": {
+            "company_name": "Logbook Money Ltd",
+            "first_line_address": "Unit 6, Axis Business Centre, 10 Commerce Way",
+            "town_city": "Croydon",
+            "postcode": "CR0 4XA"
+        }
+    },
+    {
+        "lender": "LOWELL",
+        "email": "dpo@lowellgroup.co.uk",
+        "address": {
+            "company_name": "Lowell Financial Ltd",
+            "first_line_address": "PO Box 431, Thorpe Park",
+            "town_city": "Leeds",
+            "postcode": "LS15 8GB"
+        }
+    },
+    {
+        "lender": "LUMA",
+        "email": "dsarrequests@capitalone.com",
+        "address": {
+            "company_name": "Capital One (Europe) plc",
+            "first_line_address": "Trent House, Station Street",
+            "town_city": "Nottingham",
+            "postcode": "NG2 3HX"
+        }
+    },
+    {
+        "lender": "MARKS & SPENCERS",
+        "email": "customer.dpo@customersupport.marksandspencer.com",
+        "address": {
+            "company_name": "Marks and Spencer Financial Services plc",
+            "first_line_address": "Kings Meadow",
+            "town_city": "Chester",
+            "postcode": "CH99 9FB"
+        }
+    },
+    {
+        "lender": "MBNA",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "MBNA Limited",
+            "first_line_address": "Cawley House, Chester Business Park",
+            "town_city": "Chester",
+            "postcode": "CH4 9FB"
+        }
+    },
+    {
+        "lender": "METRO BANK/RATE SETTER",
+        "email": "DataProtectionOfficer@metrobank.plc.uk",
+        "address": {
+            "company_name": "Metro Bank PLC",
+            "first_line_address": "One Southampton Row",
+            "town_city": "London",
+            "postcode": "WC1B 5HA"
+        }
+    },
+    {
+        "lender": "MONEY BARN",
+        "email": "datarightsteam@moneybarn.com",
+        "address": {
+            "company_name": "Moneybarn No. 1 Limited",
+            "first_line_address": "Pegasus House, Kingsway",
+            "town_city": "Cardiff",
+            "postcode": "CF10 3AZ"
+        }
+    },
+    {
+        "lender": "MONEY BOAT",
+        "email": "complaints@moneyboat.co.uk",
+        "address": {
+            "company_name": "Evergreen Finance London Limited",
+            "first_line_address": "20-22 Wenlock Road",
+            "town_city": "London",
+            "postcode": "N1 7GU"
+        }
+    },
+    {
+        "lender": "MONEY LINE",
+        "email": "ServiceTeam@moneyline-uk.com",
+        "address": {
+            "company_name": "Moneyline UK Limited",
+            "first_line_address": "Unit 8, Vulcan Business Park, Rainford Ind Estate",
+            "town_city": "St Helens",
+            "postcode": "WA11 8HT"
+        }
+    },
+    {
+        "lender": "MONEY SHOP",
+        "email": "customerservice@themoneyshop.com",
+        "address": {
+            "company_name": "Money Shop Ltd",
+            "first_line_address": "9th Floor, The Bailey, Skipton",
+            "town_city": "North Yorkshire",
+            "postcode": "BD23 1DN"
+        }
+    },
+    {
+        "lender": "MONEY WAY",
+        "email": "DSARRequests@securetrustbank.co.uk",
+        "address": {
+            "company_name": "Moneyway Ltd",
+            "first_line_address": "Greenhill House, Thorpe Road",
+            "town_city": "Peterborough",
+            "postcode": "PE3 6RU"
+        }
+    },
+    {
+        "lender": "MONTHLY ADVANCE LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "Monthly Advance Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "MONZO",
+        "email": "dsars@monzo.com",
+        "address": {
+            "company_name": "Monzo Bank Limited",
+            "first_line_address": "Broadwalk House, 5 Appold Street",
+            "town_city": "London",
+            "postcode": "EC2A 2AG"
+        }
+    },
+    {
+        "lender": "MORSES CLUB",
+        "email": "DPO@MorsesClub.com",
+        "address": {
+            "company_name": "Morses Club Limited",
+            "first_line_address": "C/O Interpath Ltd, 10 Fleet Place",
+            "town_city": "London",
+            "postcode": "EC4M 7RB"
+        }
+    },
+    {
+        "lender": "MOTONOVO",
+        "email": "dsar@motonovofinance.com",
+        "address": {
+            "company_name": "MotoNovo Finance Limited",
+            "first_line_address": "Pegasus House, Kingsway",
+            "town_city": "Cardiff",
+            "postcode": "CF10 3AZ"
+        }
+    },
+    {
+        "lender": "MR LENDER",
+        "email": "customerservices@mrlender.co.uk",
+        "address": {
+            "company_name": "PDL Finance Limited",
+            "first_line_address": "Finsbury Dials, 20 Finsbury Street",
+            "town_city": "London",
+            "postcode": "EC2Y 9AQ"
+        }
+    },
+    {
+        "lender": "MUIRHEAD FINANCE",
+        "email": "info@muirheadfinance.co.uk",
+        "address": {
+            "company_name": "Muirhead Finance Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "MUTUAL FINANCE",
+        "email": "enquiry@mutual.uk.com",
+        "address": {
+            "company_name": "Mutual Finance Ltd",
+            "first_line_address": "Mutual House, Albion Street",
+            "town_city": "Brierley Hill",
+            "postcode": "DY5 3EE"
+        }
+    },
+    {
+        "lender": "MY COMMUNITY BANK",
+        "email": NaN,
+        "address": {
+            "company_name": "My Community Bank Ltd",
+            "first_line_address": "57-63 Scrutton Street",
+            "town_city": "London",
+            "postcode": "EC2A 4PF"
+        }
+    },
+    {
+        "lender": "MY COMMUNITY FINANCE",
+        "email": NaN,
+        "address": {
+            "company_name": "My Community Finance Ltd",
+            "first_line_address": "57-63 Scrutton Street",
+            "town_city": "London",
+            "postcode": "EC2A 4PF"
+        }
+    },
+    {
+        "lender": "MY FINANCE CLUB",
+        "email": "support@myfinanceclub.com",
+        "address": {
+            "company_name": "My Finance Club Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "MY KREDIT",
+        "email": NaN,
+        "address": {
+            "company_name": "My Kredit Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "NATIONWIDE",
+        "email": NaN,
+        "address": {
+            "company_name": "Nationwide Building Society",
+            "first_line_address": "Nationwide House, Pipers Way",
+            "town_city": "Swindon",
+            "postcode": "SN38 1NW"
+        }
+    },
+    {
+        "lender": "NATWEST / RBS OVERDRAFT",
+        "email": NaN,
+        "address": {
+            "company_name": "National Westminster Bank Plc",
+            "first_line_address": "250 Bishopsgate",
+            "town_city": "London",
+            "postcode": "EC2M 4AA"
+        }
+    },
+    {
+        "lender": "NATWEST BANK / ROYAL BANK OF SCOTLAND",
+        "email": NaN,
+        "address": {
+            "company_name": "National Westminster Bank Plc",
+            "first_line_address": "250 Bishopsgate",
+            "town_city": "London",
+            "postcode": "EC2M 4AA"
+        }
+    },
+    {
+        "lender": "NAYLORS FINANCE",
+        "email": "Admin@jrnaylors.com",
+        "address": {
+            "company_name": "J R Naylors Limited",
+            "first_line_address": "Naylors House, Lancaster Road",
+            "town_city": "Carnforth",
+            "postcode": "LA5 9LG"
+        }
+    },
+    {
+        "lender": "NEWDAY / OPUS / MARBLES / FLUID / BURTONS",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "NEXT",
+        "email": "dsaradmin@next.co.uk",
+        "address": {
+            "company_name": "Next Retail Ltd",
+            "first_line_address": "Desford Road",
+            "town_city": "Enderby",
+            "postcode": "LE19 4AT"
+        }
+    },
+    {
+        "lender": "NORWICH TRUST",
+        "email": NaN,
+        "address": {
+            "company_name": "Norwich Trust Ltd",
+            "first_line_address": "Norwich House, Savile Street East",
+            "town_city": "Sheffield",
+            "postcode": "S4 7UQ"
+        }
+    },
+    {
+        "lender": "NOVUNA",
+        "email": "dataprotection@novuna.co.uk",
+        "address": {
+            "company_name": "Novuna Personal Finance (trading name of Mitsubishi HC Capital UK PLC)",
+            "first_line_address": "Novuna House, Thorpe Road",
+            "town_city": "Staines-upon-Thames",
+            "postcode": "TW18 3HP"
+        }
+    },
+    {
+        "lender": "OCEAN FINANCE",
+        "email": "dsarrequests@capitalone.com",
+        "address": {
+            "company_name": "Ocean Finance and Mortgages Ltd",
+            "first_line_address": "2 Harbour Exchange Square",
+            "town_city": "London",
+            "postcode": "E14 9GE"
+        }
+    },
+    {
+        "lender": "ONDAL",
+        "email": "complaints@ondal.co.uk",
+        "address": {
+            "company_name": "Ondal Group Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "ONE PLUS ONE LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "1Plus1 Guarantor Loans Ltd",
+            "first_line_address": "Oakwood House, 414-422 Hackney Road",
+            "town_city": "London",
+            "postcode": "E2 7SY"
+        }
+    },
+    {
+        "lender": "ONMO",
+        "email": "privacy@onmo.app",
+        "address": {
+            "company_name": "Onmo Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "OODLE",
+        "email": NaN,
+        "address": {
+            "company_name": "Oodle Finance Limited",
+            "first_line_address": "2nd Floor, Manfield House, 1 Southampton Street",
+            "town_city": "London",
+            "postcode": "WC2R 0LR"
+        }
+    },
+    {
+        "lender": "OPLO",
+        "email": "dpo@tandem.co.uk",
+        "address": {
+            "company_name": "Oplo PL Ltd (now Tandem Money Ltd)",
+            "first_line_address": "30 Fenchurch Street",
+            "town_city": "London",
+            "postcode": "EC3M 3BD"
+        }
+    },
+    {
+        "lender": "OPOLO",
+        "email": "dpo@tandem.co.uk",
+        "address": {
+            "company_name": "Oplo PL Ltd",
+            "first_line_address": "30 Fenchurch Street",
+            "town_city": "London",
+            "postcode": "EC3M 3BD"
+        }
+    },
+    {
+        "lender": "PAYDAY UK",
+        "email": "customerservice@paydayuk.co.uk",
+        "address": {
+            "company_name": "Payday UK Ltd",
+            "first_line_address": "Belvedere, 12 Booth Street",
+            "town_city": "Manchester",
+            "postcode": "M2 4AW"
+        }
+    },
+    {
+        "lender": "PAYPAL",
+        "email": "enquiry@paypal.co.uk",
+        "address": {
+            "company_name": "PayPal (Europe) S.à r.l. et Cie, S.C.A.",
+            "first_line_address": "22-24 Boulevard Royal",
+            "town_city": "Luxembourg",
+            "postcode": "L-2449"
+        }
+    },
+    {
+        "lender": "PEACHY LOANS",
+        "email": "customerservice@maxedupmedia.com",
+        "address": {
+            "company_name": "Peachy (trading name of Cash On Go Ltd)",
+            "first_line_address": "2 Birch Court, Blackpole Road",
+            "town_city": "Worcester",
+            "postcode": "WR3 8SG"
+        }
+    },
+    {
+        "lender": "PERCH GROUP",
+        "email": "dpo@perchgroup.co.uk",
+        "address": {
+            "company_name": "Perch Group Limited",
+            "first_line_address": "21st Floor, No. 1 Spinningfields, 1 Hardman Square",
+            "town_city": "Manchester",
+            "postcode": "M3 3EB"
+        }
+    },
+    {
+        "lender": "PIGGYBANK",
+        "email": "complaints@piggy-bank.co.uk",
+        "address": {
+            "company_name": "Piggy Bank Ltd",
+            "first_line_address": "Unit B, Richmond Business Centre, 23-24 George Street",
+            "town_city": "Richmond",
+            "postcode": "TW9 1JY"
+        }
+    },
+    {
+        "lender": "PLATA FINANCE",
+        "email": NaN,
+        "address": {
+            "company_name": "Plata Finance Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "PLEND",
+        "email": NaN,
+        "address": {
+            "company_name": "Plend Ltd",
+            "first_line_address": "57 Southwark Street",
+            "town_city": "London",
+            "postcode": "SE1 1RU"
+        }
+    },
+    {
+        "lender": "PM LOANS",
+        "email": "info@pmloans.co.uk",
+        "address": {
+            "company_name": "PM Loans Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "POLAR FINANCE",
+        "email": "info@polarcredit.co.uk ",
+        "address": {
+            "company_name": "Polar Credit Ltd",
+            "first_line_address": "20-22 Wenlock Road",
+            "town_city": "London",
+            "postcode": "N1 7GU"
+        }
+    },
+    {
+        "lender": "POST OFFICE",
+        "email": NaN,
+        "address": {
+            "company_name": "Post Office Limited",
+            "first_line_address": "Finsbury Dials, 20 Finsbury Street",
+            "town_city": "London",
+            "postcode": "EC2Y 9AQ"
+        }
+    },
+    {
+        "lender": "POUNDS2POCKET",
+        "email": "customers@nouveaufinance.co.uk",
+        "address": {
+            "company_name": "Nouveau Finance Ltd",
+            "first_line_address": "Belvedere, 12 Booth Street",
+            "town_city": "Manchester",
+            "postcode": "M2 4AW"
+        }
+    },
+    {
+        "lender": "PRA",
+        "email": "privacy@pragroup.co.uk",
+        "address": {
+            "company_name": "PRA Group (UK) Limited",
+            "first_line_address": "Regal House, 70 London Road",
+            "town_city": "Twickenham",
+            "postcode": "TW1 3QS"
+        }
+    },
+    {
+        "lender": "PROGRESSIVE MONEY",
+        "email": NaN,
+        "address": {
+            "company_name": "Progressive Money Ltd",
+            "first_line_address": "7 Cobden Court, Wimpole Close",
+            "town_city": "Bromley",
+            "postcode": "BR2 9JF"
+        }
+    },
+    {
+        "lender": "PROVIDENT",
+        "email": "newcustomer.complaints@providentfinancial.com",
+        "address": {
+            "company_name": "Provident Financial Group Limited",
+            "first_line_address": "Fairburn House, 5 Godwin Street",
+            "town_city": "Bradford",
+            "postcode": "BD1 2AH"
+        }
+    },
+    {
+        "lender": "PSA FINANCE",
+        "email": "ovfinformationrequests@stellantis.com",
+        "address": {
+            "company_name": "PSA Finance UK Limited",
+            "first_line_address": "Pinley House, Sunbeam Way",
+            "town_city": "Coventry",
+            "postcode": "CV3 1ND"
+        }
+    },
+    {
+        "lender": "QUICK LOANS",
+        "email": NaN,
+        "address": {
+            "company_name": "Quick Loans Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "QUID MARKET",
+        "email": "Help@quidmarket.com",
+        "address": {
+            "company_name": "Stagemount Limited (trading as QuidMarket)",
+            "first_line_address": "9th Floor, The Bailey, Skipton",
+            "town_city": "North Yorkshire",
+            "postcode": "BD23 1DN"
+        }
+    },
+    {
+        "lender": "RCI FINANCIAL",
+        "email": NaN,
+        "address": {
+            "company_name": "RCI Financial Services Limited",
+            "first_line_address": "Rivers Office Park, Denham Way",
+            "town_city": "Rickmansworth",
+            "postcode": "WD3 9YS"
+        }
+    },
+    {
+        "lender": "REEVO",
+        "email": NaN,
+        "address": {
+            "company_name": "Reevo Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "REVOLUT",
+        "email": "dpo@revolut.com",
+        "address": {
+            "company_name": "Revolut Ltd",
+            "first_line_address": "7 Westferry Circus",
+            "town_city": "London",
+            "postcode": "E14 4HD"
+        }
+    },
+    {
+        "lender": "SAINSBURY'S BANK / POST",
+        "email": NaN,
+        "address": {
+            "company_name": "Sainsbury's Bank plc",
+            "first_line_address": "33 Holborn",
+            "town_city": "London",
+            "postcode": "EC1N 2HT"
+        }
+    },
+    {
+        "lender": "SALAD MONEY",
+        "email": "help@saladmoney.co.uk",
+        "address": {
+            "company_name": "Salad Money Ltd",
+            "first_line_address": "5 New Street Square",
+            "town_city": "London",
+            "postcode": "EC4A 3TW"
+        }
+    },
+    {
+        "lender": "SALARY FINANCE",
+        "email": "support@support.salaryfinance.com",
+        "address": {
+            "company_name": "Salary Finance Limited",
+            "first_line_address": "40 Holborn Viaduct",
+            "town_city": "London",
+            "postcode": "EC1N 2PB"
+        }
+    },
+    {
+        "lender": "SANTANDER",
+        "email": "send via post",
+        "address": {
+            "company_name": "Santander UK plc",
+            "first_line_address": "2 Triton Square, Regent's Place",
+            "town_city": "London",
+            "postcode": "NW1 3AN"
+        }
+    },
+    {
+        "lender": "SAVVY LOANS",
+        "email": "info@savvy.co.uk",
+        "address": {
+            "company_name": "Savvy Loans Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "SHAWBROOK BANK",
+        "email": "DataPrivacy@shawbrook.co.uk",
+        "address": {
+            "company_name": "Shawbrook Bank Limited",
+            "first_line_address": "Lutea House, Warley Hill Business Park",
+            "town_city": "Brentwood",
+            "postcode": "CM13 3BE"
+        }
+    },
+    {
+        "lender": "SHORT TERM FINANCE",
+        "email": "stf@moorfieldscr.com",
+        "address": {
+            "company_name": "Short Term Finance Ltd",
+            "first_line_address": "Merchant House, 11a Piccadilly",
+            "town_city": "York",
+            "postcode": "YO1 9WB"
+        }
+    },
+    {
+        "lender": "SKYLINE DIRECT",
+        "email": "dpo@skylinedirect.com",
+        "address": {
+            "company_name": "Skyline Direct Ltd",
+            "first_line_address": "Unit 1 Oak Park, 1 Olympic Way",
+            "town_city": "Wembley",
+            "postcode": "HA9 0NP"
+        }
+    },
+    {
+        "lender": "SNAP FINANCE",
+        "email": "customer@snapfinance.co.uk",
+        "address": {
+            "company_name": "Snap Finance Limited",
+            "first_line_address": "Building 5, Croxley Park",
+            "town_city": "Watford",
+            "postcode": "WD18 8YR"
+        }
+    },
+    {
+        "lender": "STUDIO",
+        "email": "dpo@studio.co.uk",
+        "address": {
+            "company_name": "Studio Retail Limited",
+            "first_line_address": "Westgate, Accrington",
+            "town_city": "Lancashire",
+            "postcode": "BB5 1NJ"
+        }
+    },
+    {
+        "lender": "SUCO",
+        "email": NaN,
+        "address": {
+            "company_name": "Suco Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "SWIFT LOANS",
+        "email": "SAR@SwiftMoney.com",
+        "address": {
+            "company_name": "Swift Advances PLC",
+            "first_line_address": "Suite 102, Castle House, Desborough Road",
+            "town_city": "High Wycombe",
+            "postcode": "HP11 2PR"
+        }
+    },
+    {
+        "lender": "TANDEM",
+        "email": "dpo@tandem.co.uk",
+        "address": {
+            "company_name": "Tandem Bank Limited",
+            "first_line_address": "30 Fenchurch Street",
+            "town_city": "London",
+            "postcode": "EC3M 3BD"
+        }
+    },
+    {
+        "lender": "TAPPILY",
+        "email": "Customer.services@tappilymail.co.uk",
+        "address": {
+            "company_name": "Tappily Ltd",
+            "first_line_address": "Innovation Centre, Sci-Tech Daresbury, Keckwick Lane",
+            "town_city": "Warrington",
+            "postcode": "WA4 4FS"
+        }
+    },
+    {
+        "lender": "TESCO BANK",
+        "email": "TBlegalnotices2@tescobank.com",
+        "address": {
+            "company_name": "Tesco Personal Finance plc",
+            "first_line_address": "2 South Gyle Crescent",
+            "town_city": "Edinburgh",
+            "postcode": "EH12 9FQ"
+        }
+    },
+    {
+        "lender": "THE ONE STOP MONEY SHOP",
+        "email": "apply@theonestopmoneyshop.co.uk",
+        "address": {
+            "company_name": "The Money Shop Ltd",
+            "first_line_address": "9th Floor, The Bailey, Skipton",
+            "town_city": "North Yorkshire",
+            "postcode": "BD23 1DN"
+        }
+    },
+    {
+        "lender": "THINKMONEY",
+        "email": "dsarrequests@capitalone.com",
+        "address": {
+            "company_name": "Think Money Limited",
+            "first_line_address": "Salford Quays, Trafford Wharf Road",
+            "town_city": "Manchester",
+            "postcode": "M17 1GP"
+        }
+    },
+    {
+        "lender": "TICK TOCK LOANS",
+        "email": "customerservice@ticktockloans.com",
+        "address": {
+            "company_name": "Tick Tock Loans Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "TM ADVANCES",
+        "email": NaN,
+        "address": {
+            "company_name": "TM Advances Ltd",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "TRANSUNION",
+        "email": "UKConsumer@transunion.com",
+        "address": {
+            "company_name": "TransUnion International UK Limited",
+            "first_line_address": "One Park Lane, Leeds",
+            "town_city": "West Yorkshire",
+            "postcode": "LS3 1EP"
+        }
+    },
+    {
+        "lender": "TSB",
+        "email": "privacy@tsb.co.uk",
+        "address": {
+            "company_name": "TSB Bank plc",
+            "first_line_address": "20 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7JE"
+        }
+    },
+    {
+        "lender": "UK CREDIT",
+        "email": "complaints@ukcredit.co.uk",
+        "address": {
+            "company_name": "UK Credit Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "ULSTER BANK",
+        "email": "gpdr@ulster.ac.uk",
+        "address": {
+            "company_name": "Ulster Bank Limited",
+            "first_line_address": "11-16 Donegall Square East",
+            "town_city": "Belfast",
+            "postcode": "BT1 5UB"
+        }
+    },
+    {
+        "lender": "UPDRAFT",
+        "email": "support@updraft.com",
+        "address": {
+            "company_name": "Updraft Limited",
+            "first_line_address": "40 Bermondsey Street",
+            "town_city": "London",
+            "postcode": "SE1 3UD"
+        }
+    },
+    {
+        "lender": "VANQUIS",
+        "email": "tezanyaniw@gmail.com",
+        "address": {
+            "company_name": "Vanquis Bank Limited",
+            "first_line_address": "Fairburn House, 5 Godwin Street",
+            "town_city": "Bradford",
+            "postcode": "BD1 2AH"
+        }
+    },
+    {
+        "lender": "VAUXHALL FINANCE",
+        "email": "ovfinformationrequests@stellantis.com",
+        "address": {
+            "company_name": "Vauxhall Finance plc",
+            "first_line_address": "66-68 Underwood Street",
+            "town_city": "London",
+            "postcode": "N1 7JQ"
+        }
+    },
+    {
+        "lender": "VERY / SHOP DIRECT / G UNIVERSAL",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "VERY CATALOGUE",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "VIRGIN/ CLYDESDALE/ YORKSHIRE BANK",
+        "email": "NEEDS SENDING VIA POST",
+        "address": {
+            "company_name": "Clydesdale Bank PLC",
+            "first_line_address": "30 St Vincent Place",
+            "town_city": "Glasgow",
+            "postcode": "G1 2HL"
+        }
+    },
+    {
+        "lender": "WAGE DAY ADVANCES",
+        "email": NaN,
+        "address": {
+            "company_name": "Wage Day Advance Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "WAGE STREAM",
+        "email": "DPO@stream.co",
+        "address": {
+            "company_name": "Wagestream Limited",
+            "first_line_address": "1 Valentine Place",
+            "town_city": "London",
+            "postcode": "SE1 8QH"
+        }
+    },
+    {
+        "lender": "WAVE",
+        "email": NaN,
+        "address": {
+            "company_name": "Wave (trading name of Likely Loans)",
+            "first_line_address": "1 Triton Square, Regent's Place",
+            "town_city": "London",
+            "postcode": "NW1 3BF"
+        }
+    },
+    {
+        "lender": "ZABLE",
+        "email": "cards@zable.co.uk",
+        "address": {
+            "company_name": "Zable Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
+        "lender": "ZEMPLER BANK / CASHPLUS",
+        "email": "dpo@zemplerbank.com",
+        "address": {
+            "company_name": "Zempler Bank Limited (formerly Cashplus Bank)",
+            "first_line_address": "3 New Concordia Wharf, Mill Street",
+            "town_city": "London",
+            "postcode": "SE1 2BB"
+        }
+    },
+    {
+        "lender": "ZILCH",
+        "email": "privacy@zilch.com",
+        "address": {
+            "company_name": "Zilch Technology Limited",
+            "first_line_address": "75 Wells Street",
+            "town_city": "London",
+            "postcode": "W1T 3QH"
+        }
+    },
+    {
+        "lender": "ZOPA",
+        "email": "csdataprivacy@zopa.com",
+        "address": {
+            "company_name": "Zopa Bank Limited",
+            "first_line_address": "Level 12, 20 Water Street, Canary Wharf",
+            "town_city": "London",
+            "postcode": "E14 5GX"
+        }
+    }
+]

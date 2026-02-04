@@ -1,0 +1,59 @@
+/* Base styles for FastAction CRM */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Lato', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Pipeline Card Animations */
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.pipeline-card-enter {
+  animation: cardFadeIn 0.25s ease-out forwards;
+}
+
+.pipeline-card-stagger-1 { animation-delay: 0.02s; }
+.pipeline-card-stagger-2 { animation-delay: 0.04s; }
+.pipeline-card-stagger-3 { animation-delay: 0.06s; }
+.pipeline-card-stagger-4 { animation-delay: 0.08s; }
+.pipeline-card-stagger-5 { animation-delay: 0.1s; }
+
+/* Column count animation */
+@keyframes countPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.count-animate {
+  animation: countPulse 0.3s ease-out;
+}

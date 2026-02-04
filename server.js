@@ -1,0 +1,6719 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import pkg from 'pg';
+const { Pool } = pkg;
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import PDFDocument from 'pdfkit';
+import nodemailer from 'nodemailer';
+import * as msal from '@azure/msal-node';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import termsPkg from './termsText.cjs';
+import termsHtmlPkg from './termsHtml.cjs';
+import OpenAI from 'openai';
+import { buildSystemPrompt, getEnabledTools, getCompactContext, TOOLS } from './aiSkills.js';
+import { createCanvas, loadImage } from 'canvas';
+import puppeteer from 'puppeteer';
+import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const { tcText } = termsPkg;
+const { tcHtml } = termsHtmlPkg;
+
+const app = express();
+const port = process.env.PORT || 5000;
+
+// Trust proxy for correct protocol detection behind nginx (important for HTTPS)
+// This ensures req.protocol returns 'https' when behind a reverse proxy
+app.set('trust proxy', 1);
+
+// ============================================================================
+// EMAIL DRAFT MODE - Set to true to SKIP sending ALL emails (for review)
+// ============================================================================
+const EMAIL_DRAFT_MODE = false; // ENABLED - Lender Selection Form & General Emails will send
+// NOTE: DSAR emails (worker.js) have separate DRAFT mode control
+// ============================================================================
+
+// --- MIDDLEWARE ---
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
+
+// --- AWS & DB CLIENTS ---
+const s3Client = new S3Client({
+    region: process.env.AWS_REGION,
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    }
+});
+
+const pool = new Pool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT,
+    // AWS RDS requires SSL - always enable it
+    ssl: {
+        require: true,
+        rejectUnauthorized: false
+    }
+});
+
+// The pool will emit an error on behalf of any idle clients
+// it contains if a backend error or network partition happens
+pool.on('error', (err, client) => {
+    console.error('Unexpected error on idle client', err);
+    // Don't exit the process specifically for ETIMEDOUT or ECONNRESET on idle clients
+});
+// --- DATABASE INITIALIZATION & MIGRATIONS ---
+(async () => {
+    try {
+        const client = await pool.connect();
+        try {
+            // Add missing columns to cases table if they don't exist
+            await client.query(`
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='finance_types') THEN
+                        ALTER TABLE cases ADD COLUMN finance_types JSONB;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='loan_details') THEN
+                        ALTER TABLE cases ADD COLUMN loan_details JSONB;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='billed_interest_charges') THEN
+                        ALTER TABLE cases ADD COLUMN billed_interest_charges TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='overlimit_charges') THEN
+                        ALTER TABLE cases ADD COLUMN overlimit_charges TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='credit_limit_increases') THEN
+                        ALTER TABLE cases ADD COLUMN credit_limit_increases TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='balance_due_to_client') THEN
+                        ALTER TABLE cases ADD COLUMN balance_due_to_client TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='our_fees_plus_vat') THEN
+                        ALTER TABLE cases ADD COLUMN our_fees_plus_vat TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='our_fees_minus_vat') THEN
+                        ALTER TABLE cases ADD COLUMN our_fees_minus_vat TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='vat_amount') THEN
+                        ALTER TABLE cases ADD COLUMN vat_amount TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='total_fee') THEN
+                        ALTER TABLE cases ADD COLUMN total_fee TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='outstanding_debt') THEN
+                        ALTER TABLE cases ADD COLUMN outstanding_debt TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='payment_plan') THEN
+                        ALTER TABLE cases ADD COLUMN payment_plan JSONB;
+                    END IF;
+                    
+                    -- Add intake_lender to contacts table
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='intake_lender') THEN
+                        ALTER TABLE contacts ADD COLUMN intake_lender TEXT;
+                    END IF;
+
+                    -- Add previous address columns to contacts table
+                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_address_line_1') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_address_line_1 TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_address_line_2') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_address_line_2 TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_city') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_city TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_county') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_county TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_postal_code') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_postal_code TEXT;
+                    END IF;
+
+                    -- Add previous_addresses JSONB column to contacts table (for storing array of addresses)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='previous_addresses') THEN
+                        ALTER TABLE contacts ADD COLUMN previous_addresses JSONB;
+                    END IF;
+
+                    -- Add document_checklist JSONB column to contacts table (for storing identification, extraLender, questionnaire, poa flags)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='document_checklist') THEN
+                        ALTER TABLE contacts ADD COLUMN document_checklist JSONB DEFAULT '{"identification": false, "extraLender": false, "questionnaire": false, "poa": false}';
+                    END IF;
+
+                    -- Create submission_tokens table if not exists
+                    CREATE TABLE IF NOT EXISTS submission_tokens (
+                        id SERIAL PRIMARY KEY,
+                        token UUID UNIQUE NOT NULL,
+                        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                        lender TEXT,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- Create previous_addresses table
+                    CREATE TABLE IF NOT EXISTS previous_addresses (
+                        id SERIAL PRIMARY KEY,
+                        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                        address_line_1 TEXT,
+                        address_line_2 TEXT,
+                        city TEXT,
+                        county TEXT,
+                        postal_code TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- Add loa_generated to cases table
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='loa_generated') THEN
+                         ALTER TABLE cases ADD COLUMN loa_generated BOOLEAN DEFAULT FALSE;
+                    END IF;
+
+                    -- Add dsar_sent and dsar_send_after columns for delayed DSAR email sending
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_sent') THEN
+                         ALTER TABLE cases ADD COLUMN dsar_sent BOOLEAN DEFAULT FALSE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_send_after') THEN
+                         ALTER TABLE cases ADD COLUMN dsar_send_after TIMESTAMP;
+                    END IF;
+
+                    -- Fix capitalization of status values
+                    UPDATE cases SET status = 'Lender Selection Form Completed' WHERE status = 'LENDER SELECTION FORM COMPLETED';
+
+                    -- ============================================
+                    -- TASKS & REMINDERS SYSTEM TABLES
+                    -- ============================================
+
+                    -- Create tasks table for calendar events/tasks
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        id SERIAL PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        type VARCHAR(50) DEFAULT 'appointment',
+                        status VARCHAR(50) DEFAULT 'pending',
+                        date DATE NOT NULL,
+                        start_time TIME,
+                        end_time TIME,
+                        assigned_to INTEGER,
+                        assigned_by INTEGER,
+                        assigned_at TIMESTAMP,
+                        is_recurring BOOLEAN DEFAULT FALSE,
+                        recurrence_pattern VARCHAR(50),
+                        recurrence_end_date DATE,
+                        parent_task_id INTEGER,
+                        created_by INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        completed_by INTEGER
+                    );
+
+                    -- Create task_contacts junction table
+                    CREATE TABLE IF NOT EXISTS task_contacts (
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (task_id, contact_id)
+                    );
+
+                    -- Create task_claims junction table
+                    CREATE TABLE IF NOT EXISTS task_claims (
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        claim_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+                        PRIMARY KEY (task_id, claim_id)
+                    );
+
+                    -- Create task_reminders table
+                    CREATE TABLE IF NOT EXISTS task_reminders (
+                        id SERIAL PRIMARY KEY,
+                        task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                        reminder_time TIMESTAMP NOT NULL,
+                        reminder_type VARCHAR(50) DEFAULT 'in_app',
+                        is_sent BOOLEAN DEFAULT FALSE,
+                        sent_at TIMESTAMP
+                    );
+
+                    -- Create persistent_notifications table
+                    CREATE TABLE IF NOT EXISTS persistent_notifications (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        type VARCHAR(50) NOT NULL,
+                        title VARCHAR(255) NOT NULL,
+                        message TEXT,
+                        link VARCHAR(500),
+                        related_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+                        is_read BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- Create indexes for better performance
+                    CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+                    CREATE INDEX IF NOT EXISTS idx_task_reminders_time ON task_reminders(reminder_time);
+                    CREATE INDEX IF NOT EXISTS idx_notifications_user ON persistent_notifications(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_notifications_unread ON persistent_notifications(user_id, is_read);
+                END $$;
+            `);
+            console.log('✅ Cases table schema synchronized');
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        console.error('❌ Database migration error:', err);
+    }
+})();
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+const BUCKET_NAME = process.env.S3_BUCKET_NAME;
+
+// --- OPENAI CLIENT ---
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Store chat sessions in memory (in production, use Redis or similar)
+const chatSessions = new Map();
+
+// --- EMAIL CONFIGURATION ---
+const emailTransporter = nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false, // Use TLS
+    auth: {
+        user: 'irl@rowanrose.co.uk',
+        pass: 'Farm54595459!!!'
+    },
+    tls: {
+        ciphers: 'SSLv3'
+    }
+});
+
+// Verify email configuration
+emailTransporter.verify((error, success) => {
+    if (error) {
+        console.error('❌ Email configuration error:', error);
+    } else {
+        console.log('✅ Email server is ready to send messages');
+    }
+});
+
+// AI Configuration moved to aiSkills.js for modularity
+// System prompt and tools are now dynamically built based on context
+// See aiSkills.js for all skill definitions, tools, and knowledge base
+// --- HELPER FUNCTION: Add Timestamp to Signature ---
+// Note: Timestamp is no longer added to the image itself, it's shown in the LOA HTML
+async function addTimestampToSignature(base64Data) {
+    if (!base64Data) return null;
+    try {
+        const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        const imageBuffer = Buffer.from(base64Image, 'base64');
+        // Return the image buffer without adding timestamp text
+        return imageBuffer;
+    } catch (error) {
+        console.error("Error processing signature:", error);
+        return Buffer.from(base64Data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    }
+}
+
+// --- HELPER FUNCTION: Generate HTML Template for T&C PDF ---
+async function generateTermsHTML(clientData, logoBase64) {
+    const {
+        first_name,
+        last_name,
+        street_address,
+        address_line_2,
+        city,
+        state_county,
+        postal_code,
+        phone
+    } = clientData;
+
+    const fullName = `${first_name} ${last_name}`;
+    const streetCombined = [street_address, address_line_2].filter(Boolean).join(', ');
+    const addressParts = [streetCombined, city, state_county, postal_code].filter(Boolean);
+    const fullAddress = addressParts.join(', ');
+
+    // Get current date/time
+    const now = new Date();
+    const today = now.toLocaleDateString('en-GB');
+    const todayWithTime = now.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
+    // Populate HTML content with client data
+    let populatedHtml = tcHtml;
+    populatedHtml = populatedHtml.replace(/{{first name}}/g, first_name || '');
+    populatedHtml = populatedHtml.replace(/{{last name}}/g, last_name || '');
+    populatedHtml = populatedHtml.replace(/{{street address}}/g, streetCombined);
+    populatedHtml = populatedHtml.replace(/{{city\/town}}/g, city || '');
+    populatedHtml = populatedHtml.replace(/{{country\/state}}/g, state_county || '');
+    populatedHtml = populatedHtml.replace(/{{postalcode}}/g, postal_code || '');
+    populatedHtml = populatedHtml.replace(/{{Contact number}}/g, phone || '');
+    populatedHtml = populatedHtml.replace(/14\/01\/2026/g, today);
+    populatedHtml = populatedHtml.replace(/{PLATFORM_DATE}/g, todayWithTime);
+    populatedHtml = populatedHtml.replace(/\[Client\.FirstName\]/g, first_name || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.LastName\]/g, last_name || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.StreetAddress\]/g, streetCombined);
+    populatedHtml = populatedHtml.replace(/\[Client\.City\]/g, city || '');
+    populatedHtml = populatedHtml.replace(/\[Client\.PostalCode\]/g, postal_code || '');
+    const fullAddressTpl = [street_address, address_line_2, city, state_county, postal_code].filter(Boolean).join(', ');
+    populatedHtml = populatedHtml.replace(/\[Client\.Address\]/g, fullAddressTpl);
+
+    // Create full HTML document
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms and Conditions - ${fullName}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 10pt;
+            line-height: 1.6;
+            color: #334155;
+            background: white;
+        }
+        
+        .page {
+            padding: 20mm 15mm;
+            max-width: 210mm;
+            margin: 0 auto;
+        }
+        
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            width: 100%;
+        }
+
+        .header-left {
+            flex: 0 0 auto;
+        }
+
+        .logo {
+            width: 180px;
+            height: auto;
+        }
+
+        .header-right {
+            flex: 1;
+            text-align: right;
+            padding-left: 40px;
+            padding-right: 0;
+        }
+        
+        .company-name {
+            font-size: 14pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 5px;
+        }
+        
+        .company-tel {
+            font-size: 10pt;
+            color: #334155;
+            margin-bottom: 3px;
+        }
+        
+        .company-address {
+            font-size: 10pt;
+            color: #334155;
+            line-height: 1.4;
+            margin-bottom: 5px;
+        }
+        
+        .company-email {
+            font-size: 10pt;
+        }
+        
+        .company-email a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        
+        .client-info {
+            margin-top: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .client-date {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 10px;
+        }
+        
+        .client-name {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 10px;
+        }
+        
+        .client-address {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+        
+        .tc-heading {
+            font-size: 11pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .content {
+            margin-top: 20px;
+        }
+        
+        h1 {
+            font-size: 16pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            text-decoration: underline;
+        }
+        
+        h2 {
+            font-size: 14pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 5px;
+        }
+        
+        h3 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        
+        h4 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 12px;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+        
+        p {
+            margin-bottom: 10px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin-bottom: 15px;
+            padding-left: 25px;
+        }
+        
+        li {
+            margin-bottom: 5px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 9pt;
+        }
+        
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f8fafc;
+            font-weight: bold;
+            color: #0f172a;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        
+        strong {
+            color: #0f172a;
+            font-weight: bold;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            font-size: 8pt;
+            color: #94a3b8;
+            font-style: italic;
+        }
+        
+        .signature-box {
+            border: 1px solid #e2e8f0;
+            padding: 20px;
+            margin-top: 30px;
+            background: #fafafa;
+        }
+        
+        .signature-box h3 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+        
+        .signature-box p {
+            font-size: 10pt;
+            margin-bottom: 5px;
+        }
+        
+        @media print {
+            .page {
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="header-container">
+            <div class="header-left">
+                ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Fast Action Claims" />` : ''}
+            </div>
+            <div class="header-right">
+                <div class="company-name">Fast Action Claims</div>
+                <div class="company-tel">Tel: 0161 5331706</div>
+                <div class="company-address">
+                    Address: 1.03 The boat shed<br/>
+                    12 Exchange Quay<br/>
+                    Salford<br/>
+                    M5 3EQ
+                </div>
+                <div class="company-email">
+                    irl@rowanrose.co.uk
+                </div>
+            </div>
+        </div>
+        
+        <div class="client-info">
+            <div class="client-date">${today}</div>
+            
+            <div class="client-name">${fullName}</div>
+            
+            <div class="client-address">${fullAddress}</div>
+            
+            <div class="tc-heading">Terms and Conditions of Engagement</div>
+        </div>
+        
+        <div class="content">
+            ${populatedHtml}
+        </div>
+        
+        <div class="signature-box">
+            <h3>ELECTRONIC SIGNATURE VERIFICATION</h3>
+            <p><strong>Signatory:</strong> ${fullName}</p>
+            <p><strong>Certified Timestamp:</strong> ${todayWithTime}</p>
+        </div>
+        
+        <div class="footer">
+            This document is electronically signed and legally binding.
+        </div>
+    </div>
+</body>
+</html>
+    `;
+}
+
+// --- 3. GENERATE LOA HTML CONTENT ---
+async function generateLOAHTML(contact, lender, logoBase64, signatureBase64) {
+    const {
+        first_name,
+        last_name,
+        address_line_1,
+        address_line_2,
+        city,
+        state_county,
+        postal_code,
+        dob,
+        previous_addresses,
+        previous_address_line_1,
+        previous_address_line_2
+    } = contact;
+
+    const fullName = `${first_name} ${last_name}`;
+    const streetAddress = [address_line_1, address_line_2].filter(Boolean).join(', ');
+    const finalCity = city || '';
+    const finalState = state_county || '';
+
+    // Format DOB
+    let formattedDOB = '';
+    if (dob) {
+        try {
+            const dobDate = new Date(dob);
+            if (!isNaN(dobDate.getTime())) {
+                formattedDOB = dobDate.toLocaleDateString('en-GB');
+            } else {
+                formattedDOB = dob;
+            }
+        } catch (e) {
+            formattedDOB = dob;
+        }
+    }
+
+    // Format Previous Addresses
+    let previousAddressHTML = '';
+    if (previous_addresses && Array.isArray(previous_addresses) && previous_addresses.length > 0) {
+        // Handle JSONB array of previous addresses
+        previousAddressHTML = previous_addresses.map((addr, index) => {
+            const addrParts = [
+                addr.line1 || addr.address_line_1,
+                addr.line2 || addr.address_line_2,
+                addr.city,
+                addr.county || addr.state_county,
+                addr.postalCode || addr.postal_code
+            ].filter(Boolean).join(', ');
+            return previous_addresses.length > 1
+                ? `<div style="margin-bottom: 4px;"><strong>${index + 1}.</strong> ${addrParts}</div>`
+                : `<strong>${addrParts}</strong>`;
+        }).join('');
+    } else if (previous_address_line_1) {
+        // Legacy single previous address
+        const addrParts = [previous_address_line_1, previous_address_line_2].filter(Boolean).join(', ');
+        previousAddressHTML = `<strong>${addrParts}</strong>`;
+    }
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10px; color: #333; line-height: 1.4; margin: 0; padding: 25px; }
+        .header-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        .logo-cell { width: 30%; vertical-align: middle; text-align: left; padding-right: 20px; }
+        .contact-cell { width: 70%; vertical-align: middle; text-align: right; font-size: 10px; line-height: 1.6; color: #000; font-weight: bold; padding-right: 0; }
+        .logo-img { width: 160px; height: auto; }
+        
+        .h1-container { text-align: center; margin: 25px 0; }
+        h1 { font-size: 18px; font-weight: bold; text-decoration: underline; text-transform: uppercase; margin: 0; }
+        
+        .lender-section { text-align: left; font-size: 12px; margin-bottom: 20px; text-decoration: none; }
+
+        .client-box { width: 100%; margin-bottom: 20px; }
+        .client-table { width: 100%; border-collapse: collapse; border: 1.5px solid #000; }
+        .client-table td { padding: 8px 12px; border: 1px solid #000; vertical-align: top; font-size: 12px; color: #000; }
+        .client-table td.label { font-weight: bold; width: 150px; background-color: #f2f2f2; font-size: 12px; }
+
+        .legal-text { font-size: 9px; text-align: justify; margin-bottom: 20px; color: #000; line-height: 1.5; }
+        .legal-text p { margin-bottom: 10px; }
+
+        .signature-section { width: 100%; border: 2px solid #000; padding: 15px; margin-top: 20px; box-sizing: border-box; }
+        .sign-table { width: 100%; border-collapse: collapse; }
+        .sign-table td { vertical-align: middle; }
+        .signature-img { max-height: 80px; max-width: 300px; display: block; margin: 0 auto; }
+        
+        .footer { font-size: 8px; text-align: center; color: #444; margin-top: 40px; padding-top: 15px; border-top: 1px solid #999; line-height: 1.3; }
+    </style>
+</head>
+<body>
+
+    <table class="header-table">
+        <tr>
+            <td class="logo-cell">
+                ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" />` : '<div style="font-size: 20px; font-weight: bold; color: #b45f06;">FAST ACTION CLAIMS</div>'}
+            </td>
+            <td class="contact-cell">
+                <strong>Fast Action Claims</strong><br>
+                Tel: 0161 5331706<br>
+                Address: 1.03 The boat shed<br>
+                12 Exchange Quay<br>
+                Salford<br>
+                M5 3EQ<br>
+                irl@rowanrose.co.uk
+            </td>
+        </tr>
+    </table>
+
+    <div class="h1-container">
+        <h1>LETTER OF AUTHORITY</h1>
+    </div>
+
+    <div class="lender-section">
+        IN RESPECT OF: <strong>${lender}</strong>
+    </div>
+
+    <div class="client-box">
+        <table class="client-table">
+            <tr>
+                <td class="label">Full Name:</td>
+                <td><strong>${fullName}</strong></td>
+            </tr>
+            <tr>
+                <td class="label">Address:</td>
+                <td>
+                    <strong>
+                    ${streetAddress}<br>
+                    ${finalCity}, ${finalState}
+                    </strong>
+                </td>
+            </tr>
+            <tr>
+                <td class="label">Postal Code:</td>
+                <td><strong>${postal_code || ''}</strong></td>
+            </tr>
+            <tr>
+                <td class="label">Date of Birth:</td>
+                <td><strong>${formattedDOB}</strong></td>
+            </tr>
+            <tr>
+                <td class="label">Previous Address:</td>
+                <td>${previousAddressHTML || ''}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="legal-text">
+        <p><strong>I/We hereby Authorise and instruct:</strong> You (The Bank/Door Step Lender/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/Pension Provider/Catalogue Loans provider/Mortgage Broker/HMRC) to: -</p>
+
+        <p>1. Liaise exclusively with Fast Action Claims in respect of all aspects of my/our potential complaint/claim for compensation as stated above.</p>
+
+        <p>2. Immediately release to Fast Action Claims any information/documentation relating to all my/our loans/credit cards/overdrafts/Store Cards/Car Finance/Packaged Bank Account/ to include all Broker Commissions, Tax deductions which may be requested. This includes information in response to a request made under Sections 77-78 of the Consumer Credit Act 1974 and/or Section 45 of the Data Protection Act 2018 and Article 15 GDPR (General Data Protection Regulations).</p>
+
+        <p>3. Contact Fast Action Claims whenever they need to send me/us information or contact me/us in connection with this matter.</p>
+
+        <p>I/We authorise Fast Action Claims of 1.03, 12 Exchange Quay, Salford, M5 3EQ as my/our sole representatives to deal with my potential complaint/claim for compensation in relation to all loans/credit cards/car finance/overdrafts/Packaged Bank Accounts/Store Cards/Packaged Bank Account. I/We confirm that Fast Action Claims are instructed to pursue all aspects they consider necessary in relation to my/our dealings with your organisation. This letter of authority relates to ALL products and accounts I/We have or have had with you. I/We have read, understand and agree to Fast Action Claims' Terms and Conditions. I/We give them full authority, in accordance with the FCA's Dispute Resolution Guidelines, to act on my/our behalf as my/our to pursue all aspects they deem necessary in relation to all my/our financial affairs/tax affairs with the aforementioned Provider(s). I/We authorise you to accept any signatures on documents sent to you by Fast Action Claims which have been obtained electronically (e-signed). I/We confirm that in the event that you need to contact a third party to progress my/our case for any reason, I/we hereby give my/our authority and consent for the third party to provide Fast Action Claims with any information they request and may require to pursue my/our claim/complaint. I/We understand that, in addition to the present Letter of Authority I/We will need to provide further information when raising an expression of dissatisfaction to you (The Bank/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/HMRC), about the underlying products), service(s) and where known, specific account number(s) being complained about. I hereby authorise Fast Action Claims to submit my claim for irresponsible lending.</p>
+    </div>
+
+    <div class="signature-section">
+        <table class="sign-table" style="width: 100%;">
+            <tr>
+                <td style="width: 40%; vertical-align: top; padding-right: 10px;">
+                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">SIGNATURE</div>
+                    <div style="font-size: 10px; color: #333;">Created at: ${new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</div>
+                </td>
+                <td style="width: 60%; text-align: left; vertical-align: top;">
+                    ${signatureBase64 ? `<img src="${signatureBase64}" style="max-height: 60px; max-width: 200px; display: block;" />` : '<span style="font-size: 12px;">Signed Electronically</span>'}
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. Rowan Rose Solicitors is a limited company registered in England and Wales (Company No. 12916452)
+    </div>
+
+</body>
+</html>
+    `;
+}
+
+
+// --- 3. GENERATE HTML CONTENT FOR FAST ACTION CLAIMS ---
+// --- HELPER FUNCTION: Generate LOA PDF for Specific Lender ---
+async function generateLenderLOA(lenderName, clientData, signatureBuffer) {
+    // Prepare Signature
+    let signatureBase64 = '';
+    if (signatureBuffer) {
+        signatureBase64 = 'data:image/png;base64,' + signatureBuffer.toString('base64');
+    }
+
+    // Read the logo image from public/fac.png
+    let facLogoBase64 = '';
+    try {
+        const logoPath = path.join(__dirname, 'public', 'fac.png');
+        if (fs.existsSync(logoPath)) {
+            const logoBuffer = fs.readFileSync(logoPath);
+            facLogoBase64 = 'data:image/png;base64,' + logoBuffer.toString('base64');
+        }
+    } catch (e) {
+        console.error('Error reading fac.png:', e);
+    }
+
+    // Use consolidated generateLOAHTML
+    const htmlContent = await generateLOAHTML(clientData, lenderName, facLogoBase64, signatureBase64);
+
+
+    // Generate PDF using Puppeteer
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' }
+    });
+    await browser.close();
+
+    return pdfBuffer;
+}
+
+// --- HELPER FUNCTION: Generate Previous Address PDF ---
+async function generatePreviousAddressPDF(clientData, addresses, logoBase64) {
+    const {
+        first_name,
+        last_name,
+        intake_lender
+    } = clientData;
+
+    const fullName = `${first_name} ${last_name}`;
+    const today = new Date().toLocaleDateString('en-GB');
+
+    // Lender Address Logic
+    let lenderAddressBlock = '';
+    const lenderName = intake_lender || '';
+
+    if (lenderName.toLowerCase().includes('vanquis')) {
+        lenderAddressBlock = `Vanquis Bank Limited,<br>Data Protection Team,<br>No. 1 Godwin Street,<br>Bradford,<br>BD1 2SU`;
+    } else if (lenderName.toLowerCase().includes('loans 2 go')) {
+        lenderAddressBlock = `Loans 2 Go Limited,<br>Bridge Studios,<br>34a Deodar Road,<br>Putney, London,<br>SW15 2NN`;
+    } else {
+        lenderAddressBlock = '';
+    }
+
+    // Build Address Blocks
+    let addressBlocksHtml = '';
+    if (addresses && addresses.length > 0) {
+        addresses.forEach((addr, index) => {
+            const addressParts = [
+                addr.address_line_1,
+                addr.address_line_2,
+                addr.city,
+                addr.county,
+                addr.postal_code
+            ].filter(Boolean).join(', ');
+
+            addressBlocksHtml += `
+            <div class="address-box">
+                <div style="font-weight: bold; margin-bottom: 10px;">PREVIOUS ADDRESS ${index + 1}</div>
+                
+                <div class="address-row">
+                    <span class="address-label">Street Address:</span>
+                    <span>${[addr.address_line_1, addr.address_line_2].filter(Boolean).join(', ')}</span>
+                </div>
+                
+                <div class="address-row">
+                    <span class="address-label">City / Town:</span>
+                    <span>${addr.city || ''}</span>
+                </div>
+                
+                <div class="address-row">
+                    <span class="address-label">County / State:</span>
+                    <span>${addr.county || ''}</span>
+                </div>
+                
+                <div class="address-row">
+                    <span class="address-label">Postal Code:</span>
+                    <span>${addr.postal_code || ''}</span>
+                </div>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+            `;
+        });
+    } else {
+        addressBlocksHtml = '<p>No previous addresses provided.</p>';
+    }
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10pt; color: #333; line-height: 1.4; margin: 0; padding: 40px; }
+        .header-table { width: 100%; margin-bottom: 30px; }
+        .logo-cell { width: 30%; vertical-align: top; }
+        .company-cell { width: 70%; text-align: right; font-size: 10pt; line-height: 1.5; vertical-align: top; padding-right: 0; }
+        .logo-img { width: 150px; height: auto; display: block; }
+        
+        .lender-address { margin-top: 30px; margin-bottom: 30px; line-height: 1.5; }
+        
+        .ref-section { margin-bottom: 30px; font-weight: bold; }
+        
+        .extra-info-title { font-weight: bold; text-decoration: underline; margin-bottom: 20px; }
+        
+        .address-box { margin-bottom: 20px; }
+        .address-row { margin-bottom: 10px; }
+        .address-label { font-weight: bold; display: inline-block; width: 120px; }
+        
+        .footer { 
+            position: fixed; 
+            bottom: 40px; 
+            left: 40px; 
+            right: 40px; 
+            font-size: 8pt; 
+            text-align: center; 
+            color: #666; 
+            border-top: 1px solid #ddd; 
+            padding-top: 20px; 
+            line-height: 1.3;
+        }
+    </style>
+</head>
+<body>
+
+    <table class="header-table">
+        <tr>
+            <td class="logo-cell">
+                 ${logoBase64 ? `<img src="${logoBase64}" class="logo-img" />` : ''}
+                 <div style="margin-top: 20px;">${today}</div>
+            </td>
+            <td class="company-cell">
+                <strong>Fast Action Claims</strong><br>
+                Tel: 0161 5331706<br>
+                Address: 1.03 The boat shed<br>
+                12 Exchange Quay<br>
+                Salford<br>
+                M5 3EQ<br>
+                irl@rowanrose.co.uk
+            </td>
+        </tr>
+    </table>
+
+    <div class="lender-address">
+        ${lenderAddressBlock}
+    </div>
+
+    <div class="ref-section">
+        Our Reference: ${clientData.id}<br>
+        Client Name: ${fullName}
+    </div>
+
+    <div class="extra-info-title">
+        EXTRA INFORMATION PROVIDED BY OUR CLIENT
+    </div>
+
+    ${addressBlocksHtml}
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Ltd, a company registered in England and Wales (12916452) whose registered office is situated at 1.03 Boat Shed, 12 Exchange Quay, Salford, M5 3EQ. A list of directors is available at our registered office. We are authorised and regulated by the Solicitors Regulation Authority
+    </div>
+
+</body>
+</html>
+    `;
+
+    // Generate PDF using Puppeteer
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0', bottom: '0', left: '0', right: '0' } // PDF CSS handles margins
+    });
+    await browser.close();
+
+    return pdfBuffer;
+}
+
+// --- EMAIL TRANSPORTER ---
+const transporter = nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false,
+    auth: {
+        user: 'info@fastactionclaims.co.uk',
+        pass: 'H!292668193906ah'
+    },
+    tls: {
+        ciphers: 'SSLv3'
+    }
+});
+
+// --- CRM API ENDPOINTS ---
+
+// Email sending
+app.post('/api/submit-previous-address', async (req, res) => {
+    console.log('Received request to /api/submit-previous-address');
+    console.log('Request Request Body:', JSON.stringify(req.body, null, 2));
+
+    const {
+        clientId,
+        addresses // Array of address objects
+    } = req.body;
+
+    if (!clientId) {
+        return res.status(400).json({ success: false, message: 'Client ID is required' });
+    }
+
+    try {
+        // 1. Insert Addresses into previous_addresses table (if any)
+        if (addresses && addresses.length > 0) {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+
+                // Clear existing previous addresses for this contact to avoid duplicates
+                await client.query('DELETE FROM previous_addresses WHERE contact_id = $1', [clientId]);
+
+                for (const addr of addresses) {
+                    await client.query(
+                        `INSERT INTO previous_addresses 
+                         (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                         VALUES ($1, $2, $3, $4, $5, $6)`,
+                        [clientId, addr.address_line_1, addr.address_line_2, addr.city, addr.county, addr.postal_code]
+                    );
+                }
+
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
+            }
+
+            // 2. Fire-and-forget PDF Generation & Upload
+            // We do NOT await this, so the client gets a response immediately.
+            (async () => {
+                console.log(`[Background] Starting PDF generation for Client ${clientId}...`);
+                try {
+                    const { rows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [clientId]);
+                    if (rows.length === 0) {
+                        console.error(`[Background] Contact ${clientId} not found.`);
+                        return;
+                    }
+                    const contact = rows[0];
+                    console.log(`[Background] Found contact: ${contact.first_name} ${contact.last_name}`);
+
+                    // Read Logo
+                    let facLogoBase64 = '';
+                    try {
+                        const logoPath = path.join(__dirname, 'public', 'fac.png');
+                        if (fs.existsSync(logoPath)) {
+                            const logoBuffer = fs.readFileSync(logoPath);
+                            facLogoBase64 = 'data:image/png;base64,' + logoBuffer.toString('base64');
+                            console.log(`[Background] Logo loaded.`);
+                        } else {
+                            console.warn(`[Background] Logo file not found at ${logoPath}`);
+                        }
+                    } catch (e) {
+                        console.error('[Background] Error reading fac.png:', e);
+                    }
+
+                    console.log(`[Background] Generating PDF content...`);
+                    const pdfBuffer = await generatePreviousAddressPDF(contact, addresses, facLogoBase64);
+                    console.log(`[Background] PDF generated. Buffer size: ${pdfBuffer.length} bytes.`);
+
+                    // 3. Upload to S3 (New Folder Structure)
+                    const folderName = `${contact.first_name}_${contact.last_name}_${clientId}`;
+                    const timestamp = Date.now();
+                    const fileName = `${folderName}/Documents/Previous_Addresses_${timestamp}.pdf`;
+                    console.log(`[Background] Uploading to S3 Key: ${fileName}`);
+
+                    const uploadCommand = new PutObjectCommand({
+                        Bucket: process.env.S3_BUCKET_NAME,
+                        Key: fileName,
+                        Body: pdfBuffer,
+                        ContentType: 'application/pdf'
+                    });
+
+                    await s3Client.send(uploadCommand);
+
+                    console.log(`✅ [Background] Previous Addresses PDF uploaded successfully to: ${fileName}`);
+
+                    // Generate Signed URL for access
+                    const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+                        Bucket: process.env.S3_BUCKET_NAME,
+                        Key: fileName
+                    }), { expiresIn: 604800 }); // 7 days
+
+                    // 4. Save to Documents Table for CRM Display
+                    const fileSizeKB = (pdfBuffer.length / 1024).toFixed(1) + ' KB';
+
+                    await pool.query(
+                        `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                        [clientId, `Previous_Addresses_${timestamp}.pdf`, 'pdf', 'Client', signedUrl, fileSizeKB, ['Previous Address']]
+                    );
+
+                    console.log(`✅ [Background] Document record inserted into DB (Key stored for permanent access).`);
+                } catch (bgError) {
+                    console.error('❌ [Background] PDF Generation/Upload Error:', bgError);
+                }
+            })();
+        }
+
+        res.json({ success: true, message: 'Previous addresses submitted successfully' });
+
+    } catch (error) {
+        console.error('Error submitting previous addresses:', error);
+        res.status(500).json({ success: false, message: 'Server error processing previous addresses' });
+    }
+});
+
+// Email sending
+app.post('/send-email', async (req, res) => {
+    const { to, subject, html, text } = req.body;
+    if (!to || !subject || (!html && !text)) {
+        return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    const mailOptions = {
+        from: '"Rowan Rose Solicitors" <info@fastactionclaims.co.uk>',
+        to: to,
+        subject: subject,
+        text: text || "Please view this email in a client that supports HTML.",
+        html: html
+    };
+
+    // DRAFT MODE: Skip sending if enabled
+    if (EMAIL_DRAFT_MODE) {
+        console.log(`📝 DRAFT MODE: Email NOT sent to ${to}`);
+        console.log(`📝 Subject: ${subject}`);
+        return res.status(200).json({ success: true, draft: true, message: 'Email in DRAFT mode - not sent' });
+    }
+
+    try {
+        const info = await transporter.sendMail(mailOptions);
+        res.status(200).json({ success: true, messageId: info.messageId });
+    } catch (error) {
+        console.error('Email error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- AUTH ENDPOINTS ---
+
+app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+        const user = rows[0];
+
+        if (!user || user.password !== password) {
+            return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        }
+
+        if (!user.is_approved) {
+            return res.status(403).json({ success: false, message: 'Account pending approval' });
+        }
+
+        // Update last login
+        await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                email: user.email,
+                fullName: user.full_name,
+                role: user.role,
+                isApproved: user.is_approved
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+    const { email, password, fullName, phone } = req.body;
+    try {
+        // Check if exists
+        const check = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ success: false, message: 'User already exists' });
+        }
+
+        const { rows } = await pool.query(
+            'INSERT INTO users (email, password, full_name, role, is_approved) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [email.toLowerCase(), password, fullName, 'Sales', false]
+        );
+
+        res.json({ success: true, message: 'Registration successful, pending approval', user: rows[0] });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.get('/api/users', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT id, email, full_name as "fullName", role, is_approved as "isApproved", last_login as "lastLogin", created_at as "createdAt" FROM users ORDER BY created_at DESC');
+        res.json({ success: true, users: rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.patch('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    const { role, isApproved } = req.body;
+    try {
+        let query = 'UPDATE users SET ';
+        const params = [];
+        let count = 1;
+
+        if (role) {
+            query += `role = $${count}, `;
+            params.push(role);
+            count++;
+        }
+        if (isApproved !== undefined) {
+            query += `is_approved = $${count}, `;
+            params.push(isApproved);
+            count++;
+        }
+
+        // If no fields to update, return error
+        if (params.length === 0) {
+            return res.status(400).json({ success: false, message: 'No fields to update' });
+        }
+
+        query = query.slice(0, -2); // Remove last comma
+        query += ` WHERE id = $${count} RETURNING *`;
+        params.push(id);
+
+        // Execute the query (this was missing!)
+        const { rows } = await pool.query(query, params);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        console.log(`✅ User ${id} updated:`, { role, isApproved });
+        res.json({ success: true, user: rows[0] });
+    } catch (err) {
+        console.error('Error updating user:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Prevent deletion of main admin
+        const { rows: check } = await pool.query('SELECT email FROM users WHERE id = $1', [id]);
+        if (check.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        if (check[0].email === 'info@fastactionclaims.co.uk') {
+            return res.status(403).json({ success: false, message: 'Cannot delete the main admin account' });
+        }
+
+        await pool.query('DELETE FROM users WHERE id = $1', [id]);
+        console.log(`🗑️ User ${id} deleted`);
+        res.json({ success: true, message: 'User deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting user:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/documents/secure-url', async (req, res) => {
+    const { url } = req.body;
+    try {
+        if (!url) return res.status(400).json({ success: false, message: 'URL is required' });
+
+        // Extract Key from full URL
+        let key = url;
+        const bucketName = process.env.S3_BUCKET_NAME;
+
+        if (url.startsWith('http')) {
+            try {
+                const urlObj = new URL(url);
+                key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+                key = decodeURIComponent(key);
+
+                // Handle path-style URLs: strip bucket name if present
+                if (key.startsWith(bucketName + '/')) {
+                    key = key.substring(bucketName.length + 1);
+                }
+            } catch (e) {
+                console.warn('URL parsing failed, using raw string');
+            }
+        }
+
+        console.log(`[secure-url] Key: ${key}`);
+
+        const command = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: key,
+        });
+
+        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+        res.json({ success: true, signedUrl });
+    } catch (err) {
+        console.error('Error generating signed URL:', err);
+        res.status(500).json({ success: false, message: 'Could not generate secure link' });
+    }
+});
+
+// --- LEGAL INTAKE ENDPOINTS ---
+
+// Helper function to generate lender-specific LOA PDF
+
+
+// Helper function to standardize lender names against SPEC_LENDERS
+function standardizeLender(lenderName) {
+    if (!lenderName) return lenderName;
+    const SPEC_LENDERS = [
+        '118 118 MONEY', 'AMIGO LOANS', 'CASH EURONET', 'QUICKQUID', 'EVERYDAY LOANS',
+        'LENDING STREAM', 'LIKELY LOANS', 'LOANS 2 GO', 'MORSES CLUB',
+        'NEWDAY', 'AQUA', 'MARBLES', 'AMAZON CREDIT', 'PIGGYBANK', 'PROVIDENT', 'QUIDIE',
+        'SAFETYNET CREDIT', 'SHELBY FINANCE', 'SUNNY', 'THE MONEY SHOP',
+        'FLUID', 'VANQUIS', 'WAGE DAY ADVANCE', 'GAMBLING',
+        'BIP CREDIT CARD', 'LUMA', 'MBNA', 'OCEAN', 'REVOLUT CREDIT CARD', 'WAVE', 'ZABLE', 'ZILCH',
+        'ADMIRAL LOANS', 'ANICO FINANCE', 'AVANT CREDIT', 'BAMBOO', 'BETTER BORROW', 'CREDIT SPRING',
+        'CASH ASAP', 'CASH FLOAT', 'CAR CASH POINT', 'CREATION FINANCE', 'CASTLE COMMUNITY BANK',
+        'DRAFTY LOANS', 'EVOLUTION MONEY', 'EVERY DAY LENDING', 'FERNOVO', 'FAIR FINANCE',
+        'FINIO LOANS', 'FINTERN', 'FLURO', 'KOYO LOANS', 'LOANS BY MAL', 'LOGBOOK LENDING',
+        'LOGBOOK MONEY', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT',
+        'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK',
+        'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY',
+        'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT',
+        'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE', 'NEYBER', 'SNAP FINANCE', 'SHAWBROOK',
+        'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN',
+        'GUARANTOR MY LOAN', 'HERO LOANS', 'JUO LOANS', 'SUCO', 'UK CREDIT', '1 PLUS 1',
+        'CASH CONVERTERS', 'H&T PAWNBROKERS', 'FASHION WORLD', 'JD WILLIAMS', 'SIMPLY BE',
+        'VERY CATALOGUE', 'ADVANTAGE FINANCE', 'AUDI FINANCE', 'VOLKSWAGEN FINANCE', 'SKODA FINANCE',
+        'BLUE MOTOR FINANCE', 'CLOSE BROTHERS', 'HALIFAX', 'BANK OF SCOTLAND', 'MONEY WAY',
+        'MOTONOVO', 'MONEY BARN', 'OODLE', 'PSA FINANCE', 'RCI FINANCIAL', 'HALIFAX OVERDRAFT',
+        'BARCLAYS OVERDRAFT', 'CO-OP BANK OVERDRAFT', 'LLOYDS OVERDRAFT', 'TSB OVERDRAFT',
+        'NATWEST OVERDRAFT', 'RBS OVERDRAFT', 'HSBC OVERDRAFT', 'SANTANDER OVERDRAFT'
+    ];
+    // Case-insensitive match, checking if the trimmed input equals any of the specified lenders
+    const match = SPEC_LENDERS.find(l => l.toLowerCase() === lenderName.trim().toLowerCase());
+    return match || lenderName;
+}
+
+// Helper function to send LOA email
+async function sendLOAEmail(toEmail, clientName, loaLink) {
+    const mailOptions = {
+        from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+        to: toEmail,
+        subject: 'Complete Your Lender Selection - Rowan Rose Solicitors',
+        html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; }
+                .wrapper { width: 100%; table-layout: fixed; background-color: #f8fafc; padding: 40px 20px; }
+                .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 620px; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0; }
+                .header { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px 45px; text-align: center; }
+                .logo-text { font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase; }
+                .content { padding: 48px 45px; background: #ffffff; }
+                h1 { color: #0f172a; font-size: 28px; margin-top: 0; margin-bottom: 6px; font-weight: 700; letter-spacing: -0.5px; }
+                .subtitle { color: #64748b; font-size: 16px; margin-bottom: 30px; font-weight: 500; }
+                p { font-size: 18px; line-height: 1.75; margin-bottom: 16px; color: #475569; }
+                .greeting { font-size: 20px; color: #1e293b; margin-bottom: 16px; }
+                .highlight-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 26px 30px; margin: 32px 0; border-radius: 0 14px 14px 0; }
+                .highlight-text { font-weight: 700; color: #b45309; margin: 0; display: block; font-size: 20px; letter-spacing: -0.3px; }
+                .highlight-box p { color: #92400e; margin-bottom: 0; margin-top: 12px; font-size: 17px; line-height: 1.6; }
+                .info-box { background: #f0f9ff; border: 1px solid #bae6fd; padding: 20px 24px; border-radius: 12px; margin: 24px 0; }
+                .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
+                .info-box strong { color: #075985; }
+                .btn-container { text-align: center; margin: 40px 0 32px 0; }
+                .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+                .expiry-note { font-size: 14px; color: #ef4444; font-weight: 600; margin-top: 14px; display: block; }
+                .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
+                .signature { margin-top: 8px; }
+                .signature p { margin-bottom: 4px; font-size: 18px; }
+                .footer { background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 32px 40px; text-align: center; border-top: 1px solid #e2e8f0; }
+                .footer p { margin: 5px 0; font-size: 14px; color: #64748b; }
+                .footer-brand { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 8px !important; }
+                .footer a { color: #f97316; text-decoration: none; font-weight: 600; }
+                .footer a:hover { text-decoration: underline; }
+                .footer-sra { font-size: 12px; color: #94a3b8; margin-top: 12px !important; }
+            </style>
+        </head>
+        <body>
+            <div class="wrapper">
+                <div class="main">
+                    <div class="header">
+                        <p class="logo-text">Rowan Rose Solicitors</p>
+                    </div>
+                    <div class="content">
+                        <h1>Your Claim is Being Processed</h1>
+                        <p class="subtitle">Expert Legal Support for Your Financial Claims</p>
+
+                        <p class="greeting">Dear ${clientName},</p>
+                        <p>Thank you for choosing Rowan Rose Solicitors. We are currently reviewing your initial information and preparing your case.</p>
+
+                        <div class="highlight-box">
+                            <span class="highlight-text">Action Required: Select Additional Lenders</span>
+                            <p>To maximize your potential compensation, please tell us about any other lenders you have used in the last 15 years.</p>
+                        </div>
+
+                        <div class="info-box">
+                            <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case and can increase your compensation.</p>
+                        </div>
+
+                        <div class="btn-container">
+                            <a href="${loaLink}" class="btn">Complete Lender Selection</a>
+                            <span class="expiry-note">This secure link expires in 7 days</span>
+                        </div>
+
+                        <div class="divider"></div>
+
+                        <p>If you have any questions, our dedicated team is here to assist you.</p>
+                        <div class="signature">
+                            <p>Kind regards,</p>
+                            <p><strong>The Rowan Rose Solicitors Team</strong></p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p class="footer-brand">Rowan Rose Solicitors</p>
+                        <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                        <p><a href="tel:01615331706">0161 533 1706</a> &nbsp;|&nbsp; <a href="mailto:irl@rowanrose.co.uk">irl@rowanrose.co.uk</a></p>
+                        <p class="footer-sra">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        `
+    };
+
+    // DRAFT MODE: Skip sending if enabled
+    if (EMAIL_DRAFT_MODE) {
+        console.log(`📝 DRAFT MODE: LOA Email NOT sent to ${toEmail}`);
+        console.log(`📝 Subject: ${mailOptions.subject}`);
+        console.log(`📝 Link: ${loaLink}`);
+        return { success: true, draft: true, message: 'Email in DRAFT mode - not sent' };
+    }
+
+    const info = await emailTransporter.sendMail(mailOptions);
+    console.log('✅ Email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+}
+
+app.post('/api/submit-page1', async (req, res) => {
+    const {
+        first_name, last_name, phone, email, date_of_birth,
+        street_address, city, state_county, postal_code, signature_data,
+        address_line_1, address_line_2, // Still accepting these for safety or mapping
+        lender_type // NEW: Accept lender type from form
+    } = req.body;
+
+    if (!first_name || !last_name || !signature_data) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // 1. Insert into contacts table with source = 'Client Filled' and intake_lender
+        // Auto-generate sales_signature_token
+        const { randomUUID } = await import('crypto');
+        const salesToken = randomUUID();
+        const insertQuery = `
+                                INSERT INTO contacts
+                                (first_name, last_name, full_name, phone, email, dob, address_line_1, address_line_2, city, state_county, postal_code, source, intake_lender, sales_signature_token)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Client Filled', $12, $13)
+                                RETURNING id
+                                `;
+        const fullName = `${first_name} ${last_name}`;
+        const finalAddressLine1 = street_address || address_line_1 || '';
+        const finalCity = city || '';
+        const finalState = state_county || '';
+        const finalAddressLine2 = address_line_2 || [finalCity, finalState].filter(Boolean).join(', ');
+
+        // Robust Date Formatting: Ensure YYYY-MM-DD
+        let formattedDob = date_of_birth;
+        if (date_of_birth && date_of_birth.includes('-')) {
+            const parts = date_of_birth.split('-');
+            if (parts.length === 3) {
+                // If it looks like DD-MM-YYYY (parts[0] is day, parts[2] is year)
+                if (parts[0].length === 2 && parts[2].length === 4) {
+                    formattedDob = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+                // If it's already YYYY-MM-DD, keep it
+            }
+        }
+
+        const values = [
+            first_name, last_name, fullName, phone, email, formattedDob,
+            finalAddressLine1, finalAddressLine2, finalCity, finalState, postal_code,
+            lender_type || null, // Add lender type
+            salesToken // Add sales_signature_token
+        ];
+
+        const dbRes = await pool.query(insertQuery, values);
+        const contactId = dbRes.rows[0].id;
+        const folderPath = `${first_name}_${last_name}_${contactId}/`;
+
+        // --- IMMEDIATE RESPONSE TO CLIENT ---
+        // We respond NOW so the user doesn't wait for PDF generation/Uploads
+        res.json({ success: true, contact_id: contactId, folder_path: folderPath });
+
+        // --- BACKGROUND PROCESSING ---
+        // Explicitly NOT awaiting this block so it runs in background
+        (async () => {
+            try {
+                console.log(`[Background] Starting processing for contact ${contactId} (${fullName})...`);
+
+                // 3. Upload Signature to S3: user_id/Signatures/signature.png
+                const signatureBufferWithTimestamp = await addTimestampToSignature(signature_data);
+                const signatureKey = `${folderPath}Signatures/signature.png`;
+
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: signatureKey,
+                    Body: signatureBufferWithTimestamp,
+                    ContentType: 'image/png'
+                }));
+
+                const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
+
+                // 4. Generate T&C PDF using Puppeteer (HTML to PDF)
+                let logoBase64 = null;
+                try {
+                    const logoPath = path.join(__dirname, 'public', 'rowan-rose-logo.png');
+                    const logoBuffer = await fs.promises.readFile(logoPath);
+                    logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+                } catch (e) {
+                    console.warn('[Background] Logo not found, PDF will be generated without logo');
+                }
+
+                // Prepare client data for HTML generation
+                const clientData = {
+                    first_name,
+                    last_name,
+                    street_address: finalAddressLine1,
+                    address_line_2: finalAddressLine2,
+                    city: finalCity,
+                    state_county: finalState,
+                    postal_code,
+                    phone
+                };
+
+                // Generate HTML content
+                const htmlContent = await generateTermsHTML(clientData, logoBase64);
+
+                // Generate PDF using Puppeteer
+                const browser = await puppeteer.launch({
+                    headless: true,
+                    args: ['--no-sandbox', '--disable-setuid-sandbox']
+                });
+
+                const page = await browser.newPage();
+                await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+                const pdfBuffer = await page.pdf({
+                    format: 'A4',
+                    margin: {
+                        top: '10mm',
+                        right: '10mm',
+                        bottom: '10mm',
+                        left: '10mm'
+                    },
+                    printBackground: true,
+                    preferCSSPageSize: false
+                });
+
+                await browser.close();
+
+                const tcKey = `${folderPath}Terms-and-Conditions/Terms.pdf`;
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: tcKey,
+                    Body: pdfBuffer,
+                    ContentType: 'application/pdf'
+                }));
+
+                // Update signature URL in DB
+                await pool.query('UPDATE contacts SET signature_url = $1, signature_2_url = $1 WHERE id = $2', [signatureUrl, contactId]);
+
+                // Insert Signature into documents table
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                                        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, 'Signature.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Signed']]
+                );
+
+                // Save T&C PDF to documents table
+                const tcUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: tcKey }), { expiresIn: 604800 });
+                const tcDocName = `${first_name} ${last_name} Terms and Conditions.pdf`;
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                                        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, tcDocName, 'pdf', 'Legal', tcUrl, 'Auto-generated', ['T&C', 'Signed']]
+                );
+
+                // 5. NEW: If lender_type is provided, create a claim and generate LOA
+                if (lender_type) {
+                    const finalLender = standardizeLender(lender_type);
+                    // Create claim for this lender - status is 'Extra Lender Selection Form Sent' until form is submitted
+                    // Set dsar_send_after to 2 minutes from now (skip for GAMBLING)
+                    const dsarSendAfter = finalLender.toUpperCase() !== 'GAMBLING'
+                        ? new Date(Date.now() + 2 * 60 * 1000)
+                        : null;
+                    const claimRes = await pool.query(
+                        `INSERT INTO cases (contact_id, lender, status, loa_generated, dsar_send_after)
+                                        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+                        [contactId, finalLender, 'Extra Lender Selection Form Sent', false, dsarSendAfter]
+                    );
+                    const claimId = claimRes.rows[0].id;
+
+                    console.log(`[Server] Created claim ${claimId} for ${lender_type}. Offloading PDF generation to worker.`);
+
+                    // 6. Create submission token for additional lender selection
+                    const { randomUUID } = await import('crypto');
+                    const token = randomUUID();
+                    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+                    await pool.query(
+                        `INSERT INTO submission_tokens (token, contact_id, lender, expires_at)
+                                        VALUES ($1, $2, $3, $4)`,
+                        [token, contactId, lender_type, expiresAt]
+                    );
+
+                    // 7. Send email with unique link
+                    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+                    const uniqueLink = `${baseUrl}/loa-form/${token}`;
+
+                    try {
+                        await sendLOAEmail(email, fullName, uniqueLink);
+                        console.log(`[Background] ✅ Sent LOA email to ${email} with link: ${uniqueLink}`);
+                    } catch (emailError) {
+                        console.error('[Background] ⚠️  Email failed:', emailError.message);
+                    }
+                }
+
+                // Create action log entry for contact creation via intake form
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [
+                        contactId,
+                        'client',
+                        contactId.toString(),
+                        fullName,
+                        'contact_created',
+                        'account',
+                        `Created by - Intake Form`,
+                        JSON.stringify({ source: 'Client Filled', email, phone, lender_type })
+                    ]
+                );
+
+                console.log(`[Background] ✅ ALL TASKS COMPLETED for contact ${contactId}`);
+
+            } catch (err) {
+                console.error('[Background] ❌ Background Processing Error:', err);
+                // Optional: Update DB to flag error state if we had a status column
+            }
+        })();
+
+    } catch (error) {
+        console.error('Submit Page1 Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+app.get('/api/verify-loa-token/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT st.lender, st.expires_at, c.first_name, c.last_name, c.loa_submitted
+             FROM submission_tokens st
+             JOIN contacts c ON st.contact_id = c.id
+             WHERE st.token = $1`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid token' });
+        }
+
+        const data = result.rows[0];
+        const now = new Date();
+        const expiresAt = new Date(data.expires_at);
+
+        if (now > expiresAt) {
+            return res.status(410).json({ success: false, message: 'Token expired' });
+        }
+
+        if (data.loa_submitted) {
+            return res.status(400).json({ success: false, message: 'LOA already submitted', alreadySubmitted: true });
+        }
+
+        res.json({
+            success: true,
+            lender: data.lender,
+            clientName: `${data.first_name} ${data.last_name}`
+        });
+    } catch (error) {
+        console.error('Verify Token Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+app.post('/api/upload-document', upload.single('document'), async (req, res) => {
+    const { contact_id } = req.body;
+    const file = req.file;
+
+    if (!file || !contact_id) {
+        return res.status(400).json({ success: false, message: 'Missing file or contact ID' });
+    }
+
+    try {
+        // Fetch contact name for folder
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contact_id]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+        const { first_name, last_name } = contactRes.rows[0];
+
+        // Rename file to document_contactid.ext for S3 storage
+        const originalName = file.originalname;
+        const ext = path.extname(originalName);
+        const s3BaseName = `document_${contact_id}`;
+
+        // Versioning Logic - check if document_contactid.ext already exists
+        let s3FileName = `${s3BaseName}${ext}`;
+        let displayName = originalName; // Keep original name for display in CRM
+
+        const nameCheck = await pool.query(
+            `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2`,
+            [contact_id, `${s3BaseName}%${ext}`]
+        );
+
+        if (nameCheck.rows.length > 0) {
+            // File exists, append version number
+            let maxVersion = 0;
+            const regex = new RegExp(`^document_${contact_id}(?: \\((\\d+)\\))?\\${ext}$`);
+
+            nameCheck.rows.forEach(row => {
+                const match = row.name.match(regex);
+                if (match) {
+                    const ver = match[1] ? parseInt(match[1]) : 0;
+                    if (ver >= maxVersion) maxVersion = ver;
+                }
+            });
+
+            s3FileName = `${s3BaseName} (${maxVersion + 1})${ext}`;
+        }
+
+        const key = `${first_name}_${last_name}_${contact_id}/Documents/${s3FileName}`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
+
+        // Store with s3FileName as the name (so S3 key and DB name match for sync/retrieval)
+        const { rows } = await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [contact_id, s3FileName, file.mimetype.split('/')[1] || 'unknown', 'Client', s3Url, `${(file.size / 1024).toFixed(1)} KB`, ['Uploaded', `Original: ${originalName}`]]
+        );
+
+        console.log(`[Upload] Renamed "${originalName}" → "${s3FileName}" for contact ${contact_id}`);
+        res.json({ success: true, url: s3Url, document: rows[0] });
+    } catch (error) {
+        console.error('Upload Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// --- AI ASSISTANT DOCUMENT UPLOAD BY NAME ---
+// Accepts a PDF with filename format "Full Name - Lender Name.pdf"
+// Matches contact by name, finds or creates claim for the lender, uploads to S3
+
+app.post('/api/upload-document-by-name', upload.single('document'), async (req, res) => {
+    const { contact_id, lender_name, original_name } = req.body;
+    const file = req.file;
+
+    if (!file || !contact_id || !lender_name) {
+        return res.status(400).json({ success: false, message: 'Missing file, contact_id, or lender_name' });
+    }
+
+    try {
+        // 1. Get contact info
+        const contactRes = await pool.query('SELECT * FROM contacts WHERE id = $1', [contact_id]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+        const contact = contactRes.rows[0];
+
+        // 2. Find or create claim for this lender
+        let claimRes = await pool.query(
+            'SELECT * FROM cases WHERE contact_id = $1 AND LOWER(lender) = LOWER($2) LIMIT 1',
+            [contact_id, lender_name]
+        );
+
+        let claim;
+        let claimCreated = false;
+
+        if (claimRes.rows.length === 0) {
+            // Auto-create claim for this lender with default status
+            const newClaim = await pool.query(
+                `INSERT INTO cases (contact_id, lender, status, claim_value) VALUES ($1, $2, 'New Lead', 0) RETURNING *`,
+                [contact_id, lender_name]
+            );
+            claim = newClaim.rows[0];
+            claimCreated = true;
+            console.log(`[Upload-by-Name] Auto-created claim for contact ${contact_id}, lender "${lender_name}"`);
+        } else {
+            claim = claimRes.rows[0];
+        }
+
+        // 3. Upload to S3 under contact folder
+        const firstName = contact.first_name || '';
+        const lastName = contact.last_name || '';
+        const docName = original_name || file.originalname;
+        const key = `${firstName}_${lastName}_${contact_id}/Documents/${docName}`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
+
+        // 4. Record in documents table with lender tag
+        const docRes = await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [contact_id, docName, 'pdf', 'Client', s3Url,
+                `${(file.size / 1024).toFixed(1)} KB`,
+                ['Uploaded', `Lender: ${lender_name}`, `Claim: ${claim.id}`]]
+        );
+
+        console.log(`[Upload-by-Name] "${docName}" uploaded for contact ${contact_id} (${contact.full_name || firstName + ' ' + lastName}), lender "${lender_name}"`);
+
+        res.json({
+            success: true,
+            document: docRes.rows[0],
+            claim: claim,
+            claimCreated: claimCreated,
+            contactName: contact.full_name || `${firstName} ${lastName}`,
+            lender: lender_name
+        });
+    } catch (error) {
+        console.error('Upload by name error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// --- CRM MANUAL UPLOADS ---
+
+app.post('/api/upload-manual', upload.single('document'), async (req, res) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ success: false, message: 'No file' });
+
+    try {
+        // Folder: /Manually Added in CRM/
+        const fileKey = `Manually Added in CRM/${Date.now()}_${file.originalname}`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: fileKey,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey }), { expiresIn: 604800 });
+
+        // Save to DB
+        await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [null, file.originalname, file.originalname.split('.').pop().toLowerCase(), 'Other', url, `${(file.size / 1024).toFixed(2)} KB`, ['Manual']]
+        );
+
+        res.json({ success: true, url });
+    } catch (error) {
+        console.error('Manual Upload Error:', error);
+        res.status(500).json({ success: false });
+    }
+});
+
+// --- DOCUMENT GETTERS ---
+
+app.get('/api/documents', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM documents ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/contacts/:id/documents', async (req, res) => {
+    try {
+        const contactId = req.params.id;
+        // Clean up duplicates first (keep newest record for each filename)
+        await pool.query(
+            `DELETE FROM documents WHERE id NOT IN (
+                SELECT MAX(id) FROM documents WHERE contact_id = $1 GROUP BY name
+            ) AND contact_id = $1`,
+            [contactId]
+        );
+        const { rows } = await pool.query('SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC', [contactId]);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- S3 DOCUMENT SYNC ---
+// Sync S3 documents folder to database for a specific contact
+app.post('/api/contacts/:id/sync-documents', async (req, res) => {
+    const contactId = req.params.id;
+
+    try {
+        // 1. Get contact info for folder path
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+
+        const { first_name, last_name } = contactRes.rows[0];
+        const baseFolder = `${first_name}_${last_name}_${contactId}/`;
+        // Scan both Documents/ and LOA/ subfolders
+        const foldersToScan = [
+            { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
+            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' }
+        ];
+
+        console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}`);
+
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+
+        // 2. Clean up any duplicate documents for this contact (keep newest)
+        await pool.query(
+            `DELETE FROM documents WHERE id NOT IN (
+                SELECT MAX(id) FROM documents WHERE contact_id = $1 GROUP BY name
+            ) AND contact_id = $1`,
+            [contactId]
+        );
+
+        // 3. Get existing documents from DB
+        const existingDocs = await pool.query(
+            'SELECT name FROM documents WHERE contact_id = $1',
+            [contactId]
+        );
+        const existingNames = new Set(existingDocs.rows.map(d => d.name));
+
+        let syncedCount = 0;
+        let totalCount = 0;
+
+        for (const folder of foldersToScan) {
+            const listCommand = new ListObjectsV2Command({
+                Bucket: BUCKET_NAME,
+                Prefix: folder.prefix
+            });
+
+            const listedObjects = await s3Client.send(listCommand);
+            if (!listedObjects.Contents) continue;
+
+            totalCount += listedObjects.Contents.length;
+
+            for (const obj of listedObjects.Contents) {
+                const fileName = obj.Key.split('/').pop();
+                if (!fileName || existingNames.has(fileName)) continue;
+                if (obj.Key.endsWith('/')) continue;
+
+                // Generate signed URL
+                const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: obj.Key
+                }), { expiresIn: 604800 });
+
+                // Determine file type from extension
+                const ext = fileName.split('.').pop()?.toLowerCase() || 'unknown';
+                const typeMap = {
+                    'pdf': 'pdf', 'doc': 'docx', 'docx': 'docx',
+                    'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image',
+                    'xls': 'spreadsheet', 'xlsx': 'spreadsheet',
+                    'txt': 'txt', 'html': 'html'
+                };
+                const fileType = typeMap[ext] || 'unknown';
+
+                // Auto-detect category from filename
+                let category = folder.defaultCategory;
+                if (fileName.includes('Cover_Letter')) category = 'Cover Letter';
+                else if (fileName.includes('_LOA')) category = 'LOA';
+
+                // Extract lender name from LOA/Cover Letter filenames for tags
+                const tags = ['Synced from S3'];
+                if (category === 'LOA' || category === 'Cover Letter') {
+                    const lenderMatch = fileName.replace('_LOA.pdf', '').replace('_Cover_Letter.pdf', '').replace(/_/g, ' ');
+                    if (lenderMatch) tags.push(lenderMatch);
+                }
+
+                const sizeKB = obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown';
+
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, fileName, fileType, category, signedUrl, sizeKB, tags]
+                );
+
+                syncedCount++;
+                existingNames.add(fileName);
+                console.log(`[Sync] Added: ${fileName} (${category})`);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Synced ${syncedCount} new documents`,
+            synced: syncedCount,
+            total: totalCount
+        });
+
+    } catch (error) {
+        console.error('[Sync] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Cleanup documents with invalid S3 paths (like client.landing.page)
+app.post('/api/documents/cleanup-invalid', async (req, res) => {
+    try {
+        // Find documents with invalid paths
+        const { rows: invalidDocs } = await pool.query(
+            `SELECT id, name, url FROM documents WHERE url LIKE '%client.landing.page%'`
+        );
+
+        if (invalidDocs.length === 0) {
+            return res.json({ success: true, message: 'No invalid documents found', deleted: 0 });
+        }
+
+        // Delete them
+        await pool.query(`DELETE FROM documents WHERE url LIKE '%client.landing.page%'`);
+
+        console.log(`[Cleanup] Deleted ${invalidDocs.length} documents with invalid S3 paths`);
+        res.json({
+            success: true,
+            message: `Deleted ${invalidDocs.length} documents with invalid storage paths`,
+            deleted: invalidDocs.length,
+            deletedDocs: invalidDocs.map(d => d.name)
+        });
+    } catch (error) {
+        console.error('[Cleanup] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// --- CONTACTS & CASES API ---
+
+// Reference map for Google Apps Script (Drive → S3 migration)
+// Returns { "reference_number": { id, first_name, last_name }, ... }
+// Splits comma-separated references so each one maps individually
+app.get('/api/contacts/reference-map', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            "SELECT id, first_name, last_name, reference FROM contacts WHERE reference IS NOT NULL AND reference != ''"
+        );
+        const map = {};
+        for (const row of rows) {
+            const refs = row.reference.split(',').map(r => r.trim()).filter(Boolean);
+            for (const ref of refs) {
+                map[ref] = { id: row.id, first_name: row.first_name, last_name: row.last_name };
+            }
+        }
+        res.json(map);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/contacts', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT c.*,
+            (
+                SELECT json_agg(pa.*)
+                FROM previous_addresses pa
+                WHERE pa.contact_id = c.id
+            ) as previous_addresses_list
+            FROM contacts c
+            ORDER BY c.updated_at DESC
+        `);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// OPTIMIZED: Get initial data with paginated contacts (not all 92K at once)
+app.get('/api/init-data', async (req, res) => {
+    try {
+        const limit = 50;
+        // Run queries in parallel for maximum performance
+        const [contactsResult, totalResult, casesResult] = await Promise.all([
+            // First page of contacts only
+            pool.query(`
+                SELECT c.*,
+                       COALESCE(
+                           (SELECT json_agg(pa.*) FROM previous_addresses pa WHERE pa.contact_id = c.id),
+                           '[]'::json
+                       ) as previous_addresses_list
+                FROM contacts c
+                ORDER BY c.updated_at DESC
+                LIMIT ${limit}
+            `),
+            pool.query(`SELECT COUNT(*) as total FROM contacts`),
+            // All cases
+            pool.query(`
+                SELECT id, contact_id, lender, status, claim_value, product_type, created_at
+                FROM cases
+                ORDER BY created_at DESC
+            `)
+        ]);
+
+        const total = parseInt(totalResult.rows[0].total);
+
+        res.json({
+            contacts: contactsResult.rows,
+            contactsPagination: {
+                page: 1,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasMore: 1 < Math.ceil(total / limit)
+            },
+            cases: casesResult.rows,
+            actionLogs: [], // Lazy load per contact
+            documents: []  // Lazy load per contact
+        });
+    } catch (err) {
+        console.error('Error fetching init data:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Server-side paginated contacts with multi-field search
+app.get('/api/contacts/paginated', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = (page - 1) * limit;
+
+        // Support both single 'search' param and individual field params
+        const search = req.query.search || '';
+        const firstName = req.query.firstName || '';
+        const lastName = req.query.lastName || '';
+        const fullName = req.query.fullName || '';
+        const phone = req.query.phone || '';
+        const postcode = req.query.postcode || '';
+        const clientId = req.query.clientId || '';
+
+        const conditions = [];
+        const params = [];
+        let paramIdx = 1;
+
+        if (search) {
+            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx})`);
+            params.push(`%${search}%`);
+            paramIdx++;
+        }
+        if (firstName) {
+            conditions.push(`c.first_name ILIKE $${paramIdx}`);
+            params.push(`%${firstName}%`);
+            paramIdx++;
+        }
+        if (lastName) {
+            conditions.push(`c.last_name ILIKE $${paramIdx}`);
+            params.push(`%${lastName}%`);
+            paramIdx++;
+        }
+        if (fullName) {
+            conditions.push(`c.full_name ILIKE $${paramIdx}`);
+            params.push(`%${fullName}%`);
+            paramIdx++;
+        }
+        if (phone) {
+            conditions.push(`c.phone ILIKE $${paramIdx}`);
+            params.push(`%${phone}%`);
+            paramIdx++;
+        }
+        if (postcode) {
+            conditions.push(`c.postal_code ILIKE $${paramIdx}`);
+            params.push(`%${postcode}%`);
+            paramIdx++;
+        }
+        if (clientId) {
+            conditions.push(`(c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx})`);
+            params.push(`%${clientId}%`);
+            paramIdx++;
+        }
+
+        const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+        const [contactsResult, totalResult] = await Promise.all([
+            pool.query(`
+                SELECT c.*,
+                       COALESCE(
+                           (SELECT json_agg(pa.*) FROM previous_addresses pa WHERE pa.contact_id = c.id),
+                           '[]'::json
+                       ) as previous_addresses_list
+                FROM contacts c
+                ${whereClause}
+                ORDER BY c.updated_at DESC
+                LIMIT ${limit} OFFSET ${offset}
+            `, params),
+            pool.query(`SELECT COUNT(*) as total FROM contacts c ${whereClause}`, params)
+        ]);
+
+        const total = parseInt(totalResult.rows[0].total);
+
+        res.json({
+            contacts: contactsResult.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasMore: page < Math.ceil(total / limit)
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching paginated contacts:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/contacts', async (req, res) => {
+    const { first_name, last_name, full_name, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code, source, previous_addresses } = req.body;
+
+    // Handle full_name: use provided full_name, or construct from first_name + last_name
+    let finalFullName = full_name;
+    let finalFirstName = first_name;
+    let finalLastName = last_name;
+
+    if (!finalFullName && (first_name || last_name)) {
+        finalFullName = [first_name, last_name].filter(Boolean).join(' ');
+    }
+
+    // If only fullName was provided, try to split it into first/last name
+    if (finalFullName && !finalFirstName && !finalLastName) {
+        const nameParts = finalFullName.trim().split(' ');
+        if (nameParts.length >= 2) {
+            finalFirstName = nameParts[0];
+            finalLastName = nameParts.slice(1).join(' ');
+        } else {
+            finalFirstName = finalFullName;
+        }
+    }
+
+    console.log('[Server POST /api/contacts] Request body:', req.body);
+    console.log('[Server POST /api/contacts] Parsed values:', { finalFirstName, finalLastName, finalFullName, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code, source, previous_addresses });
+
+    if (!finalFullName && !finalFirstName) {
+        return res.status(400).json({ error: 'Name is required (provide full_name or first_name)' });
+    }
+
+    try {
+        // Ensure previous_addresses is properly formatted for JSONB column
+        let prevAddrsJson = null;
+        if (previous_addresses) {
+            // If it's already a string, parse and re-stringify to validate
+            // If it's an array/object, stringify it
+            if (typeof previous_addresses === 'string') {
+                try {
+                    JSON.parse(previous_addresses); // validate
+                    prevAddrsJson = previous_addresses;
+                } catch {
+                    prevAddrsJson = null;
+                }
+            } else {
+                prevAddrsJson = JSON.stringify(previous_addresses);
+            }
+        }
+
+        // Auto-generate sales_signature_token for new contacts
+        const { randomUUID } = await import('crypto');
+        const salesToken = randomUUID();
+
+        const { rows } = await pool.query(
+            `INSERT INTO contacts (first_name, last_name, full_name, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code, source, previous_addresses, sales_signature_token)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+            [finalFirstName || null, finalLastName || null, finalFullName, email || null, phone || null, dob || null, address_line_1 || null, address_line_2 || null, city || null, state_county || null, postal_code || null, source || 'Manual Input', prevAddrsJson, salesToken]
+        );
+        console.log('[Server POST /api/contacts] Inserted row:', rows[0]);
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/contacts/:id', async (req, res) => {
+    const { id } = req.params;
+    const { first_name, last_name, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code } = req.body;
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (first_name !== undefined) { updates.push(`first_name = $${paramCount++}`); values.push(first_name); }
+        if (last_name !== undefined) { updates.push(`last_name = $${paramCount++}`); values.push(last_name); }
+        if (first_name !== undefined || last_name !== undefined) {
+            updates.push(`full_name = $${paramCount++}`);
+            values.push(`${first_name || ''} ${last_name || ''}`.trim());
+        }
+        if (email !== undefined) { updates.push(`email = $${paramCount++}`); values.push(email); }
+        if (phone !== undefined) { updates.push(`phone = $${paramCount++}`); values.push(phone); }
+        if (dob !== undefined) { updates.push(`dob = $${paramCount++}`); values.push(dob); }
+        if (address_line_1 !== undefined) { updates.push(`address_line_1 = $${paramCount++}`); values.push(address_line_1); }
+        if (address_line_2 !== undefined) { updates.push(`address_line_2 = $${paramCount++}`); values.push(address_line_2); }
+        if (city !== undefined) { updates.push(`city = $${paramCount++}`); values.push(city); }
+        if (state_county !== undefined) { updates.push(`state_county = $${paramCount++}`); values.push(state_county); }
+        if (postal_code !== undefined) { updates.push(`postal_code = $${paramCount++}`); values.push(postal_code); }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        values.push(id);
+        const query = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+        res.json(rows[0]);
+    } catch (err) {
+        console.error('Error updating contact:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/contacts/:id/cases', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM cases WHERE contact_id = $1', [req.params.id]);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/contacts/:id/cases', async (req, res) => {
+    const { case_number, lender, status, claim_value, product_type, account_number, start_date } = req.body;
+    try {
+        // Set dsar_send_after to now (no delay for CRM-created claims; skip for GAMBLING)
+        const dsarSendAfter = lender && lender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+        const { rows } = await pool.query(
+            `INSERT INTO cases (contact_id, case_number, lender, status, claim_value, product_type, account_number, start_date, loa_generated, dsar_send_after)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9) RETURNING *`,
+            [req.params.id, case_number, lender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
+        );
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DSAR STATUS & RETRY ENDPOINTS ---
+// Check DSAR status for a contact's cases
+app.get('/api/contacts/:id/dsar-status', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, lender, loa_generated, dsar_sent, dsar_send_after, status, created_at
+             FROM cases WHERE contact_id = $1 ORDER BY created_at DESC`,
+            [req.params.id]
+        );
+        res.json({ cases: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Reset DSAR for a specific case (allows re-sending)
+app.post('/api/cases/:id/reset-dsar', async (req, res) => {
+    try {
+        await pool.query(
+            `UPDATE cases SET dsar_sent = false, status = 'DSAR Prepared' WHERE id = $1`,
+            [req.params.id]
+        );
+        res.json({ success: true, message: `DSAR reset for case ${req.params.id}. Worker will re-send within 60 seconds.` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- BULK IMPORT: PDF PARSING ENDPOINT ---
+
+app.post('/api/parse-pdf-contacts', upload.single('document'), async (req, res) => {
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    try {
+        // Convert buffer to base64 for Claude
+        const base64Content = file.buffer.toString('base64');
+        const mediaType = file.mimetype || 'application/pdf';
+
+        // Use Claude to extract contact information from PDF
+        const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 8192,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "document",
+                            source: {
+                                type: "base64",
+                                media_type: mediaType,
+                                data: base64Content
+                            }
+                        },
+                        {
+                            type: "text",
+                            text: `Extract ALL contact information from this document. Look for:
+                                - Names (first name, last name, full name)
+                                - Email addresses
+                                - Phone numbers
+                                - Addresses (street address, city, postal code)
+                                - Any lender/bank names mentioned
+                                - Any monetary amounts that could be claim values
+
+                                Return a JSON array where each object represents a contact with these fields:
+                                {
+                                    "fullName": "string",
+                                "firstName": "string",
+                                "lastName": "string",
+                                "email": "string",
+                                "phone": "string",
+                                "addressLine1": "string",
+                                "city": "string",
+                                "postalCode": "string",
+                                "lender": "string",
+                                "claimValue": number or null
+}
+
+                                IMPORTANT:
+                                - Return ONLY a valid JSON array, no markdown code blocks or explanation
+                                - If a field is not found, use empty string "" for text fields or null for numbers
+                                - Extract as many contacts as you can find
+                                - If the document contains a table or list of contacts, extract each one
+                                - Parse UK phone formats (07xxx, 01xxx, +44)
+                                - Parse UK postcodes
+                                - If only a full name is available, try to split into firstName and lastName`
+                        }
+                    ]
+                }
+            ]
+        });
+
+        // Extract the text response
+        const responseText = response.content
+            .filter(block => block.type === "text")
+            .map(block => block.text)
+            .join("");
+
+        // Clean up and parse JSON
+        let jsonStr = responseText.trim();
+
+        // Remove markdown code blocks if present
+        if (jsonStr.startsWith("```json")) {
+            jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "");
+        } else if (jsonStr.startsWith("```")) {
+            jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "");
+        }
+
+        const contacts = JSON.parse(jsonStr.trim());
+
+        if (!Array.isArray(contacts)) {
+            throw new Error('Invalid response format - expected array');
+        }
+
+        res.json({
+            success: true,
+            contacts: contacts,
+            count: contacts.length
+        });
+
+    } catch (error) {
+        console.error('PDF Parse Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to parse PDF',
+            contacts: []
+        });
+    }
+});
+
+// --- BULK IMPORT: CSV/Text Parsing with AI Enhancement ---
+
+app.post('/api/parse-text-contacts', async (req, res) => {
+    const { text } = req.body;
+
+    if (!text) {
+        return res.status(400).json({ success: false, message: 'No text provided' });
+    }
+
+    try {
+        // Use Claude to extract contact information from unstructured text
+        const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 8192,
+            messages: [
+                {
+                    role: "user",
+                    content: `Extract ALL contact information from this text data. The text may be from a CSV, spreadsheet, or unstructured document.
+
+                                Text to parse:
+                                ${text.substring(0, 50000)}
+
+                                Return a JSON array where each object represents a contact with these fields:
+                                {
+                                    "fullName": "string",
+                                "firstName": "string",
+                                "lastName": "string",
+                                "email": "string",
+                                "phone": "string",
+                                "addressLine1": "string",
+                                "city": "string",
+                                "postalCode": "string",
+                                "lender": "string",
+                                "claimValue": number or null
+}
+
+                                IMPORTANT:
+                                - Return ONLY a valid JSON array, no markdown code blocks or explanation
+                                - If a field is not found, use empty string "" for text fields or null for numbers
+                                - Extract as many contacts as you can find
+                                - Parse UK phone formats (07xxx, 01xxx, +44)
+                                - Parse UK postcodes
+                                - If only a full name is available, try to split into firstName and lastName`
+                }
+            ]
+        });
+
+        // Extract the text response
+        const responseText = response.content
+            .filter(block => block.type === "text")
+            .map(block => block.text)
+            .join("");
+
+        // Clean up and parse JSON
+        let jsonStr = responseText.trim();
+
+        if (jsonStr.startsWith("```json")) {
+            jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "");
+        } else if (jsonStr.startsWith("```")) {
+            jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "");
+        }
+
+        const contacts = JSON.parse(jsonStr.trim());
+
+        res.json({
+            success: true,
+            contacts: contacts,
+            count: contacts.length
+        });
+
+    } catch (error) {
+        console.error('Text Parse Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to parse text',
+            contacts: []
+        });
+    }
+});
+
+// --- BULK IMPORT: Batch Contact Creation ---
+
+app.post('/api/contacts/bulk', async (req, res) => {
+    const { contacts } = req.body;
+
+    if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
+        return res.status(400).json({ success: false, message: 'No contacts provided' });
+    }
+
+    const { randomUUID } = await import('crypto');
+
+    const results = {
+        created: 0,
+        failed: 0,
+        errors: []
+    };
+
+    // Prepare valid contacts and track invalid ones
+    const validContacts = [];
+    for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        const fullName = contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+
+        if (!fullName) {
+            results.failed++;
+            results.errors.push({ row: i + 1, error: 'Name is required' });
+            continue;
+        }
+
+        validContacts.push({
+            index: i,
+            firstName: contact.firstName || null,
+            lastName: contact.lastName || null,
+            fullName,
+            email: contact.email || null,
+            phone: contact.phone || null,
+            dateOfBirth: contact.dateOfBirth || null,
+            addressLine1: contact.addressLine1 || null,
+            addressLine2: contact.addressLine2 || null,
+            city: contact.city || null,
+            stateCounty: contact.stateCounty || null,
+            postalCode: contact.postalCode || null,
+            salesToken: randomUUID(),
+            previousAddresses: Array.isArray(contact.previousAddresses) ? contact.previousAddresses : []
+        });
+    }
+
+    if (validContacts.length === 0) {
+        return res.json({
+            success: true,
+            ...results,
+            total: contacts.length
+        });
+    }
+
+    // Batch insert using UNNEST for maximum performance
+    const BATCH_SIZE = 500;
+
+    for (let batchStart = 0; batchStart < validContacts.length; batchStart += BATCH_SIZE) {
+        const batch = validContacts.slice(batchStart, batchStart + BATCH_SIZE);
+
+        // Prepare arrays for UNNEST
+        const firstNames = [];
+        const lastNames = [];
+        const fullNames = [];
+        const emails = [];
+        const phones = [];
+        const dobs = [];
+        const addressLine1s = [];
+        const addressLine2s = [];
+        const cities = [];
+        const stateCounties = [];
+        const postalCodes = [];
+        const salesTokens = [];
+
+        for (const c of batch) {
+            firstNames.push(c.firstName);
+            lastNames.push(c.lastName);
+            fullNames.push(c.fullName);
+            emails.push(c.email);
+            phones.push(c.phone);
+            dobs.push(c.dateOfBirth);
+            addressLine1s.push(c.addressLine1);
+            addressLine2s.push(c.addressLine2);
+            cities.push(c.city);
+            stateCounties.push(c.stateCounty);
+            postalCodes.push(c.postalCode);
+            salesTokens.push(c.salesToken);
+        }
+
+        try {
+            const result = await pool.query(
+                `INSERT INTO contacts (first_name, last_name, full_name, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code, source, sales_signature_token)
+                SELECT * FROM UNNEST(
+                    $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                    $6::date[], $7::text[], $8::text[], $9::text[], $10::text[],
+                    $11::text[], $12::text[], $13::uuid[]
+                )
+                RETURNING id`,
+                [
+                    firstNames, lastNames, fullNames, emails, phones,
+                    dobs, addressLine1s, addressLine2s, cities, stateCounties,
+                    postalCodes, Array(batch.length).fill('Bulk Import'), salesTokens
+                ]
+            );
+            results.created += result.rowCount;
+
+            // Insert previous addresses for created contacts
+            if (result.rows && result.rows.length > 0) {
+                for (let i = 0; i < result.rows.length; i++) {
+                    const contactId = result.rows[i].id;
+                    const prevAddresses = batch[i].previousAddresses;
+                    if (prevAddresses && prevAddresses.length > 0) {
+                        for (const addr of prevAddresses) {
+                            try {
+                                await pool.query(
+                                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                                    VALUES ($1, $2, $3, $4, $5, $6)`,
+                                    [contactId, addr.line1 || '', addr.line2 || '', addr.city || '', addr.county || '', addr.postalCode || '']
+                                );
+                            } catch (addrErr) {
+                                console.error(`Failed to insert previous address for contact ${contactId}:`, addrErr.message);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            // If batch fails, fall back to individual inserts for this batch
+            for (const c of batch) {
+                try {
+                    const insertResult = await pool.query(
+                        `INSERT INTO contacts (first_name, last_name, full_name, email, phone, dob, address_line_1, address_line_2, city, state_county, postal_code, source, sales_signature_token)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        RETURNING id`,
+                        [c.firstName, c.lastName, c.fullName, c.email, c.phone, c.dateOfBirth, c.addressLine1, c.addressLine2, c.city, c.stateCounty, c.postalCode, 'Bulk Import', c.salesToken]
+                    );
+                    results.created++;
+
+                    // Insert previous addresses for this contact
+                    if (insertResult.rows[0] && c.previousAddresses && c.previousAddresses.length > 0) {
+                        const contactId = insertResult.rows[0].id;
+                        for (const addr of c.previousAddresses) {
+                            try {
+                                await pool.query(
+                                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                                    VALUES ($1, $2, $3, $4, $5, $6)`,
+                                    [contactId, addr.line1 || '', addr.line2 || '', addr.city || '', addr.county || '', addr.postalCode || '']
+                                );
+                            } catch (addrErr) {
+                                console.error(`Failed to insert previous address for contact ${contactId}:`, addrErr.message);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    results.failed++;
+                    results.errors.push({ row: c.index + 1, error: err.message });
+                }
+            }
+        }
+    }
+
+    res.json({
+        success: true,
+        ...results,
+        total: contacts.length
+    });
+});
+
+// Bulk Claims/Cases Import API - Optimized for large datasets
+app.post('/api/cases/bulk', async (req, res) => {
+    const { claims } = req.body;
+
+    if (!claims || !Array.isArray(claims) || claims.length === 0) {
+        return res.status(400).json({ success: false, message: 'No claims provided' });
+    }
+
+    const results = {
+        created: 0,
+        failed: 0,
+        errors: []
+    };
+
+    // Prepare valid claims
+    const validClaims = [];
+    for (let i = 0; i < claims.length; i++) {
+        const claim = claims[i];
+
+        if (!claim.contactId || !claim.lender) {
+            results.failed++;
+            results.errors.push({ row: i + 1, error: 'contactId and lender are required' });
+            continue;
+        }
+
+        validClaims.push({
+            index: i,
+            contactId: claim.contactId,
+            lender: claim.lender,
+            status: claim.status || 'New Lead',
+            claimValue: claim.claimValue || null,
+            productType: claim.productType || null,
+            accountNumber: claim.accountNumber || null
+        });
+    }
+
+    if (validClaims.length === 0) {
+        return res.json({
+            success: true,
+            ...results,
+            total: claims.length
+        });
+    }
+
+    // Batch insert using UNNEST for performance
+    const BATCH_SIZE = 500;
+
+    for (let batchStart = 0; batchStart < validClaims.length; batchStart += BATCH_SIZE) {
+        const batch = validClaims.slice(batchStart, batchStart + BATCH_SIZE);
+
+        const contactIds = [];
+        const lenders = [];
+        const statuses = [];
+        const claimValues = [];
+        const productTypes = [];
+        const accountNumbers = [];
+
+        for (const c of batch) {
+            contactIds.push(c.contactId);
+            lenders.push(c.lender);
+            statuses.push(c.status);
+            claimValues.push(c.claimValue);
+            productTypes.push(c.productType);
+            accountNumbers.push(c.accountNumber);
+        }
+
+        try {
+            const result = await pool.query(
+                `INSERT INTO cases (contact_id, lender, status, claim_value, product_type, account_number, loa_generated)
+                SELECT * FROM UNNEST(
+                    $1::integer[], $2::text[], $3::text[], $4::numeric[],
+                    $5::text[], $6::text[], $7::boolean[]
+                )`,
+                [
+                    contactIds, lenders, statuses, claimValues,
+                    productTypes, accountNumbers, Array(batch.length).fill(false)
+                ]
+            );
+            results.created += result.rowCount;
+        } catch (error) {
+            // Fall back to individual inserts if batch fails
+            for (const c of batch) {
+                try {
+                    await pool.query(
+                        `INSERT INTO cases (contact_id, lender, status, claim_value, product_type, account_number, loa_generated)
+                        VALUES ($1, $2, $3, $4, $5, $6, false)`,
+                        [c.contactId, c.lender, c.status, c.claimValue, c.productType, c.accountNumber]
+                    );
+                    results.created++;
+                } catch (err) {
+                    results.failed++;
+                    results.errors.push({ row: c.index + 1, error: err.message });
+                }
+            }
+        }
+    }
+
+    res.json({
+        success: true,
+        ...results,
+        total: claims.length
+    });
+});
+
+// --- OPENAI CHAT ENDPOINT ---
+// Optimized for token efficiency and fast responses
+
+app.post('/api/ai/chat', async (req, res) => {
+    const { sessionId, message, context, toolResults, compactMode = true } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).json({ success: false, error: 'Session ID required' });
+    }
+
+    try {
+        // Get or create session with message history limit for token optimization
+        if (!chatSessions.has(sessionId)) {
+            chatSessions.set(sessionId, {
+                messages: [],
+                context: null,
+                messageCount: 0
+            });
+        }
+        const session = chatSessions.get(sessionId);
+
+        // Update context if provided
+        if (context) {
+            session.context = context;
+        }
+
+        // Build optimized system prompt based on context
+        const systemPrompt = buildSystemPrompt({
+            context: session.context ? { type: 'viewing', name: session.context } : null,
+            compact: compactMode
+        });
+
+        // If tool results are provided, add them as tool response messages
+        if (toolResults && toolResults.length > 0) {
+            for (const tr of toolResults) {
+                session.messages.push({
+                    role: "tool",
+                    tool_call_id: tr.toolUseId,
+                    content: tr.result
+                });
+            }
+        } else if (message) {
+            // Add user message (context is now in system prompt)
+            session.messages.push({
+                role: "user",
+                content: message
+            });
+            session.messageCount++;
+        }
+
+        // Token optimization: Keep only last 20 messages to prevent context overflow
+        const MAX_HISTORY = 20;
+        if (session.messages.length > MAX_HISTORY) {
+            // Keep system context but trim old messages
+            session.messages = session.messages.slice(-MAX_HISTORY);
+        }
+
+        // Call OpenAI API with optimized settings
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini", // Fast and cost-effective, use "gpt-4o" for complex tasks
+            max_tokens: 2048,
+            temperature: 0.7,
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...session.messages
+            ],
+            tools: TOOLS,
+            tool_choice: "auto",
+            // Parallel tool calls for efficiency
+            parallel_tool_calls: true
+        });
+
+        const choice = response.choices[0];
+        const assistantMessage = choice.message;
+
+        // Extract text content
+        const responseText = assistantMessage.content || '';
+
+        // Extract tool calls if any
+        const toolCalls = assistantMessage.tool_calls || [];
+
+        // Store assistant response in session
+        session.messages.push({
+            role: "assistant",
+            content: assistantMessage.content,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+        });
+
+        // Format response for frontend
+        res.json({
+            success: true,
+            text: responseText,
+            toolCalls: toolCalls.map(tc => ({
+                id: tc.id,
+                name: tc.function.name,
+                input: JSON.parse(tc.function.arguments || '{}')
+            })),
+            usage: {
+                promptTokens: response.usage?.prompt_tokens,
+                completionTokens: response.usage?.completion_tokens,
+                totalTokens: response.usage?.total_tokens
+            }
+        });
+
+    } catch (error) {
+        console.error('OpenAI API Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            code: error.code || 'UNKNOWN_ERROR'
+        });
+    }
+});
+
+// Clear chat session
+app.post('/api/ai/clear-session', (req, res) => {
+    const { sessionId } = req.body;
+    if (sessionId && chatSessions.has(sessionId)) {
+        chatSessions.delete(sessionId);
+    }
+    res.json({ success: true });
+});
+
+// Get session info (for debugging/analytics)
+app.get('/api/ai/session/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    if (chatSessions.has(sessionId)) {
+        const session = chatSessions.get(sessionId);
+        res.json({
+            success: true,
+            messageCount: session.messageCount,
+            historyLength: session.messages.length,
+            hasContext: !!session.context
+        });
+    } else {
+        res.json({ success: false, error: 'Session not found' });
+    }
+});
+
+// ============================================
+// Rowan Rose Solicitors CRM Specification APIs
+// ============================================
+
+// --- COMMUNICATIONS API ---
+
+// Get all communications for a client
+app.get('/api/clients/:id/communications', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM communications WHERE client_id = $1 ORDER BY timestamp DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create a new communication record
+app.post('/api/communications', async (req, res) => {
+    const {
+        client_id, channel, direction, subject, content,
+        call_duration_seconds, call_notes, agent_id, agent_name
+    } = req.body;
+
+    if (!client_id || !channel || !direction) {
+        return res.status(400).json({ error: 'client_id, channel, and direction are required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO communications
+                                (client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [client_id, channel, direction, subject || null, content || null,
+                call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null]
+        );
+
+        // Also log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [client_id, 'agent', agent_id || 'system', agent_name || 'System',
+                `${direction}_${channel}`, 'communication',
+                `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message`]
+        );
+
+        res.json({ success: true, communication: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- WORKFLOW TRIGGERS API ---
+
+// Get all workflow triggers for a client
+app.get('/api/clients/:id/workflows', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM workflow_triggers WHERE client_id = $1 ORDER BY triggered_at DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Trigger a new workflow
+app.post('/api/workflows/trigger', async (req, res) => {
+    const { client_id, workflow_type, workflow_name, triggered_by, total_steps } = req.body;
+
+    if (!client_id || !workflow_type) {
+        return res.status(400).json({ error: 'client_id and workflow_type are required' });
+    }
+
+    try {
+        // Calculate next action time (e.g., 2 days from now for first step)
+        const nextActionAt = new Date();
+        nextActionAt.setDate(nextActionAt.getDate() + 2);
+
+        const { rows } = await pool.query(
+            `INSERT INTO workflow_triggers
+                                (client_id, workflow_type, workflow_name, triggered_by, total_steps, next_action_at, next_action_description)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [client_id, workflow_type, workflow_name || workflow_type, triggered_by || 'system',
+                total_steps || 4, nextActionAt, 'Send follow-up SMS']
+        );
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6)`,
+            [client_id, 'agent', triggered_by || 'system', 'workflow_triggered', 'workflows',
+                `Triggered workflow: ${workflow_name || workflow_type}`]
+        );
+
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Cancel a workflow
+app.put('/api/workflows/:id/cancel', async (req, res) => {
+    const { id } = req.params;
+    const { cancelled_by } = req.body;
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE workflow_triggers
+                                SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1
+                                WHERE id = $2 RETURNING *`,
+            [cancelled_by || 'system', id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Workflow not found' });
+        }
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6)`,
+            [rows[0].client_id, 'agent', cancelled_by || 'system', 'workflow_cancelled', 'workflows',
+            `Cancelled workflow: ${rows[0].workflow_name}`]
+        );
+
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- NOTES API ---
+
+// Get all notes for a client
+app.get('/api/clients/:id/notes', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM notes WHERE client_id = $1 ORDER BY pinned DESC, created_at DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create a new note
+app.post('/api/clients/:id/notes', async (req, res) => {
+    const { id } = req.params;
+    const { content, pinned, created_by, created_by_name } = req.body;
+
+    if (!content) {
+        return res.status(400).json({ error: 'Content is required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name)
+                                VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [id, content, pinned || false, created_by || 'system', created_by_name || 'System']
+        );
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [id, 'agent', created_by || 'system', created_by_name || 'System', 'note_added', 'notes',
+                `Added note: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`]
+        );
+
+        res.json({ success: true, note: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update a note
+app.put('/api/notes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { content, pinned, updated_by } = req.body;
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE notes SET content = COALESCE($1, content), pinned = COALESCE($2, pinned),
+                                updated_by = $3, updated_at = NOW()
+                                WHERE id = $4 RETURNING *`,
+            [content, pinned, updated_by || 'system', id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Note not found' });
+        }
+
+        res.json({ success: true, note: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete a note
+app.delete('/api/notes/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { rows } = await pool.query(
+            `DELETE FROM notes WHERE id = $1 RETURNING client_id`,
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Note not found' });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- ACTION LOGS API ---
+
+// Get all action logs (for contacts list view - shows latest per client)
+app.get('/api/actions/all', async (req, res) => {
+    try {
+        // Get the most recent action for each client
+        const { rows } = await pool.query(`
+            SELECT DISTINCT ON (client_id) *
+            FROM action_logs
+            ORDER BY client_id, timestamp DESC
+        `);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get action logs for a client
+app.get('/api/clients/:id/actions', async (req, res) => {
+    const { category, limit } = req.query;
+
+    try {
+        let query = `SELECT * FROM action_logs WHERE client_id = $1`;
+        const params = [req.params.id];
+
+        if (category && category !== 'all') {
+            query += ` AND action_category = $2`;
+            params.push(category);
+        }
+
+        query += ` ORDER BY timestamp DESC`;
+
+        if (limit) {
+            query += ` LIMIT $${params.length + 1}`;
+            params.push(parseInt(limit));
+        }
+
+        const { rows } = await pool.query(query, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get action logs for a specific claim
+app.get('/api/claims/:id/actions', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM action_logs WHERE claim_id = $1 ORDER BY timestamp DESC`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- EXTENDED CONTACT FIELDS API ---
+
+// Update contact with bank details and previous address
+app.patch('/api/contacts/:id/extended', async (req, res) => {
+    const { id } = req.params;
+    const {
+        bank_name, account_name, sort_code, bank_account_number,
+        previous_address_line_1, previous_address_line_2, previous_city,
+        previous_county, previous_postal_code, previous_addresses,
+        document_checklist, checklist_change, actor_id, actor_name,
+        extra_lenders
+    } = req.body;
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (bank_name !== undefined) { updates.push(`bank_name = $${paramCount++}`); values.push(bank_name); }
+        if (account_name !== undefined) { updates.push(`account_name = $${paramCount++}`); values.push(account_name); }
+        if (sort_code !== undefined) { updates.push(`sort_code = $${paramCount++}`); values.push(sort_code); }
+        if (bank_account_number !== undefined) { updates.push(`bank_account_number = $${paramCount++}`); values.push(bank_account_number); }
+        if (previous_address_line_1 !== undefined) { updates.push(`previous_address_line_1 = $${paramCount++}`); values.push(previous_address_line_1); }
+        if (previous_address_line_2 !== undefined) { updates.push(`previous_address_line_2 = $${paramCount++}`); values.push(previous_address_line_2); }
+        if (previous_city !== undefined) { updates.push(`previous_city = $${paramCount++}`); values.push(previous_city); }
+        if (previous_county !== undefined) { updates.push(`previous_county = $${paramCount++}`); values.push(previous_county); }
+        if (previous_postal_code !== undefined) { updates.push(`previous_postal_code = $${paramCount++}`); values.push(previous_postal_code); }
+        if (previous_addresses !== undefined) {
+            updates.push(`previous_addresses = $${paramCount++}`);
+            // Handle both string and object/array for JSONB
+            const prevAddrsValue = typeof previous_addresses === 'string' ? previous_addresses : JSON.stringify(previous_addresses);
+            values.push(prevAddrsValue);
+        }
+        if (document_checklist !== undefined) {
+            updates.push(`document_checklist = $${paramCount++}`);
+            // Handle both string and object for JSONB
+            const docChecklistValue = typeof document_checklist === 'string' ? document_checklist : JSON.stringify(document_checklist);
+            values.push(docChecklistValue);
+        }
+        if (extra_lenders !== undefined) {
+            updates.push(`extra_lenders = $${paramCount++}`);
+            values.push(extra_lenders);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        values.push(id);
+        const query = `UPDATE contacts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        // Sync previous addresses to the previous_addresses table
+        if (previous_addresses && Array.isArray(previous_addresses) && previous_addresses.length > 0) {
+            // Delete existing previous addresses for this contact
+            await pool.query('DELETE FROM previous_addresses WHERE contact_id = $1', [id]);
+            // Insert new previous addresses
+            for (const addr of previous_addresses) {
+                await pool.query(
+                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                    VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [id, addr.line1 || addr.address_line_1 || '', addr.line2 || addr.address_line_2 || '', addr.city || '', addr.county || '', addr.postalCode || addr.postal_code || '']
+                );
+            }
+        }
+
+        // Log to action_logs - with specific description for document checklist changes
+        console.log('[Extended Update] checklist_change received:', JSON.stringify(checklist_change));
+        console.log('[Extended Update] document_checklist received:', JSON.stringify(document_checklist));
+
+        if (checklist_change && checklist_change.field) {
+            // Document checklist specific logging
+            const fieldLabels = {
+                identification: 'Identification',
+                extraLender: 'Extra Lender',
+                questionnaire: 'Questionnaire',
+                poa: 'POA'
+            };
+            const fieldLabel = fieldLabels[checklist_change.field] || checklist_change.field;
+            const action = checklist_change.value ? 'checked' : 'unchecked';
+            const description = `Document checklist: ${fieldLabel} ${action}`;
+            console.log('[Extended Update] Creating checklist log:', description);
+
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [id, 'agent', actor_id || 'system', actor_name || 'System', 'checklist_updated', 'documents', description, JSON.stringify(checklist_change)]
+            );
+        } else {
+            // Generic update log
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [id, 'agent', actor_id || 'system', actor_name || 'System', 'details_updated', 'account', 'Updated contact extended details']
+            );
+        }
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- EXTENDED CLAIM FIELDS API ---
+
+// Update case/claim with extended specification fields
+app.patch('/api/cases/:id/extended', async (req, res) => {
+    const { id } = req.params;
+    const {
+        lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+        lender_reference, dates_timeline, apr, outstanding_balance,
+        dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+        billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
+        total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
+        our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
+        our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan
+    } = req.body;
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        // List of numeric (DECIMAL) fields that cannot accept empty strings
+        const numericFields = [
+            'apr', 'outstanding_balance', 'offer_made', 'late_payment_charges',
+            'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+            'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
+            'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
+            'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans'
+        ];
+
+        const fields = {
+            lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+            lender_reference, dates_timeline, apr, outstanding_balance,
+            dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+            billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
+            total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
+            our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
+            our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan
+        };
+
+        for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined) {
+                updates.push(`${key} = $${paramCount++}`);
+                // Convert empty strings to null for numeric fields
+                if (numericFields.includes(key) && value === '') {
+                    values.push(null);
+                } else {
+                    values.push(value);
+                }
+            }
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        values.push(id);
+        const query = `UPDATE cases SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [rows[0].contact_id, id, 'agent', 'system', 'claim_updated', 'claims', 'Updated claim extended details']
+        );
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get single contact with all extended fields
+app.get('/api/contacts/:id/full', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM contacts WHERE id = $1`,
+            [req.params.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all cases (for Pipeline view)
+app.get('/api/cases', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, contact_id, lender, status, claim_value, product_type, account_number, start_date
+             FROM cases
+             ORDER BY created_at DESC`
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get single case with all extended fields
+app.get('/api/cases/:id/full', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM cases WHERE id = $1`,
+            [req.params.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================
+// CASCADE DELETE ENDPOINTS
+// ============================================
+
+// Delete Contact with Full S3 Cleanup
+app.delete('/api/contacts/:id', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Get contact details for S3 cleanup
+        const contactRes = await client.query(
+            'SELECT first_name, last_name, id FROM contacts WHERE id = $1',
+            [id]
+        );
+
+        if (contactRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        const contact = contactRes.rows[0];
+        const folderPath = `${contact.first_name}_${contact.last_name}_${contact.id}/`;
+
+        console.log(`🗑️  Deleting contact ${id} and S3 folder: ${folderPath}`);
+
+        // 2. Delete from S3 - delete entire folder
+        try {
+            const { ListObjectsV2Command, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+
+            // List all objects in the folder
+            const listParams = {
+                Bucket: BUCKET_NAME,
+                Prefix: folderPath
+            };
+
+            const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+
+            if (listedObjects.Contents && listedObjects.Contents.length > 0) {
+                const deleteParams = {
+                    Bucket: BUCKET_NAME,
+                    Delete: {
+                        Objects: listedObjects.Contents.map(({ Key }) => ({ Key }))
+                    }
+                };
+
+                await s3Client.send(new DeleteObjectsCommand(deleteParams));
+                console.log(`✅ Deleted ${listedObjects.Contents.length} files from S3 for contact ${id}`);
+            } else {
+                console.log(`ℹ️  No S3 files found for contact ${id}`);
+            }
+        } catch (s3Error) {
+            console.error('⚠️  S3 deletion error:', s3Error);
+            // Continue with database deletion even if S3 fails
+        }
+
+        // 3. Delete from database (CASCADE will handle related tables)
+        // This will automatically delete:
+        // - cases (claims)
+        // - documents
+        // - communications
+        // - workflow_triggers
+        // - notes
+        // - action_logs
+        // - submission_tokens
+        await client.query('DELETE FROM contacts WHERE id = $1', [id]);
+
+        await client.query('COMMIT');
+
+        console.log(`✅ Contact ${id} and all associated data deleted successfully`);
+
+        res.json({
+            success: true,
+            message: 'Contact and all associated data deleted successfully',
+            deletedFolderPath: folderPath
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('❌ Error deleting contact:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update Case Status (basic PATCH for status changes)
+// When status = "Sale", auto-generate sales_signature_token and trigger Zapier webhook
+app.patch('/api/cases/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+        return res.status(400).json({ error: 'Status is required' });
+    }
+
+    try {
+        let salesSignatureToken = null;
+
+        // If status is "Sale", generate a unique token for this claim
+        if (status === 'Sale') {
+            const { randomUUID } = await import('crypto');
+            salesSignatureToken = randomUUID();
+        }
+
+        // Update case with status (and token if Sale)
+        const result = await pool.query(
+            `UPDATE cases
+             SET status = $1,
+                 sales_signature_token = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE sales_signature_token END
+             WHERE id = $3
+             RETURNING *`,
+            [status, salesSignatureToken, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+
+        const updatedCase = result.rows[0];
+
+        // If status = "Sale", fetch contact details and trigger Zapier webhook
+        if (status === 'Sale' && salesSignatureToken) {
+            try {
+                // Get contact details for the email
+                const contactRes = await pool.query(
+                    `SELECT id, first_name, last_name, email, phone FROM contacts WHERE id = $1`,
+                    [updatedCase.contact_id]
+                );
+
+                if (contactRes.rows.length > 0) {
+                    const contact = contactRes.rows[0];
+                    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+                    const salesLink = `${baseUrl}/intake/sales/${salesSignatureToken}`;
+
+                    // Trigger Zapier webhook (if configured)
+                    const zapierWebhookUrl = process.env.ZAPIER_SALES_WEBHOOK_URL;
+                    if (zapierWebhookUrl) {
+                        fetch(zapierWebhookUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event: 'claim_status_sale',
+                                caseId: updatedCase.id,
+                                lender: updatedCase.lender,
+                                contactId: contact.id,
+                                firstName: contact.first_name,
+                                lastName: contact.last_name,
+                                email: contact.email,
+                                phone: contact.phone,
+                                salesSignatureLink: salesLink,
+                                timestamp: new Date().toISOString()
+                            })
+                        }).catch(err => console.error('Zapier webhook error:', err));
+
+                        console.log(`📧 Triggered Zapier webhook for case ${id} with sales link: ${salesLink}`);
+                    } else {
+                        console.log(`⚠️ No ZAPIER_SALES_WEBHOOK_URL configured. Sales link generated: ${salesLink}`);
+                    }
+                }
+            } catch (webhookErr) {
+                console.error('Error triggering sale webhook:', webhookErr);
+                // Don't fail the status update even if webhook fails
+            }
+        }
+
+        console.log(`✅ Updated case ${id} status to: ${status}`);
+        res.json(updatedCase);
+    } catch (error) {
+        console.error('❌ Error updating case status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Bulk Update Case Status (optimized for multiple claims)
+app.patch('/api/cases/bulk/status', async (req, res) => {
+    const { claimIds, status } = req.body;
+
+    if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0) {
+        return res.status(400).json({ error: 'claimIds array is required' });
+    }
+
+    if (!status) {
+        return res.status(400).json({ error: 'Status is required' });
+    }
+
+    try {
+        // Use a single query with ANY to update all claims at once
+        const result = await pool.query(
+            `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
+            [status, claimIds]
+        );
+
+        console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);
+        res.json({
+            success: true,
+            updatedCount: result.rows.length,
+            updatedClaims: result.rows
+        });
+    } catch (error) {
+        console.error('❌ Error bulk updating case status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete Individual Claim with S3 Cleanup
+app.delete('/api/cases/:id', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Get claim details
+        const claimRes = await client.query(
+            `SELECT c.id, c.lender, c.contact_id, con.first_name, con.last_name
+                                FROM cases c
+                                JOIN contacts con ON c.contact_id = con.id
+                                WHERE c.id = $1`,
+            [id]
+        );
+
+        if (claimRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        const claim = claimRes.rows[0];
+        const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
+        const loaPath = `${folderPath}LOA/${claim.lender}_LOA.pdf`;
+
+        console.log(`🗑️  Deleting claim ${id} for lender: ${claim.lender}`);
+
+        // 2. Delete claim-specific LOA from S3
+        try {
+            const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+
+            await s3Client.send(new DeleteObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: loaPath
+            }));
+
+            console.log(`✅ Deleted LOA file from S3: ${loaPath}`);
+        } catch (s3Error) {
+            console.error('⚠️  S3 deletion error (LOA may not exist):', s3Error.message);
+            // Continue with database deletion even if S3 fails
+        }
+
+        // 3. Delete claim-specific documents from documents table
+        await client.query(
+            "DELETE FROM documents WHERE contact_id = $1 AND name LIKE $2",
+            [claim.contact_id, `%${claim.lender}%LOA%`]
+        );
+
+        // 4. Delete the claim from cases table
+        await client.query('DELETE FROM cases WHERE id = $1', [id]);
+
+        // 5. Log the deletion
+        await client.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [claim.contact_id, id, 'agent', 'system', 'claim_deleted', 'claims', `Deleted claim for lender: ${claim.lender}`]
+        );
+
+        await client.query('COMMIT');
+
+        console.log(`✅ Claim ${id} deleted successfully`);
+
+        res.json({
+            success: true,
+            message: 'Claim deleted successfully',
+            deletedLender: claim.lender,
+            deletedLoaPath: loaPath
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('❌ Error deleting claim:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================
+// LENDER SELECTION FORM ENDPOINTS
+// ============================================
+
+// Generate unique LOA (Letter of Authority) form link for a contact
+app.post('/api/contacts/:id/generate-loa-link', async (req, res) => {
+    const { id } = req.params;
+    const { userId, userName } = req.body; // User who generated the link
+
+    try {
+        // Check if contact exists
+        const contactCheck = await pool.query('SELECT id, first_name, last_name FROM contacts WHERE id = $1', [id]);
+        if (contactCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+
+        const contact = contactCheck.rows[0];
+
+        // Generate unique ID (UUID)
+        const { randomUUID } = await import('crypto');
+        const uniqueId = randomUUID();
+
+        // Use BASE_URL from env if set, otherwise auto-detect from request
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        const uniqueLink = `${baseUrl}/loa-form/${uniqueId}`;
+
+        // Update contact with unique link
+        await pool.query('UPDATE contacts SET unique_form_link = $1 WHERE id = $2', [uniqueId, id]);
+
+        // Create action log entry
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                id,
+                'user',
+                userId || 'system',
+                userName || 'System',
+                'loa_link_generated',
+                'system',
+                `LOA (Letter of Authority) form link generated`,
+                JSON.stringify({ uniqueId, link: uniqueLink })
+            ]
+        );
+
+        res.json({ success: true, uniqueLink, uniqueId });
+    } catch (error) {
+        console.error('Error generating LOA link:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Serve LOA (Letter of Authority) form page (GET endpoint)
+app.get('/loa-form/:uniqueId', async (req, res) => {
+    const { uniqueId } = req.params;
+
+    try {
+        // Find contact by unique link
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name, full_name, intake_lender FROM contacts WHERE unique_form_link = $1',
+            [uniqueId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            // Check submission_tokens table if not found in contacts
+            const tokenRes = await pool.query(
+                `SELECT c.id, c.first_name, c.last_name, c.full_name, c.loa_submitted, c.intake_lender, st.expires_at
+                 FROM submission_tokens st
+                 JOIN contacts c ON st.contact_id = c.id
+                 WHERE st.token = $1`,
+                [uniqueId]
+            );
+
+            if (tokenRes.rows.length === 0) {
+                return res.status(404).send(`
+                                <!DOCTYPE html>
+                                <html>
+                                    <head>
+                                        <title>Invalid Link</title>
+                                        <style>
+                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                                            h1 {color: #EF4444; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h1>Invalid or Expired Link</h1>
+                                        <p>This LOA form link is not valid. Please contact Rowan Rose Solicitors for assistance.</p>
+                                    </body>
+                                </html>
+                                `);
+            }
+
+            const tokenData = tokenRes.rows[0];
+
+            // Check if expired
+            if (new Date() > new Date(tokenData.expires_at)) {
+                return res.status(404).send(`
+                                <!DOCTYPE html>
+                                <html>
+                                    <head>
+                                        <title>Expired Link</title>
+                                        <style>
+                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                                            h1 {color: #EF4444; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h1>Link Expired</h1>
+                                        <p>This LOA form link has expired. Please contact Rowan Rose Solicitors for a new link.</p>
+                                    </body>
+                                </html>
+                                `);
+            }
+
+            // Check if already submitted
+            if (tokenData.loa_submitted) {
+                return res.status(400).send(`
+                                <!DOCTYPE html>
+                                <html>
+                                    <head>
+                                        <title>Already Submitted</title>
+                                        <style>
+                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                                            h1 {color: #F59E0B; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h1>Already Submitted</h1>
+                                        <p>This form has already been submitted. Thank you.</p>
+                                    </body>
+                                </html>
+                                `);
+            }
+
+            // Use token data as contact
+            contactRes.rows = [tokenData];
+        }
+
+        const contact = contactRes.rows[0];
+        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
+
+        // Filter out intake_lender from the list
+        // Exception: DO NOT filter if the lender is 'GAMBLING'
+        const intakeLenderToExclude = (contact.intake_lender && contact.intake_lender.toUpperCase() !== 'GAMBLING')
+            ? contact.intake_lender.trim().toUpperCase()
+            : null;
+
+        // Base categories definition
+        const initialCategories = [
+            { title: 'TICK THE CREDIT CARDS WHICH APPLY TO YOU :', lenders: ['AQUA', 'BIP CREDIT CARD', 'FLUID', 'VANQUIS', 'LUMA', 'MARBLES', 'MBNA', 'OCEAN', 'REVOLUT CREDIT CARD', 'WAVE', 'ZABLE', 'ZILCH', '118 118 MONEY'] },
+            { title: 'TICK THE PAYDAY LOANS / LOANS WHICH APPLY TO YOU :', lenders: ['ADMIRAL LOANS', 'ANICO FINANCE', 'AVANT CREDIT', 'BAMBOO', 'BETTER BORROW', 'CREDIT SPRING', 'CASH ASAP', 'CASH FLOAT', 'CAR CASH POINT', 'CREATION FINANCE', 'CASTLE COMMUNITY BANK', 'DRAFTY LOANS', 'EVOLUTION MONEY', 'EVERY DAY LENDING', 'FERNOVO', 'FAIR FINANCE', 'FINIO LOANS', 'FINTERN', 'FLURO', 'GAMBLING', 'KOYO LOANS', 'LIKELY LOANS', 'LOANS2GO', 'Loans 2 Go', 'LOANS BY MAL', 'LOGBOOK LENDING', 'LOGBOOK MONEY', 'LENDING STREAM', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT', 'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK', 'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY', 'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT', 'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE (NEYBER)', 'SNAP FINANCE', 'SHAWBROOK', 'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN'] },
+            { title: 'TICK THE GUARANTOR LOANS WHICH APPLY TO YOU :', lenders: ['GUARANTOR MY LOAN', 'HERO LOANS', 'JUO LOANS', 'SUCO', 'UK CREDIT', '1 PLUS 1'] },
+            { title: 'TICK THE LOGBOOK LOANS / PAWNBROKERS WHICH APPLY TO YOU :', lenders: ['CASH CONVERTERS', 'H&T PAWNBROKERS'] },
+            { title: 'TICK THE CATALOGUES WHICH APPLY TO YOU :', lenders: ['FASHION WORLD', 'JD WILLIAMS', 'SIMPLY BE', 'VERY CATALOGUE'] },
+            { title: 'TICK THE CAR FINANCE WHICH APPLY TO YOU :', lenders: ['ADVANTAGE FINANCE', 'AUDI / VOLKSWAGEN FINANCE / SKODA', 'BLUE MOTOR FINANCE', 'CLOSE BROTHERS', 'HALIFAX / BANK OF SCOTLAND', 'MONEY WAY', 'MOTONOVO', 'MONEY BARN', 'OODLE', 'PSA FINANCE', 'RCI FINANCIAL'] },
+            { title: 'TICK THE OVERDRAFTS WHICH APPLY TO YOU :', lenders: ['HALIFAX OVERDRAFT', 'BARCLAYS OVERDRAFT', 'CO-OP BANK OVERDRAFT', 'LLOYDS OVERDRAFT', 'TSB OVERDRAFT OVERDRAFT', 'NATWEST / RBS OVERDRAFT', 'HSBC OVERDRAFT', 'SANTANDER OVERDRAFT'] }
+        ];
+
+        // Process categories to filter out the intake lender
+        const filteredCategories = initialCategories.map(cat => ({
+            ...cat,
+            lenders: cat.lenders.filter(l => {
+                if (!intakeLenderToExclude) return true;
+                return standardizeLender(l).toUpperCase() !== standardizeLender(intakeLenderToExclude).toUpperCase();
+            })
+        }));
+
+
+        // Build base URL dynamically for assets
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+        // Load mail_top.png as base64 for reliable display
+        let mailTopBase64 = '';
+        try {
+            const mailTopPath = path.join(__dirname, 'public', 'mail_top.png');
+            if (fs.existsSync(mailTopPath)) {
+                const mailTopBuffer = fs.readFileSync(mailTopPath);
+                mailTopBase64 = `data:image/png;base64,${mailTopBuffer.toString('base64')}`;
+            }
+        } catch (e) {
+            console.warn('Could not load mail_top.png:', e.message);
+        }
+
+        // Return HTML form page
+        res.send(`
+                                <!DOCTYPE html>
+                                <html lang="en">
+                                    <head>
+                                        <meta charset="UTF-8">
+                                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                                <title>LOA Form - ${contactName}</title>
+                                                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+                                                    <style>
+                                                        * {margin: 0; padding: 0; box-sizing: border-box; }
+                                                        body {
+                                                            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+                                                            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                                                            padding: 20px;
+                                                            line-height: 1.8;
+                                                            font-size: 17px;
+                                                            min-height: 100vh;
+                                                        }
+                                                        .container {
+                                                            max-width: 960px;
+                                                            margin: 0 auto;
+                                                            background: white;
+                                                            padding: 0;
+                                                            border-radius: 24px;
+                                                            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.05);
+                                                            overflow: hidden;
+                                                        }
+                                                        .header {
+                                                            background: #ffffff;
+                                                            padding: 0;
+                                                            margin-bottom: 0;
+                                                        }
+                                                        .header-image {
+                                                            width: 100%;
+                                                            display: block;
+                                                            height: auto;
+                                                        }
+                                                        .content-wrapper {
+                                                            padding: 45px 50px;
+                                                        }
+                                                        .greeting {
+                                                            font-size: 36px;
+                                                            font-weight: 800;
+                                                            color: #0f172a;
+                                                            margin: 0 0 28px 0;
+                                                            text-align: left;
+                                                            letter-spacing: -0.5px;
+                                                        }
+                                                        .intro {
+                                                            font-size: 22px;
+                                                            color: #334155;
+                                                            line-height: 1.8;
+                                                            margin-bottom: 36px;
+                                                            text-align: left;
+                                                        }
+                                                        .intro strong {
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                        }
+                                                        .intro p {
+                                                            margin-bottom: 18px;
+                                                            font-size: 22px;
+                                                        }
+                                                        .good-news-banner {
+                                                            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+                                                            padding: 26px 32px;
+                                                            border-radius: 16px;
+                                                            display: flex;
+                                                            align-items: center;
+                                                            gap: 16px;
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            color: #047857;
+                                                            border: 3px solid #34d399;
+                                                            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.12);
+                                                        }
+                                                        .good-news-icon {
+                                                            font-size: 36px;
+                                                        }
+                                                        .friendly-note {
+                                                            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+                                                            padding: 28px 32px;
+                                                            border-radius: 16px;
+                                                            margin-top: 32px;
+                                                            border: 3px solid #7dd3fc;
+                                                            text-align: center;
+                                                            box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1);
+                                                        }
+                                                        .friendly-note p {
+                                                            font-size: 22px;
+                                                            color: #0369a1;
+                                                            font-weight: 600;
+                                                            margin: 0;
+                                                            line-height: 1.7;
+                                                        }
+                                                        .category {
+                                                            margin: 40px 0;
+                                                            padding: 32px;
+                                                            border-radius: 18px;
+                                                            border: 2px solid #e2e8f0;
+                                                            transition: box-shadow 0.2s;
+                                                        }
+                                                        .category:hover {
+                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+                                                        }
+                                                        .category:nth-child(odd) {
+                                                            background: #ffffff;
+                                                        }
+                                                        .category:nth-child(even) {
+                                                            background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+                                                        }
+                                                        .category-title {
+                                                            font-size: 20px;
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                            margin-bottom: 24px;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.8px;
+                                                            padding-bottom: 14px;
+                                                            border-bottom: 3px solid #f97316;
+                                                            display: inline-block;
+                                                        }
+                                                        .lender-item {
+                                                            display: flex;
+                                                            align-items: center;
+                                                            padding: 20px 22px;
+                                                            margin: 10px 0;
+                                                            border-radius: 14px;
+                                                            transition: all 0.2s;
+                                                            min-height: 72px;
+                                                            border: 2px solid transparent;
+                                                            background: #fafafa;
+                                                        }
+                                                        .lender-item:hover {
+                                                            background: #fff7ed;
+                                                            border-color: #fdba74;
+                                                        }
+                                                        .lender-item input[type="checkbox"] {
+                                                            width: 44px;
+                                                            height: 44px;
+                                                            margin-right: 20px;
+                                                            cursor: pointer;
+                                                            accent-color: #f97316;
+                                                            flex-shrink: 0;
+                                                            border-radius: 8px;
+                                                        }
+                                                        .lender-item label {
+                                                            font-size: 22px;
+                                                            color: #1e293b;
+                                                            cursor: pointer;
+                                                            user-select: none;
+                                                            font-weight: 600;
+                                                            line-height: 1.5;
+                                                        }
+                                                        .questions {
+                                                            margin: 48px 0;
+                                                            padding: 36px;
+                                                            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+                                                            border-radius: 18px;
+                                                            border: 3px solid #fbbf24;
+                                                            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.15);
+                                                        }
+                                                        .question-item {
+                                                            display: flex;
+                                                            align-items: center;
+                                                            margin: 24px 0;
+                                                            min-height: 72px;
+                                                        }
+                                                        .question-item input[type="checkbox"] {
+                                                            width: 44px;
+                                                            height: 44px;
+                                                            margin-right: 20px;
+                                                            cursor: pointer;
+                                                            accent-color: #f59e0b;
+                                                            flex-shrink: 0;
+                                                        }
+                                                        .question-item label {
+                                                            font-size: 22px;
+                                                            font-weight: 700;
+                                                            color: #92400e;
+                                                            cursor: pointer;
+                                                            line-height: 1.6;
+                                                        }
+                                                        .signature-section {
+                                                            margin: 48px 0;
+                                                            background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+                                                            padding: 40px;
+                                                            border-radius: 22px;
+                                                            border: 3px solid #1e3a5f;
+                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+                                                        }
+                                                        .authorization-text {
+                                                            font-size: 22px;
+                                                            color: #334155;
+                                                            line-height: 1.75;
+                                                            padding: 28px 32px;
+                                                            background: #ffffff;
+                                                            border-radius: 16px;
+                                                            border: 2px solid #e2e8f0;
+                                                            margin-bottom: 28px;
+                                                            text-align: center;
+                                                        }
+                                                        .authorization-text strong {
+                                                            color: #f97316;
+                                                            font-weight: 700;
+                                                        }
+                                                        .signature-title {
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            color: #0f172a;
+                                                            margin-bottom: 8px;
+                                                        }
+                                                        .signature-subtitle {
+                                                            font-size: 18px;
+                                                            color: #64748b;
+                                                            margin-bottom: 20px;
+                                                        }
+                                                        .signature-container {
+                                                            position: relative;
+                                                            width: 100%;
+                                                            background: white;
+                                                            border: 3px solid #e2e8f0;
+                                                            border-radius: 16px;
+                                                            overflow: hidden;
+                                                            transition: all 0.2s;
+                                                        }
+                                                        .signature-container:hover {
+                                                            border-color: #f97316;
+                                                            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1);
+                                                        }
+                                                        .signature-canvas {
+                                                            cursor: crosshair;
+                                                            display: block;
+                                                            width: 100%;
+                                                            height: 200px;
+                                                            touch-action: none;
+                                                        }
+                                                        .signature-placeholder {
+                                                            position: absolute;
+                                                            top: 50%;
+                                                            left: 50%;
+                                                            transform: translate(-50%, -50%);
+                                                            color: #cbd5e1;
+                                                            font-size: 32px;
+                                                            font-style: italic;
+                                                            font-family: serif;
+                                                            pointer-events: none;
+                                                        }
+                                                        .signature-footer {
+                                                            display: flex;
+                                                            justify-content: space-between;
+                                                            align-items: center;
+                                                            margin-top: 16px;
+                                                            padding: 0 4px;
+                                                        }
+                                                        .signature-hint {
+                                                            font-size: 16px;
+                                                            font-weight: 700;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.5px;
+                                                            color: #94a3b8;
+                                                        }
+                                                        .signature-buttons {
+                                                            display: flex;
+                                                            gap: 15px;
+                                                        }
+                                                        .btn {
+                                                            padding: 20px 34px;
+                                                            border: none;
+                                                            border-radius: 14px;
+                                                            font-size: 20px;
+                                                            font-weight: 700;
+                                                            cursor: pointer;
+                                                            transition: all 0.2s;
+                                                            font-family: 'Inter', sans-serif;
+                                                            min-height: 64px;
+                                                        }
+                                                        .btn-clear {
+                                                            background: transparent;
+                                                            color: #64748b;
+                                                            padding: 0;
+                                                            min-height: auto;
+                                                            font-size: 18px;
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 0.5px;
+                                                            transition: color 0.2s;
+                                                        }
+                                                        .btn-clear:hover {
+                                                            color: #ef4444;
+                                                        }
+                                                        .btn-submit {
+                                                            background: linear-gradient(145deg, #f97316 0%, #ea580c 100%);
+                                                            color: white;
+                                                            padding: 26px 60px;
+                                                            font-size: 26px;
+                                                            font-weight: 700;
+                                                            width: 100%;
+                                                            margin-top: 44px;
+                                                            min-height: 80px;
+                                                            border-radius: 16px;
+                                                            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.35);
+                                                            text-transform: uppercase;
+                                                            letter-spacing: 1.5px;
+                                                        }
+                                                        .btn-submit:hover {
+                                                            background: linear-gradient(145deg, #ea580c 0%, #c2410c 100%);
+                                                            transform: translateY(-3px);
+                                                            box-shadow: 0 8px 26px rgba(249, 115, 22, 0.5);
+                                                        }
+                                                        .btn-submit:disabled {
+                                                            background: #9ca3af;
+                                                            cursor: not-allowed;
+                                                            transform: none;
+                                                            box-shadow: none;
+                                                        }
+                                                        .disclaimer {
+                                                            font-size: 18px;
+                                                            color: #64748b;
+                                                            margin-top: 28px;
+                                                            padding: 24px 28px;
+                                                            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                                                            border-radius: 14px;
+                                                            line-height: 1.75;
+                                                            border: 1px solid #e2e8f0;
+                                                        }
+                                                        .loading {
+                                                            display: none;
+                                                            text-align: center;
+                                                            padding: 60px;
+                                                            font-size: 24px;
+                                                            color: #64748b;
+                                                        }
+                                                        .loading p {
+                                                            margin-top: 20px;
+                                                        }
+                                                        .success-message {
+                                                            display: none;
+                                                            text-align: center;
+                                                            padding: 70px 50px;
+                                                        }
+                                                        .success-message h2 {
+                                                            color: #059669;
+                                                            margin-bottom: 20px;
+                                                            font-size: 36px;
+                                                            font-weight: 800;
+                                                        }
+                                                        .success-message p {
+                                                            font-size: 22px;
+                                                            color: #475569;
+                                                            line-height: 1.7;
+                                                        }
+                                                        .error-message {
+                                                            display: none;
+                                                            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+                                                            color: #b91c1c;
+                                                            padding: 18px 22px;
+                                                            margin: 20px 0;
+                                                            border-radius: 12px;
+                                                            border: 1px solid #fca5a5;
+                                                            font-size: 16px;
+                                                            font-weight: 600;
+                                                            text-align: center;
+                                                        }
+
+                                                        /* Mobile Responsiveness */
+                                                        @media (max-width: 768px) {
+                                                            body {
+                                                                padding: 12px;
+                                                                font-size: 16px;
+                                                            }
+                                                            .container {
+                                                                border-radius: 16px;
+                                                            }
+                                                            .content-wrapper {
+                                                                padding: 28px 24px;
+                                                            }
+                                                            .header-info-row {
+                                                                padding: 16px 20px;
+                                                                flex-direction: column;
+                                                                text-align: center;
+                                                            }
+                                                            .header-address, .header-contact {
+                                                                text-align: center;
+                                                            }
+                                                            .greeting {
+                                                                font-size: 26px;
+                                                            }
+                                                            .intro {
+                                                                font-size: 16px;
+                                                            }
+                                                            .good-news-banner {
+                                                                font-size: 18px;
+                                                                padding: 16px 20px;
+                                                            }
+                                                            .friendly-note {
+                                                                padding: 18px 20px;
+                                                            }
+                                                            .friendly-note p {
+                                                                font-size: 15px;
+                                                            }
+                                                            .category {
+                                                                padding: 20px 18px;
+                                                                margin: 24px 0;
+                                                            }
+                                                            .category-title {
+                                                                font-size: 14px;
+                                                            }
+                                                            .lender-item {
+                                                                padding: 12px 14px;
+                                                                min-height: 48px;
+                                                            }
+                                                            .lender-item label {
+                                                                font-size: 15px;
+                                                            }
+                                                            .question-item {
+                                                                min-height: 48px;
+                                                            }
+                                                            .question-item label {
+                                                                font-size: 14px;
+                                                            }
+                                                            .signature-section {
+                                                                padding: 24px 20px;
+                                                            }
+                                                            .signature-canvas {
+                                                                height: 150px;
+                                                            }
+                                                            .btn {
+                                                                font-size: 16px;
+                                                                padding: 14px 24px;
+                                                            }
+                                                            .btn-submit {
+                                                                font-size: 17px;
+                                                                padding: 18px 36px;
+                                                            }
+                                                        }
+
+                                                        @media (max-width: 480px) {
+                                                            .container {
+                                                                border-radius: 12px;
+                                                            }
+                                                            .content-wrapper {
+                                                                padding: 24px 18px;
+                                                            }
+                                                            .greeting {
+                                                                font-size: 22px;
+                                                            }
+                                                            .intro {
+                                                                font-size: 15px;
+                                                            }
+                                                            .good-news-banner {
+                                                                font-size: 16px;
+                                                                padding: 14px 16px;
+                                                                flex-direction: column;
+                                                                text-align: center;
+                                                            }
+                                                            .good-news-icon {
+                                                                font-size: 22px;
+                                                            }
+                                                            .friendly-note {
+                                                                padding: 14px 16px;
+                                                            }
+                                                            .friendly-note p {
+                                                                font-size: 14px;
+                                                            }
+                                                            .category-title {
+                                                                font-size: 13px;
+                                                            }
+                                                            .lender-item label,
+                                                            .question-item label {
+                                                                font-size: 14px;
+                                                            }
+                                                            .signature-title {
+                                                                font-size: 18px;
+                                                            }
+                                                            .btn-submit {
+                                                                font-size: 16px;
+                                                                padding: 16px 28px;
+                                                            }
+                                                        }
+                                                    </style>
+                                                </head>
+                                                <body>
+                                                    <div class="container">
+                                                        <div class="header">
+                                                            ${mailTopBase64
+                ? `<img src="${mailTopBase64}" alt="Rowan Rose Solicitors" class="header-image">`
+                : `<div style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 40px; text-align: center;"><span style="font-size: 32px; font-weight: 800; color: white; letter-spacing: 2px;">ROWAN ROSE SOLICITORS</span></div>`}
+                                                        </div>
+
+                                                        <div class="content-wrapper">
+                                                            <div class="greeting">Hi ${contactName},</div>
+                                                            <div class="intro">
+                                                                <div class="good-news-banner">
+                                                                    <span class="good-news-icon">&#127881;</span>
+                                                                    <span>Great news — your claim is progressing smoothly!</span>
+                                                                </div>
+                                                                <p style="margin-top: 24px; font-size: 22px;">We're reaching out because <strong>millions of pounds have already been repaid to consumers</strong> just like you from lenders for irresponsible lending practices.</p>
+                                                                <p style="margin-top: 18px; font-size: 22px;">To help maximise your potential refund, please take a quick look at the list below and <strong>tick any lenders you've used in the last 15 years</strong>.</p>
+                                                                <p style="margin-top: 18px; font-size: 22px; color: #059669; font-weight: 600;">It only takes a minute and could make a real difference to your claim!</p>
+                                                                <p style="margin-top: 18px; font-size: 20px; color: #64748b;">Questions? We're here to help — just get in touch.</p>
+                                                            </div>
+                                                                                <div id="errorMessage" class="error-message"></div>
+                                                                                <form id="lenderForm">
+                                                                                    <div id="lenderCategories"></div>
+                                                                                    <div class="questions">
+                                                                                        <div class="question-item"><input type="checkbox" id="ccj" name="ccj"><label for="ccj">HAVE YOU EVER HAD A CCJ IN THE LAST 6 YEARS?</label></div>
+                                                                                        <div class="question-item"><input type="checkbox" id="scam" name="scam"><label for="scam">HAVE YOU BEEN A VICTIM OF A SCAM IN THE LAST 6 YEARS?</label></div>
+                                                                                        <div class="question-item"><input type="checkbox" id="gambling" name="gambling"><label for="gambling">HAVE YOU EXPERIENCED PERIODS OF EXCESSIVE OR PROBLEMATIC GAMBLING WITHIN THE LAST 10 YEARS?</label></div>
+                                                                                    </div>
+                                                                                    <div class="friendly-note">
+                                                                                        <p>Thank you for taking the time to complete this form. Your responses help us build the strongest possible case for your claim. We're committed to getting you the best outcome!</p>
+                                                                                    </div>
+                                                                                    <div class="signature-section">
+                                                                                        <div class="authorization-text">
+                                                                                            I, <strong>${contactName}</strong>, authorise Rowan Rose Solicitors to investigate and pursue any case or claim against the lender(s) I have selected within this form.
+                                                                                        </div>
+                                                                                        <div class="signature-title">Digital Signature</div>
+                                                                                        <div class="signature-subtitle">By signing below, you confirm the above authorisation and agree to our terms of service.</div>
+                                                                                        <div class="signature-container">
+                                                                                            <canvas id="signatureCanvas" class="signature-canvas"></canvas>
+                                                                                            <div class="signature-placeholder" id="signaturePlaceholder">Sign here</div>
+                                                                                        </div>
+                                                                                        <div class="signature-footer">
+                                                                                            <span class="signature-hint">Draw with finger or mouse</span>
+                                                                                            <button type="button" class="btn btn-clear" onclick="clearSignature()">Clear</button>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <button type="submit" class="btn btn-submit" id="submitBtn">Submit Your Selection</button>
+                                                                                </form>
+                                                                                <div class="loading" id="loading">
+                                                                                    <div style="width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#f97316;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
+                                                                                    <p style="margin-top:16px;color:#475569;font-weight:500;">Submitting your form...</p>
+                                                                                </div>
+                                                                                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+                                                                                <div class="success-message" id="success">
+                                                                                    <div style="width:64px;height:64px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px auto;">
+                                                                                        <span style="font-size:32px;color:#059669;">✓</span>
+                                                                                    </div>
+                                                                                    <h2>Form Submitted Successfully!</h2>
+                                                                                    <p>Thank you for completing the lender selection form. We will process your information and be in touch shortly.</p>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                            <script>
+                                                                                const lenderCategories = ${JSON.stringify(filteredCategories)};
+                                                                                const container = document.getElementById('lenderCategories');
+        lenderCategories.forEach((category, catIndex) => {
+            const categoryDiv = document.createElement('div');
+                                                                                categoryDiv.className = 'category';
+                                                                                const title = document.createElement('div');
+                                                                                title.className = 'category-title';
+                                                                                title.textContent = category.title;
+                                                                                categoryDiv.appendChild(title);
+            category.lenders.forEach((lender, lenderIndex) => {
+                const lenderDiv = document.createElement('div');
+                                                                                lenderDiv.className = 'lender-item';
+                                                                                const checkbox = document.createElement('input');
+                                                                                checkbox.type = 'checkbox';
+                                                                                checkbox.id = \`lender_\${catIndex}_\${lenderIndex}\`;
+                                                                                checkbox.name = 'lenders';
+                                                                                checkbox.value = lender;
+                                                                                const label = document.createElement('label');
+                                                                                label.htmlFor = checkbox.id;
+                                                                                label.textContent = lender;
+                                                                                lenderDiv.appendChild(checkbox);
+                                                                                lenderDiv.appendChild(label);
+                                                                                categoryDiv.appendChild(lenderDiv);
+            });
+                                                                                container.appendChild(categoryDiv);
+        });
+                                                                                const canvas = document.getElementById('signatureCanvas');
+                                                                                const ctx = canvas.getContext('2d');
+                                                                                const placeholder = document.getElementById('signaturePlaceholder');
+                                                                                let isDrawing = false;
+                                                                                let hasSignature = false;
+
+                                                                                // Resize canvas to fit container
+                                                                                function resizeCanvas() {
+                                                                                    const container = canvas.parentElement;
+                                                                                    const ratio = window.devicePixelRatio || 1;
+                                                                                    const width = container.clientWidth;
+                                                                                    const height = 200;
+                                                                                    canvas.width = width * ratio;
+                                                                                    canvas.height = height * ratio;
+                                                                                    canvas.style.width = width + 'px';
+                                                                                    canvas.style.height = height + 'px';
+                                                                                    ctx.scale(ratio, ratio);
+                                                                                    ctx.strokeStyle = '#0f172a';
+                                                                                    ctx.lineWidth = 2.5;
+                                                                                    ctx.lineCap = 'round';
+                                                                                    ctx.lineJoin = 'round';
+                                                                                }
+                                                                                resizeCanvas();
+                                                                                window.addEventListener('resize', resizeCanvas);
+
+                                                                                function hidePlaceholder() {
+                                                                                    if (placeholder) placeholder.style.display = 'none';
+                                                                                    hasSignature = true;
+                                                                                }
+
+        canvas.addEventListener('mousedown', (e) => {isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
+        canvas.addEventListener('mousemove', (e) => { if (!isDrawing) return; const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('mouseup', () => {isDrawing = false; });
+        canvas.addEventListener('mouseout', () => {isDrawing = false; });
+        canvas.addEventListener('touchstart', (e) => {e.preventDefault(); const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.beginPath(); ctx.moveTo(x, y); isDrawing = true; });
+        canvas.addEventListener('touchmove', (e) => {e.preventDefault(); if (!isDrawing) return; const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.lineTo(x, y); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('touchend', (e) => {e.preventDefault(); isDrawing = false; });
+                                                                                function clearSignature() {
+                                                                                    const ratio = window.devicePixelRatio || 1;
+                                                                                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                                                                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                                                                                    ctx.scale(ratio, ratio);
+                                                                                    ctx.strokeStyle = '#0f172a';
+                                                                                    ctx.lineWidth = 2.5;
+                                                                                    ctx.lineCap = 'round';
+                                                                                    ctx.lineJoin = 'round';
+                                                                                    hasSignature = false;
+                                                                                    if (placeholder) placeholder.style.display = 'block';
+                                                                                }
+        document.getElementById('lenderForm').addEventListener('submit', async (e) => {
+                                                                                    e.preventDefault();
+            const selectedLenders = Array.from(document.querySelectorAll('input[name="lenders"]:checked')).map(cb => cb.value);
+                                                                                if (selectedLenders.length === 0) {alert('Please select at least one lender.'); return; }
+                                                                                if (!hasSignature) {alert('Please provide your signature.'); return; }
+                                                                                const signatureData = canvas.toDataURL('image/png');
+                                                                                const hadCCJ = document.getElementById('ccj').checked;
+                                                                                const victimOfScam = document.getElementById('scam').checked;
+                                                                                const problematicGambling = document.getElementById('gambling').checked;
+                                                                                document.getElementById('lenderForm').style.display = 'none';
+                                                                                document.getElementById('loading').style.display = 'block';
+                                                                                try {
+                const response = await fetch('/api/submit-loa-form', {
+                                                                                    method: 'POST',
+                                                                                headers: {'Content-Type': 'application/json' },
+                                                                                body: JSON.stringify({uniqueId: '${uniqueId}', selectedLenders, signature2Data: signatureData, hadCCJ, victimOfScam, problematicGambling })
+                });
+                                                                                const result = await response.json();
+                                                                                if (result.success) {
+                                                                                    document.getElementById('loading').style.display = 'none';
+                                                                                document.getElementById('success').style.display = 'block';
+                } else {
+                    const errorDiv = document.getElementById('errorMessage');
+                                                                                errorDiv.textContent = result.message;
+                                                                                errorDiv.style.display = 'block';
+                                                                                document.getElementById('lenderForm').style.display = 'block';
+                                                                                document.getElementById('loading').style.display = 'none';
+                                                                                // Scroll to error message
+                                                                                errorDiv.scrollIntoView({behavior: 'smooth' });
+                }
+            } catch (error) {
+                const errorDiv = document.getElementById('errorMessage');
+                                                                                errorDiv.textContent = 'Error submitting form. Please try again.';
+                                                                                errorDiv.style.display = 'block';
+                                                                                document.getElementById('lenderForm').style.display = 'block';
+                                                                                document.getElementById('loading').style.display = 'none';
+            }
+        });
+                                                                            </script>
+                                                                        </body>
+                                                                        </html>
+                                                                        `);
+    } catch (error) {
+        console.error('Error serving lender form:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Submit LOA form
+app.post('/api/submit-loa-form', async (req, res) => {
+    const { uniqueId, selectedLenders, signature2Data, hadCCJ, victimOfScam, problematicGambling } = req.body;
+
+    if (!uniqueId || !selectedLenders || !signature2Data) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // Find contact by unique link and fetch complete data
+        const contactRes = await pool.query(
+            `SELECT id, first_name, last_name, address_line_1, address_line_2,
+                                                                        city, state_county, postal_code, dob, loa_submitted, intake_lender
+                                                                        FROM contacts WHERE unique_form_link = $1`,
+            [uniqueId]
+        );
+
+        let contact;
+        if (contactRes.rows.length === 0) {
+            // Check submission_tokens table if not found in contacts
+            const tokenRes = await pool.query(
+                `SELECT c.id, c.first_name, c.last_name, c.address_line_1, c.address_line_2,
+                 c.city, c.state_county, c.postal_code, c.dob, c.loa_submitted, c.intake_lender
+                 FROM submission_tokens st
+                 JOIN contacts c ON st.contact_id = c.id
+                 WHERE st.token = $1`,
+                [uniqueId]
+            );
+
+            if (tokenRes.rows.length === 0) {
+                return res.status(404).json({ success: false, message: 'Invalid form link' });
+            }
+            contact = tokenRes.rows[0];
+        } else {
+            contact = contactRes.rows[0];
+        }
+
+        // Check if LOA form has already been submitted
+        if (contact.loa_submitted) {
+            return res.status(400).json({
+                success: false,
+                message: 'This link has already been used.',
+                alreadySubmitted: true
+            });
+        }
+
+        const contactId = contact.id;
+        const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+
+        // --- UPDATE DB IMMEDIATELY ---
+        await pool.query('UPDATE contacts SET loa_submitted = true WHERE id = $1', [contactId]);
+
+        // --- IMMEDIATE RESPONSE ---
+        res.json({ success: true, message: 'Form submitted successfully' });
+
+        // --- BACKGROUND PROCESSING ---
+        (async () => {
+            try {
+                console.log(`[Background LOA] Starting processing for contact ${contactId}...`);
+
+                // 1. Upload Signature 2 to S3
+                const signatureBufferWithTimestamp = await addTimestampToSignature(signature2Data);
+                const timestamp = Date.now();
+                const signature2Key = `${folderPath}Signatures/signature_2_${timestamp}.png`;
+
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: signature2Key,
+                    Body: signatureBufferWithTimestamp,
+                    ContentType: 'image/png'
+                }));
+
+                // Generate presigned URL
+                const signature2Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signature2Key }), { expiresIn: 604800 });
+
+                // 2. Update contact with signature 2 URL
+                await pool.query('UPDATE contacts SET signature_2_url = $1 WHERE id = $2', [signature2Url, contactId]);
+
+                // 3. Save signature 2 to documents table
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                                                                        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, 'Signature_2.png', 'image', 'Legal', signature2Url, 'Auto-generated', ['Signature', 'LOA Form']]
+                );
+
+                // 4. Load logo for PDFs
+                let logoBase64 = null;
+                try {
+                    const logoPath = path.join(__dirname, 'public', 'fac.png');
+                    const logoBuffer = await fs.promises.readFile(logoPath);
+                    logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+                } catch (e) {
+                    console.warn('[Background LOA] Logo not found');
+                }
+
+                // Convert signature URL to base64 for embedding in PDF
+                let signatureBase64 = null;
+                try {
+                    signatureBase64 = `data:image/png;base64,${signatureBufferWithTimestamp.toString('base64')}`;
+                } catch (e) {
+                    console.warn('[Background LOA] Could not convert signature to base64');
+                }
+
+
+                // 5. Create Claims for each selected lender (PDF Generation Deferred)
+                const caseCreationPromises = selectedLenders.map(async (lender) => {
+                    try {
+                        const standardizedLenderName = standardizeLender(lender);
+
+                        // Condition: Only the Intake Lender gets 'Lender Selection Form Completed' initially
+                        // Others get 'New Lead'
+                        let initialStatus = 'New Lead';
+                        if (contact.intake_lender && standardizeLender(contact.intake_lender) === standardizedLenderName) {
+                            initialStatus = 'Lender Selection Form Completed';
+                        }
+
+                        // CHECK FOR EXISTING CASE FIRST
+                        const existingCaseRes = await pool.query(
+                            `SELECT id, status FROM cases WHERE contact_id = $1 AND lower(lender) = lower($2)`,
+                            [contactId, standardizedLenderName]
+                        );
+
+                        // Set dsar_send_after to now (no delay for extra lender form - docs already available; skip for GAMBLING)
+                        const dsarSendAfterLender = standardizedLenderName.toUpperCase() !== 'GAMBLING'
+                            ? new Date()
+                            : null;
+
+                        if (existingCaseRes.rows.length > 0) {
+                            // Case exists - update status if it's the intake lender, otherwise leave as is (or update if needed)
+                            console.log(`[Background LOA] Case already exists for ${lender}. Updating status if needed.`);
+
+                            if (initialStatus === 'Lender Selection Form Completed') {
+                                await pool.query(
+                                    `UPDATE cases SET status = $1, dsar_send_after = COALESCE(dsar_send_after, $3) WHERE id = $2`,
+                                    [initialStatus, existingCaseRes.rows[0].id, dsarSendAfterLender]
+                                );
+                            }
+                            return { lender, success: true, status: 'updated' };
+                        } else {
+                            // Case does not exist - create new
+                            await pool.query(
+                                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
+                                 VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false, $4)`,
+                                [contactId, standardizedLenderName, initialStatus, dsarSendAfterLender]
+                            );
+
+                            console.log(`[Background LOA] Created Case for ${lender} with status ${initialStatus} (PDF Generation Pending)`);
+                            return { lender, success: true, status: 'created' };
+                        }
+                    } catch (error) {
+                        console.error(`[Background LOA] ❌ Error processing case for ${lender}:`, error);
+                        return { lender, success: false, error: error.message };
+                    }
+                });
+
+                // Wait for all cases to be created
+                await Promise.all(caseCreationPromises);
+
+                // 6. Handle Intake Lender Claim (Ensure it exists and has correct status if not selected above)
+                if (contact.intake_lender) {
+                    console.log(`[Background LOA] Ensuring Intake Lender Case: ${contact.intake_lender}`);
+                    const stdIntakeLender = standardizeLender(contact.intake_lender);
+
+                    // Update existing case if it exists (e.g. created created above or previously)
+                    const intakeDsarSendAfter = stdIntakeLender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+                    const updateResult = await pool.query(
+                        `UPDATE cases SET status = 'Lender Selection Form Completed', dsar_send_after = COALESCE(dsar_send_after, $3)
+                         WHERE contact_id = $1 AND lower(lender) = lower($2)`,
+                        [contactId, stdIntakeLender, intakeDsarSendAfter]
+                    );
+
+                    if (updateResult.rowCount === 0) {
+                        // If not exists (meaning user didn't select it? or it wasn't in list?), create it
+                        await pool.query(
+                            `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
+                             VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3)`,
+                            [contactId, stdIntakeLender, intakeDsarSendAfter]
+                        );
+                    }
+                }
+
+                // Create Action Log
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [
+                        contactId,
+                        'client',
+                        contactId.toString(),
+                        `${contact.first_name} ${contact.last_name}`,
+                        'loa_form_submitted',
+                        'case',
+                        `Client submitted LOA Selection Form`,
+                        JSON.stringify({ selectedLenders })
+                    ]
+                );
+
+                console.log(`[Background LOA] ✅ ALL TASKS COMPLETED for contact ${contactId}`);
+
+            } catch (err) {
+                console.error('[Background LOA] ❌ Background Processing Error:', err);
+            }
+        })();
+
+    } catch (error) {
+        console.error('Submit LOA Form Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Get action timeline for a contact
+app.get('/api/contacts/:id/action-timeline', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const timelineRes = await pool.query(
+            `SELECT * FROM action_logs WHERE client_id = $1 ORDER BY timestamp DESC`,
+            [id]
+        );
+
+        // Group timeline entries
+        const timeline = {
+            creation: [],
+            formSubmissions: [],
+            updates: []
+        };
+
+        timelineRes.rows.forEach(entry => {
+            const formattedEntry = {
+                id: entry.id,
+                timestamp: entry.timestamp,
+                actorType: entry.actor_type,
+                actorName: entry.actor_name,
+                actionType: entry.action_type,
+                description: entry.description,
+                metadata: entry.metadata
+            };
+
+            if (entry.action_type === 'contact_created') {
+                timeline.creation.push(formattedEntry);
+            } else if (entry.action_type.includes('form') || entry.action_type.includes('link')) {
+                timeline.formSubmissions.push(formattedEntry);
+            } else {
+                timeline.updates.push(formattedEntry);
+            }
+        });
+
+        res.json({ success: true, timeline });
+    } catch (error) {
+        console.error('Error fetching action timeline:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+
+// ============================================
+// TASKS & CALENDAR ENDPOINTS
+// ============================================
+
+// Get all tasks (with optional filters)
+app.get('/api/tasks', async (req, res) => {
+    try {
+        const { startDate, endDate, status, assignedTo, type } = req.query;
+
+        let query = `
+            SELECT t.*,
+                u1.full_name as assigned_to_name,
+                u2.full_name as assigned_by_name,
+                u3.full_name as created_by_name,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tc.contact_id, 'name', c.full_name))
+                     FROM task_contacts tc
+                     JOIN contacts c ON tc.contact_id = c.id
+                     WHERE tc.task_id = t.id), '[]'
+                ) as linked_contacts,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tcl.claim_id, 'lender', cs.lender))
+                     FROM task_claims tcl
+                     JOIN cases cs ON tcl.claim_id = cs.id
+                     WHERE tcl.task_id = t.id), '[]'
+                ) as linked_claims,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tr.id, 'reminder_time', tr.reminder_time, 'is_sent', tr.is_sent))
+                     FROM task_reminders tr
+                     WHERE tr.task_id = t.id), '[]'
+                ) as reminders
+            FROM tasks t
+            LEFT JOIN users u1 ON t.assigned_to = u1.id
+            LEFT JOIN users u2 ON t.assigned_by = u2.id
+            LEFT JOIN users u3 ON t.created_by = u3.id
+            WHERE 1=1
+        `;
+
+        const params = [];
+        let paramIndex = 1;
+
+        if (startDate) {
+            query += ` AND t.date >= $${paramIndex}`;
+            params.push(startDate);
+            paramIndex++;
+        }
+        if (endDate) {
+            query += ` AND t.date <= $${paramIndex}`;
+            params.push(endDate);
+            paramIndex++;
+        }
+        if (status) {
+            query += ` AND t.status = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+        if (assignedTo) {
+            query += ` AND t.assigned_to = $${paramIndex}`;
+            params.push(assignedTo);
+            paramIndex++;
+        }
+        if (type) {
+            query += ` AND t.type = $${paramIndex}`;
+            params.push(type);
+            paramIndex++;
+        }
+
+        query += ` ORDER BY t.date ASC, t.start_time ASC`;
+
+        const { rows } = await pool.query(query, params);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching tasks:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get single task
+app.get('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await pool.query(`
+            SELECT t.*,
+                u1.full_name as assigned_to_name,
+                u2.full_name as assigned_by_name,
+                u3.full_name as created_by_name,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tc.contact_id, 'name', c.full_name))
+                     FROM task_contacts tc
+                     JOIN contacts c ON tc.contact_id = c.id
+                     WHERE tc.task_id = t.id), '[]'
+                ) as linked_contacts,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tcl.claim_id, 'lender', cs.lender))
+                     FROM task_claims tcl
+                     JOIN cases cs ON tcl.claim_id = cs.id
+                     WHERE tcl.task_id = t.id), '[]'
+                ) as linked_claims,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('id', tr.id, 'reminder_time', tr.reminder_time, 'is_sent', tr.is_sent))
+                     FROM task_reminders tr
+                     WHERE tr.task_id = t.id), '[]'
+                ) as reminders
+            FROM tasks t
+            LEFT JOIN users u1 ON t.assigned_to = u1.id
+            LEFT JOIN users u2 ON t.assigned_by = u2.id
+            LEFT JOIN users u3 ON t.created_by = u3.id
+            WHERE t.id = $1
+        `, [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('Error fetching task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create task
+app.post('/api/tasks', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const {
+            title, description, type, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, contactIds, claimIds, reminders, createdBy
+        } = req.body;
+
+        // Insert task
+        const taskResult = await client.query(`
+            INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                assigned_to, assigned_by, assigned_at, is_recurring, recurrence_pattern,
+                recurrence_end_date, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+        `, [
+            title, description, type || 'appointment', date, startTime, endTime,
+            assignedTo || null, assignedBy || null, assignedTo ? new Date() : null,
+            isRecurring || false, recurrencePattern || null,
+            recurrenceEndDate || null, createdBy || null
+        ]);
+
+        const taskId = taskResult.rows[0].id;
+
+        // Link contacts
+        if (contactIds && contactIds.length > 0) {
+            for (const contactId of contactIds) {
+                await client.query(
+                    'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                    [taskId, contactId]
+                );
+            }
+        }
+
+        // Link claims
+        if (claimIds && claimIds.length > 0) {
+            for (const claimId of claimIds) {
+                await client.query(
+                    'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                    [taskId, claimId]
+                );
+            }
+        }
+
+        // Add reminders
+        if (reminders && reminders.length > 0) {
+            for (const reminder of reminders) {
+                await client.query(
+                    'INSERT INTO task_reminders (task_id, reminder_time, reminder_type) VALUES ($1, $2, $3)',
+                    [taskId, reminder.reminderTime, reminder.reminderType || 'in_app']
+                );
+            }
+        }
+
+        // Create notification for assignee if assigned to someone else
+        if (assignedTo && assignedTo !== createdBy) {
+            await client.query(`
+                INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                VALUES ($1, 'task_assigned', $2, $3, $4)
+            `, [assignedTo, `Task assigned: ${title}`, `You have been assigned a new task scheduled for ${date}`, taskId]);
+        }
+
+        // Log action
+        if (contactIds && contactIds.length > 0) {
+            await client.query(`
+                INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                VALUES ($1, 'agent', $2, 'task_created', 'system', $3)
+            `, [contactIds[0], createdBy, `Task "${title}" created`]);
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({ success: true, id: taskId, task: taskResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error creating task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update task
+app.patch('/api/tasks/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const {
+            title, description, type, status, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, contactIds, claimIds, reminders
+        } = req.body;
+
+        // Get current task for comparison
+        const currentTask = await client.query('SELECT * FROM tasks WHERE id = $1', [id]);
+        if (currentTask.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        // Update task
+        const updateResult = await client.query(`
+            UPDATE tasks SET
+                title = COALESCE($1, title),
+                description = COALESCE($2, description),
+                type = COALESCE($3, type),
+                status = COALESCE($4, status),
+                date = COALESCE($5, date),
+                start_time = COALESCE($6, start_time),
+                end_time = COALESCE($7, end_time),
+                assigned_to = COALESCE($8, assigned_to),
+                assigned_by = COALESCE($9, assigned_by),
+                assigned_at = CASE WHEN $8 IS NOT NULL AND $8 != assigned_to THEN NOW() ELSE assigned_at END,
+                is_recurring = COALESCE($10, is_recurring),
+                recurrence_pattern = COALESCE($11, recurrence_pattern),
+                recurrence_end_date = COALESCE($12, recurrence_end_date),
+                updated_at = NOW()
+            WHERE id = $13
+            RETURNING *
+        `, [title, description, type, status, date, startTime, endTime,
+            assignedTo, assignedBy, isRecurring, recurrencePattern,
+            recurrenceEndDate, id]);
+
+        // Update linked contacts if provided
+        if (contactIds !== undefined) {
+            await client.query('DELETE FROM task_contacts WHERE task_id = $1', [id]);
+            for (const contactId of contactIds) {
+                await client.query(
+                    'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                    [id, contactId]
+                );
+            }
+        }
+
+        // Update linked claims if provided
+        if (claimIds !== undefined) {
+            await client.query('DELETE FROM task_claims WHERE task_id = $1', [id]);
+            for (const claimId of claimIds) {
+                await client.query(
+                    'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                    [id, claimId]
+                );
+            }
+        }
+
+        // Update reminders if provided
+        if (reminders !== undefined) {
+            await client.query('DELETE FROM task_reminders WHERE task_id = $1', [id]);
+            for (const reminder of reminders) {
+                await client.query(
+                    'INSERT INTO task_reminders (task_id, reminder_time, reminder_type) VALUES ($1, $2, $3)',
+                    [id, reminder.reminderTime, reminder.reminderType || 'in_app']
+                );
+            }
+        }
+
+        // Notify if reassigned
+        if (assignedTo && assignedTo !== currentTask.rows[0].assigned_to) {
+            await client.query(`
+                INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                VALUES ($1, 'task_assigned', $2, $3, $4)
+            `, [assignedTo, `Task assigned: ${title || currentTask.rows[0].title}`, `You have been assigned a task`, id]);
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, task: updateResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error updating task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Complete task
+app.post('/api/tasks/:id/complete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { completedBy } = req.body;
+
+        const { rows } = await pool.query(`
+            UPDATE tasks SET
+                status = 'completed',
+                completed_at = NOW(),
+                completed_by = $1,
+                updated_at = NOW()
+            WHERE id = $2
+            RETURNING *
+        `, [completedBy, id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        res.json({ success: true, task: rows[0] });
+    } catch (error) {
+        console.error('Error completing task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reschedule task (creates follow-up if auto-reschedule)
+app.post('/api/tasks/:id/reschedule', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const { newDate, newStartTime, newEndTime, autoFollowUp, rescheduledBy } = req.body;
+
+        // Get current task
+        const currentTask = await client.query('SELECT * FROM tasks WHERE id = $1', [id]);
+        if (currentTask.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        const task = currentTask.rows[0];
+
+        // Mark original as rescheduled
+        await client.query(`
+            UPDATE tasks SET status = 'rescheduled', updated_at = NOW() WHERE id = $1
+        `, [id]);
+
+        // Create new task with new date
+        const newTaskResult = await client.query(`
+            INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                assigned_to, assigned_by, is_recurring, recurrence_pattern,
+                recurrence_end_date, parent_task_id, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+        `, [
+            task.title, task.description, task.type, newDate,
+            newStartTime || task.start_time, newEndTime || task.end_time,
+            task.assigned_to, task.assigned_by, task.is_recurring,
+            task.recurrence_pattern, task.recurrence_end_date, id, rescheduledBy
+        ]);
+
+        const newTaskId = newTaskResult.rows[0].id;
+
+        // Copy contact links
+        await client.query(`
+            INSERT INTO task_contacts (task_id, contact_id)
+            SELECT $1, contact_id FROM task_contacts WHERE task_id = $2
+        `, [newTaskId, id]);
+
+        // Copy claim links
+        await client.query(`
+            INSERT INTO task_claims (task_id, claim_id)
+            SELECT $1, claim_id FROM task_claims WHERE task_id = $2
+        `, [newTaskId, id]);
+
+        // Log action
+        const contacts = await client.query('SELECT contact_id FROM task_contacts WHERE task_id = $1 LIMIT 1', [id]);
+        if (contacts.rows.length > 0) {
+            await client.query(`
+                INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                VALUES ($1, 'agent', $2, 'task_rescheduled', 'system', $3)
+            `, [contacts.rows[0].contact_id, rescheduledBy, `Task "${task.title}" rescheduled to ${newDate}`]);
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, originalTaskId: id, newTaskId, newTask: newTaskResult.rows[0] });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error rescheduling task:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Delete task
+app.delete('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING *', [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        res.json({ success: true, message: 'Task deleted' });
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get task history (all versions including rescheduled)
+app.get('/api/tasks/:id/history', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get all tasks in the chain (parent and children)
+        const { rows } = await pool.query(`
+            WITH RECURSIVE task_chain AS (
+                SELECT t.*, 0 as depth FROM tasks t WHERE t.id = $1
+                UNION ALL
+                SELECT t.*, tc.depth + 1 FROM tasks t
+                JOIN task_chain tc ON t.parent_task_id = tc.id
+            )
+            SELECT * FROM task_chain ORDER BY created_at ASC
+        `, [id]);
+
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching task history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// PERSISTENT NOTIFICATIONS ENDPOINTS
+// ============================================
+
+// Get notifications for a user
+app.get('/api/notifications', async (req, res) => {
+    try {
+        const { userId, unreadOnly } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        let query = `
+            SELECT n.*, t.title as task_title, t.date as task_date
+            FROM persistent_notifications n
+            LEFT JOIN tasks t ON n.related_task_id = t.id
+            WHERE n.user_id = $1
+        `;
+
+        if (unreadOnly === 'true') {
+            query += ' AND n.is_read = FALSE';
+        }
+
+        query += ' ORDER BY n.created_at DESC LIMIT 50';
+
+        const { rows } = await pool.query(query, [userId]);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching notifications:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get unread notification count
+app.get('/api/notifications/count', async (req, res) => {
+    try {
+        const { userId } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        const { rows } = await pool.query(
+            'SELECT COUNT(*) as count FROM persistent_notifications WHERE user_id = $1 AND is_read = FALSE',
+            [userId]
+        );
+
+        res.json({ count: parseInt(rows[0].count) });
+    } catch (error) {
+        console.error('Error fetching notification count:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark notification as read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE id = $1', [id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking notification read:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark all notifications as read for a user
+app.patch('/api/notifications/read-all', async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE user_id = $1', [userId]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking all notifications read:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Check and create reminder notifications (called by background job or frontend)
+app.post('/api/reminders/check', async (req, res) => {
+    try {
+        // Find due reminders that haven't been sent
+        const { rows: dueReminders } = await pool.query(`
+            SELECT tr.*, t.title, t.date, t.assigned_to, t.created_by
+            FROM task_reminders tr
+            JOIN tasks t ON tr.task_id = t.id
+            WHERE tr.is_sent = FALSE
+            AND tr.reminder_time <= NOW()
+            AND t.status = 'pending'
+        `);
+
+        const notifications = [];
+
+        for (const reminder of dueReminders) {
+            const userId = reminder.assigned_to || reminder.created_by;
+            if (userId) {
+                // Create notification
+                await pool.query(`
+                    INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                    VALUES ($1, 'follow_up_due', $2, $3, $4)
+                `, [userId, `Reminder: ${reminder.title}`, `Task scheduled for ${reminder.date}`, reminder.task_id]);
+
+                // Mark reminder as sent
+                await pool.query('UPDATE task_reminders SET is_sent = TRUE, sent_at = NOW() WHERE id = $1', [reminder.id]);
+
+                notifications.push({ taskId: reminder.task_id, userId });
+            }
+        }
+
+        res.json({ success: true, processedCount: notifications.length, notifications });
+    } catch (error) {
+        console.error('Error checking reminders:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Auto follow-up check (reschedule incomplete tasks from yesterday)
+app.post('/api/tasks/auto-followup', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Find incomplete tasks from yesterday
+        const { rows: incompleteTasks } = await client.query(`
+            SELECT t.*,
+                COALESCE((SELECT json_agg(contact_id) FROM task_contacts WHERE task_id = t.id), '[]') as contact_ids,
+                COALESCE((SELECT json_agg(claim_id) FROM task_claims WHERE task_id = t.id), '[]') as claim_ids
+            FROM tasks t
+            WHERE t.status = 'pending'
+            AND t.date < CURRENT_DATE
+            AND t.is_recurring = FALSE
+        `);
+
+        const rescheduled = [];
+
+        for (const task of incompleteTasks) {
+            // Mark as rescheduled
+            await client.query(`UPDATE tasks SET status = 'rescheduled', updated_at = NOW() WHERE id = $1`, [task.id]);
+
+            // Create new task for today
+            const newTaskResult = await client.query(`
+                INSERT INTO tasks (title, description, type, date, start_time, end_time,
+                    assigned_to, assigned_by, parent_task_id, created_by)
+                VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+            `, [task.title, task.description, task.type, task.start_time, task.end_time,
+            task.assigned_to, task.assigned_by, task.id, task.assigned_to || task.created_by]);
+
+            const newTaskId = newTaskResult.rows[0].id;
+
+            // Copy contact links
+            if (task.contact_ids && task.contact_ids.length > 0) {
+                for (const contactId of task.contact_ids) {
+                    await client.query(
+                        'INSERT INTO task_contacts (task_id, contact_id) VALUES ($1, $2)',
+                        [newTaskId, contactId]
+                    );
+                }
+            }
+
+            // Copy claim links
+            if (task.claim_ids && task.claim_ids.length > 0) {
+                for (const claimId of task.claim_ids) {
+                    await client.query(
+                        'INSERT INTO task_claims (task_id, claim_id) VALUES ($1, $2)',
+                        [newTaskId, claimId]
+                    );
+                }
+            }
+
+            // Create notification
+            const userId = task.assigned_to || task.created_by;
+            if (userId) {
+                await client.query(`
+                    INSERT INTO persistent_notifications (user_id, type, title, message, related_task_id)
+                    VALUES ($1, 'follow_up_due', $2, $3, $4)
+                `, [userId, `Auto-rescheduled: ${task.title}`, 'Task was not completed and has been rescheduled to today', newTaskId]);
+            }
+
+            rescheduled.push({ originalId: task.id, newId: newTaskId, title: task.title });
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, rescheduledCount: rescheduled.length, rescheduled });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error in auto-followup:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Get combined timeline (calendar + CRM activities) for a contact
+app.get('/api/contacts/:id/combined-timeline', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get tasks linked to this contact
+        const tasksQuery = await pool.query(`
+            SELECT t.id, t.title, t.type, t.status, t.date, t.start_time,
+                'task' as item_type, t.created_at as timestamp
+            FROM tasks t
+            JOIN task_contacts tc ON t.id = tc.task_id
+            WHERE tc.contact_id = $1
+            ORDER BY t.date DESC
+        `, [id]);
+
+        // Get action logs
+        const actionsQuery = await pool.query(`
+            SELECT id, action_type as type, description as title, action_category,
+                'action' as item_type, timestamp
+            FROM action_logs
+            WHERE client_id = $1
+            ORDER BY timestamp DESC
+            LIMIT 50
+        `, [id]);
+
+        // Get communications
+        const commsQuery = await pool.query(`
+            SELECT id, channel as type, subject as title, direction,
+                'communication' as item_type, timestamp
+            FROM communications
+            WHERE client_id = $1
+            ORDER BY timestamp DESC
+            LIMIT 50
+        `, [id]);
+
+        // Combine and sort
+        const timeline = [
+            ...tasksQuery.rows,
+            ...actionsQuery.rows,
+            ...commsQuery.rows
+        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.json(timeline.slice(0, 100));
+    } catch (error) {
+        console.error('Error fetching combined timeline:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- SALES SIGNATURE ENDPOINTS ---
+
+// Generate sales signature link for a specific case (manual override)
+// Note: Token is auto-generated when claim status changes to "Sale"
+app.post('/api/cases/:id/sales-signature-link', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Generate random UUID token
+        const { randomUUID } = await import('crypto');
+        const token = randomUUID();
+
+        // Update case with the token
+        const result = await pool.query(
+            'UPDATE cases SET sales_signature_token = $1 WHERE id = $2 RETURNING contact_id, lender',
+            [token, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Case not found' });
+        }
+
+        // Build the link
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        const link = `${baseUrl}/intake/sales/${token}`;
+
+        console.log(`📧 Generated sales signature link for case ${id} (${result.rows[0].lender}): ${link}`);
+
+        res.json({ success: true, link, token, caseId: id, lender: result.rows[0].lender });
+    } catch (error) {
+        console.error('Error generating sales signature link:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Serve sales signature capture page (now looks up by case token)
+app.get('/intake/sales/:token', async (req, res) => {
+    const { token } = req.params;
+
+    try {
+        // Find case by sales_signature_token, then join with contact
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, c.sales_signature_token,
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.dob, cnt.email, cnt.phone,
+                    cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code,
+                    cnt.previous_address_line_1, cnt.previous_address_line_2, cnt.previous_city,
+                    cnt.previous_county, cnt.previous_postal_code,
+                    cnt.previous_addresses
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.sales_signature_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.status(404).send(`
+                <!DOCTYPE html>
+                <html>
+                    <head>
+                        <title>Invalid or Expired Link</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+                            h1 { color: #EF4444; }
+                            .container { background: white; padding: 40px; border-radius: 12px; max-width: 500px; margin: 0 auto; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>Invalid or Expired Link</h1>
+                            <p>This link is not valid, has already been used, or has expired. Please contact Rowan Rose Solicitors for assistance.</p>
+                        </div>
+                    </body>
+                </html>
+            `);
+        }
+
+        const record = caseRes.rows[0];
+        const contact = {
+            id: record.contact_id,
+            first_name: record.first_name,
+            last_name: record.last_name,
+            dob: record.dob,
+            email: record.email,
+            phone: record.phone,
+            address_line_1: record.address_line_1,
+            address_line_2: record.address_line_2,
+            city: record.city,
+            state_county: record.state_county,
+            postal_code: record.postal_code,
+            intake_lender: record.lender
+        };
+        const caseId = record.case_id;
+        const fullName = `${contact.first_name} ${contact.last_name}`;
+        const dob = contact.dob ? new Date(contact.dob).toLocaleDateString('en-GB') : '';
+
+        // Format current address
+        const addressParts = [contact.address_line_1, contact.address_line_2, contact.city, contact.state_county].filter(Boolean);
+        const fullAddress = addressParts.join(', ');
+
+        // Format ALL previous addresses - check JSONB first, then legacy fields
+        let allPreviousAddresses = [];
+
+        // Parse previous_addresses JSONB if available
+        let prevAddrsJson = record.previous_addresses;
+        if (typeof prevAddrsJson === 'string') {
+            try { prevAddrsJson = JSON.parse(prevAddrsJson); } catch { prevAddrsJson = null; }
+        }
+        if (prevAddrsJson && Array.isArray(prevAddrsJson) && prevAddrsJson.length > 0) {
+            allPreviousAddresses = prevAddrsJson.map(pa => {
+                const parts = [
+                    pa.line1 || pa.address_line_1,
+                    pa.line2 || pa.address_line_2,
+                    pa.city,
+                    pa.county || pa.state_county,
+                    pa.postalCode || pa.postal_code
+                ].filter(Boolean);
+                return parts.join(', ');
+            }).filter(addr => addr.length > 0);
+        }
+
+        // Fall back to legacy previous address fields if no JSONB data
+        if (allPreviousAddresses.length === 0) {
+            const prevAddressParts = [
+                record.previous_address_line_1,
+                record.previous_address_line_2,
+                record.previous_city,
+                record.previous_county,
+                record.previous_postal_code
+            ].filter(Boolean);
+            if (prevAddressParts.length > 0) {
+                allPreviousAddresses.push(prevAddressParts.join(', '));
+            }
+        }
+
+        // Load Rowan Rose logo as base64
+        let logoBase64 = '';
+        try {
+            const logoPath = path.join(__dirname, 'public', 'rowan-rose-logo.png');
+            if (fs.existsSync(logoPath)) {
+                const logoBuffer = fs.readFileSync(logoPath);
+                logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+            }
+        } catch (e) {
+            console.warn('Could not load rowan-rose-logo.png:', e.message);
+        }
+
+        res.send(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Sign Authorization - ${fullName}</title>
+                <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        font-family: 'Lato', sans-serif;
+                        min-height: 100vh;
+                        background: #f8fafc;
+                    }
+                    .page-container {
+                        display: flex;
+                        min-height: 100vh;
+                    }
+                    /* Left Sidebar - Rowan Rose Branding */
+                    .sidebar {
+                        width: 380px;
+                        background: linear-gradient(180deg, #0D1B2A 0%, #1B263B 100%);
+                        padding: 50px 40px;
+                        display: flex;
+                        flex-direction: column;
+                        position: fixed;
+                        height: 100vh;
+                        left: 0;
+                        top: 0;
+                    }
+                    .logo-container {
+                        margin-bottom: 40px;
+                    }
+                    .logo-container img {
+                        max-width: 200px;
+                        height: auto;
+                    }
+                    .sidebar-title {
+                        font-family: 'Playfair Display', serif;
+                        font-size: 28px;
+                        font-weight: 600;
+                        color: #ffffff;
+                        margin-bottom: 20px;
+                        line-height: 1.3;
+                    }
+                    .sidebar-text {
+                        color: #94a3b8;
+                        font-size: 15px;
+                        line-height: 1.7;
+                        margin-bottom: 30px;
+                    }
+                    .contact-details {
+                        margin-top: auto;
+                        padding-top: 30px;
+                        border-top: 1px solid rgba(255,255,255,0.1);
+                    }
+                    .contact-item {
+                        color: #cbd5e1;
+                        font-size: 14px;
+                        margin-bottom: 12px;
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }
+                    .contact-item span { color: #F18F01; }
+                    /* Right Content Area */
+                    .main-content {
+                        flex: 1;
+                        margin-left: 380px;
+                        padding: 40px 60px;
+                        min-height: 100vh;
+                        background: #ffffff;
+                    }
+                    .form-header {
+                        margin-bottom: 30px;
+                    }
+                    .lender-badge {
+                        display: inline-block;
+                        background: linear-gradient(135deg, #1E3A5F, #0D1B2A);
+                        color: #F18F01;
+                        padding: 10px 20px;
+                        border-radius: 25px;
+                        font-weight: 700;
+                        font-size: 14px;
+                        margin-bottom: 20px;
+                        letter-spacing: 0.5px;
+                    }
+                    .form-title {
+                        font-family: 'Playfair Display', serif;
+                        font-size: 32px;
+                        font-weight: 600;
+                        color: #0D1B2A;
+                        margin-bottom: 10px;
+                    }
+                    .form-subtitle {
+                        color: #64748b;
+                        font-size: 16px;
+                    }
+                    /* Contact Info Grid */
+                    .contact-info {
+                        background: #f8fafc;
+                        border-radius: 12px;
+                        padding: 25px;
+                        margin-bottom: 30px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    .info-grid {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 20px;
+                    }
+                    .info-item {
+                        background: white;
+                        padding: 15px 18px;
+                        border-radius: 8px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    .info-label {
+                        font-size: 11px;
+                        color: #64748b;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 5px;
+                    }
+                    .info-value {
+                        font-size: 16px;
+                        color: #0D1B2A;
+                        font-weight: 600;
+                    }
+                    .full-width { grid-column: 1 / -1; }
+                    /* Signature Section */
+                    .signature-section {
+                        margin: 30px 0;
+                    }
+                    .signature-label {
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #0D1B2A;
+                        margin-bottom: 12px;
+                    }
+                    .signature-box {
+                        border: 2px dashed #1E3A5F;
+                        border-radius: 12px;
+                        background: #fafafa;
+                        position: relative;
+                        height: 180px;
+                        cursor: crosshair;
+                        transition: all 0.2s;
+                    }
+                    .signature-box:hover {
+                        border-color: #F18F01;
+                        background: #fffbf5;
+                    }
+                    #signatureCanvas {
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 10px;
+                    }
+                    .clear-btn {
+                        position: absolute;
+                        top: 10px;
+                        right: 10px;
+                        background: #ef4444;
+                        color: white;
+                        border: none;
+                        padding: 8px 14px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    .signature-hint {
+                        text-align: center;
+                        color: #94a3b8;
+                        font-size: 13px;
+                        margin-top: 10px;
+                    }
+                    /* Consent */
+                    .consent-text {
+                        font-size: 13px;
+                        color: #475569;
+                        line-height: 1.8;
+                        margin: 25px 0;
+                        padding: 20px;
+                        background: #f8fafc;
+                        border-radius: 10px;
+                        border-left: 4px solid #1E3A5F;
+                    }
+                    /* Links */
+                    .doc-links {
+                        display: flex;
+                        gap: 20px;
+                        margin: 20px 0;
+                        justify-content: center;
+                    }
+                    .doc-link {
+                        color: #1E3A5F;
+                        text-decoration: none;
+                        font-size: 14px;
+                        font-weight: 600;
+                        padding: 10px 20px;
+                        border: 2px solid #1E3A5F;
+                        border-radius: 8px;
+                        transition: all 0.2s;
+                    }
+                    .doc-link:hover {
+                        background: #1E3A5F;
+                        color: white;
+                    }
+                    /* Submit Button */
+                    .submit-btn {
+                        width: 100%;
+                        background: linear-gradient(135deg, #F18F01, #d97706);
+                        color: white;
+                        border: none;
+                        padding: 18px;
+                        border-radius: 12px;
+                        font-size: 18px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        margin-top: 25px;
+                        transition: all 0.3s ease;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                    }
+                    .submit-btn:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 10px 25px rgba(241, 143, 1, 0.35);
+                    }
+                    /* States */
+                    .loading, .success-message { display: none; text-align: center; padding: 60px 40px; }
+                    .spinner {
+                        width: 50px;
+                        height: 50px;
+                        border: 4px solid #e2e8f0;
+                        border-top-color: #F18F01;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 20px;
+                    }
+                    @keyframes spin { to { transform: rotate(360deg); } }
+                    .success-icon { font-size: 70px; margin-bottom: 20px; }
+                    .success-title { font-family: 'Playfair Display', serif; font-size: 28px; color: #059669; margin-bottom: 10px; }
+                    .success-text { color: #64748b; font-size: 16px; }
+                    .error-message {
+                        background: #fef2f2;
+                        color: #dc2626;
+                        padding: 15px;
+                        border-radius: 8px;
+                        margin-top: 15px;
+                        display: none;
+                        text-align: center;
+                        font-weight: 500;
+                    }
+                    /* Mobile */
+                    @media (max-width: 900px) {
+                        .sidebar { display: none; }
+                        .main-content { margin-left: 0; padding: 30px 20px; }
+                        .info-grid { grid-template-columns: 1fr; }
+                        .doc-links { flex-direction: column; align-items: center; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="page-container">
+                    <!-- Left Sidebar -->
+                    <div class="sidebar">
+                        <div class="logo-container">
+                            ${logoBase64 ? `<img src="${logoBase64}" alt="Rowan Rose Solicitors">` : '<div style="color:#fff;font-size:24px;font-weight:bold;">Rowan Rose</div>'}
+                        </div>
+                        <h2 class="sidebar-title">Authorisation for Claims Investigation</h2>
+                        <p class="sidebar-text">
+                            Please review your details and sign below to authorize Rowan Rose Solicitors to investigate potential claims on your behalf.
+                        </p>
+                        <div class="contact-details">
+                            <div class="contact-item"><span>✉</span> info@fastactionclaims.co.uk</div>
+                            <div class="contact-item"><span>☎</span> 0161 533 1706</div>
+                            <div class="contact-item"><span>🌐</span> fastactionclaims.co.uk</div>
+                        </div>
+                    </div>
+                    <!-- Right Content -->
+                    <div class="main-content">
+                        <div id="formContent">
+                            <div class="form-header">
+                                <div class="lender-badge">CLAIMS FORM : ${contact.intake_lender || ''}</div>
+                                <h1 class="form-title">Hello, ${contact.first_name}!</h1>
+                                <p class="form-subtitle">Please verify your details and provide your signature below.</p>
+                            </div>
+                            <div class="contact-info">
+                                <div class="info-grid">
+                                    <div class="info-item">
+                                        <div class="info-label">First Name</div>
+                                        <div class="info-value">${contact.first_name || '-'}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Last Name</div>
+                                        <div class="info-value">${contact.last_name || '-'}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Date of Birth</div>
+                                        <div class="info-value">${dob || '-'}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Postcode</div>
+                                        <div class="info-value">${contact.postal_code || '-'}</div>
+                                    </div>
+                                    <div class="info-item full-width">
+                                        <div class="info-label">Current Address</div>
+                                        <div class="info-value">${fullAddress || '-'}</div>
+                                    </div>
+                                    ${allPreviousAddresses.length > 0 ? allPreviousAddresses.map((addr, idx) => `
+                                    <div class="info-item full-width">
+                                        <div class="info-label">Previous Address ${allPreviousAddresses.length > 1 ? (idx + 1) : ''}</div>
+                                        <div class="info-value">${addr}</div>
+                                    </div>
+                                    `).join('') : ''}
+                                </div>
+                            </div>
+                            <div class="signature-section">
+                                <div class="signature-label">Sign Here:</div>
+                                <div class="signature-box">
+                                    <canvas id="signatureCanvas"></canvas>
+                                    <button type="button" class="clear-btn" onclick="clearSignature()">Clear</button>
+                                </div>
+                                <div class="signature-hint">Please sign in the box above using your mouse or finger.</div>
+                            </div>
+                            <div class="consent-text">
+                                By signing here you consent to us to look into any potential claim/claims on your behalf. We will share your information with Rowan Rose Solicitors, a UK law Firm who will be submitting your claim. Your information will be handled in accordance with the applicable privacy laws and professional standards. You consent to us sharing your information with a credit reference agency for verification and assessment purposes. You agree that your electronic signature may be used for each letter of authority and Conditional Fee Agreement applicable to your claim. Furthermore, you hereby agree to accept our Terms of Use, Disclaimers, and Privacy Policy. Your IP address will be stored in our database.
+                            </div>
+                            <div class="doc-links">
+                                <a href="/terms%20and%20conditions.pdf" target="_blank" class="doc-link">Terms and Conditions</a>
+                                <a href="/Privacy%20Policy.pdf" target="_blank" class="doc-link">Privacy Policy</a>
+                            </div>
+                            <div class="error-message" id="errorMessage"></div>
+                            <button type="button" class="submit-btn" onclick="submitSignature()">Sign & Submit</button>
+                        </div>
+                        <div class="loading" id="loading">
+                            <div class="spinner"></div>
+                            <p>Submitting your signature...</p>
+                        </div>
+                        <div class="success-message" id="successMessage">
+                            <div class="success-icon">✓</div>
+                            <div class="success-title">Signature Submitted Successfully!</div>
+                            <div class="success-text">Thank you. Your authorization has been recorded.</div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    const canvas = document.getElementById('signatureCanvas');
+                    const ctx = canvas.getContext('2d');
+                    let isDrawing = false;
+                    let hasSignature = false;
+
+                    function resizeCanvas() {
+                        const rect = canvas.parentElement.getBoundingClientRect();
+                        canvas.width = rect.width;
+                        canvas.height = rect.height;
+                        ctx.strokeStyle = '#1e293b';
+                        ctx.lineWidth = 2;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                    }
+                    resizeCanvas();
+                    window.addEventListener('resize', resizeCanvas);
+
+                    function getPos(e) {
+                        const rect = canvas.getBoundingClientRect();
+                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                        return {
+                            x: (clientX - rect.left) * (canvas.width / rect.width),
+                            y: (clientY - rect.top) * (canvas.height / rect.height)
+                        };
+                    }
+
+                    function startDrawing(e) {
+                        e.preventDefault();
+                        isDrawing = true;
+                        const pos = getPos(e);
+                        ctx.beginPath();
+                        ctx.moveTo(pos.x, pos.y);
+                    }
+
+                    function draw(e) {
+                        if (!isDrawing) return;
+                        e.preventDefault();
+                        hasSignature = true;
+                        const pos = getPos(e);
+                        ctx.lineTo(pos.x, pos.y);
+                        ctx.stroke();
+                    }
+
+                    function stopDrawing() { isDrawing = false; }
+
+                    canvas.addEventListener('mousedown', startDrawing);
+                    canvas.addEventListener('mousemove', draw);
+                    canvas.addEventListener('mouseup', stopDrawing);
+                    canvas.addEventListener('mouseout', stopDrawing);
+                    canvas.addEventListener('touchstart', startDrawing);
+                    canvas.addEventListener('touchmove', draw);
+                    canvas.addEventListener('touchend', stopDrawing);
+
+                    function clearSignature() {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        hasSignature = false;
+                    }
+
+                    async function submitSignature() {
+                        if (!hasSignature) {
+                            document.getElementById('errorMessage').textContent = 'Please sign in the box above before submitting.';
+                            document.getElementById('errorMessage').style.display = 'block';
+                            return;
+                        }
+                        const signatureData = canvas.toDataURL('image/png');
+                        document.getElementById('formContent').style.display = 'none';
+                        document.getElementById('loading').style.display = 'block';
+                        document.getElementById('errorMessage').style.display = 'none';
+
+                        try {
+                            const response = await fetch('/api/submit-sales-signature', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ token: '${token}', caseId: '${caseId}', signatureData })
+                            });
+                            const result = await response.json();
+                            if (result.success) {
+                                document.getElementById('loading').style.display = 'none';
+                                document.getElementById('successMessage').style.display = 'block';
+                            } else {
+                                throw new Error(result.message || 'Failed to submit signature');
+                            }
+                        } catch (error) {
+                            document.getElementById('loading').style.display = 'none';
+                            document.getElementById('formContent').style.display = 'block';
+                            document.getElementById('errorMessage').textContent = error.message;
+                            document.getElementById('errorMessage').style.display = 'block';
+                        }
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('Error serving sales signature page:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Submit sales signature - uploads as signature.png to S3 (now uses case token)
+app.post('/api/submit-sales-signature', async (req, res) => {
+    const { token, caseId, signatureData } = req.body;
+
+    if (!token || !signatureData) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // Find case by token, join with contact
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.sales_signature_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const record = caseRes.rows[0];
+        const contactId = record.contact_id;
+        const actualCaseId = record.case_id;
+        const folderPath = `${record.first_name}_${record.last_name}_${contactId}/`;
+
+        // Add timestamp to signature
+        const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
+
+        // Upload to S3 as signature.png (will replace existing)
+        const signatureKey = `${folderPath}Signatures/signature.png`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: signatureKey,
+            Body: signatureBufferWithTimestamp,
+            ContentType: 'image/png'
+        }));
+
+        console.log(`[Sales Signature] Uploaded signature for contact ${contactId} (case ${actualCaseId}) to ${signatureKey}`);
+
+        // Generate presigned URL
+        const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
+
+        // Update contact with signature URL
+        await pool.query(
+            'UPDATE contacts SET signature_url = $1 WHERE id = $2',
+            [signatureUrl, contactId]
+        );
+
+        // Clear the token from the case (one-time use)
+        await pool.query(
+            'UPDATE cases SET sales_signature_token = NULL WHERE id = $1',
+            [actualCaseId]
+        );
+
+        // Save to documents table - check if signature.png already exists
+        const existingDoc = await pool.query(
+            'SELECT id FROM documents WHERE contact_id = $1 AND name = $2',
+            [contactId, 'signature.png']
+        );
+
+        if (existingDoc.rows.length > 0) {
+            await pool.query(
+                'UPDATE documents SET url = $1, updated_at = NOW() WHERE id = $2',
+                [signatureUrl, existingDoc.rows[0].id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [contactId, 'signature.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Sales']]
+            );
+        }
+
+        // Log the action
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'signature_captured', 'Document', `Signature captured via sales form for ${record.lender} claim`]
+        );
+
+        res.json({ success: true, message: 'Signature submitted successfully' });
+
+    } catch (error) {
+        console.error('Error submitting sales signature:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================================================
+// MICROSOFT GRAPH API - EMAIL INTEGRATION (OAuth2)
+// ============================================================================
+
+const msalConfig = {
+    auth: {
+        clientId: process.env.MS_CLIENT_ID,
+        authority: `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}`,
+        clientSecret: process.env.MS_CLIENT_SECRET,
+    }
+};
+
+const msalClient = new msal.ConfidentialClientApplication(msalConfig);
+
+// Email accounts to read via Graph API
+const EMAIL_ACCOUNTS_CONFIG = [
+    { id: 'acc-irl', email: 'irl@rowanrose.co.uk', displayName: 'Rowan Rose IRL', provider: 'office365', color: '#9333ea' },
+];
+
+// Graph API folder name mapping
+const GRAPH_FOLDER_MAP = {
+    inbox: 'Inbox',
+    drafts: 'Drafts',
+    sent: 'SentItems',
+    archive: 'Archive',
+    trash: 'DeletedItems'
+};
+
+// Helper: Get access token for Microsoft Graph
+async function getGraphToken() {
+    const result = await msalClient.acquireTokenByClientCredential({
+        scopes: ['https://graph.microsoft.com/.default'],
+    });
+    return result.accessToken;
+}
+
+// Helper: Call Microsoft Graph API
+async function graphRequest(endpoint, options = {}) {
+    const token = await getGraphToken();
+    const url = `https://graph.microsoft.com/v1.0${endpoint}`;
+    const res = await fetch(url, {
+        ...options,
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+        },
+    });
+    if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`Graph API ${res.status}: ${errBody}`);
+    }
+    // For attachment downloads, return the raw response
+    if (options.raw) return res;
+    return res.json();
+}
+
+// --- GET EMAIL ACCOUNTS ---
+app.get('/api/email/accounts', async (req, res) => {
+    const accounts = [];
+    for (const config of EMAIL_ACCOUNTS_CONFIG) {
+        let isConnected = false;
+        let unreadCount = 0;
+        try {
+            const data = await graphRequest(`/users/${config.email}/mailFolders/Inbox?$select=unreadItemCount,totalItemCount`);
+            isConnected = true;
+            unreadCount = data.unreadItemCount || 0;
+        } catch (err) {
+            console.error(`Graph API connection failed for ${config.email}:`, err.message);
+        }
+        accounts.push({
+            id: config.id,
+            email: config.email,
+            displayName: config.displayName,
+            provider: config.provider,
+            isConnected,
+            lastSyncAt: new Date().toISOString(),
+            unreadCount,
+            color: config.color,
+        });
+    }
+    res.json({ success: true, accounts });
+});
+
+// --- GET FOLDERS FOR AN ACCOUNT ---
+app.get('/api/email/accounts/:accountId/folders', async (req, res) => {
+    const { accountId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const folders = [];
+        for (const [name, graphName] of Object.entries(GRAPH_FOLDER_MAP)) {
+            try {
+                const data = await graphRequest(`/users/${config.email}/mailFolders/${graphName}?$select=displayName,unreadItemCount,totalItemCount`);
+                folders.push({
+                    id: `${accountId}-${name}`,
+                    accountId,
+                    name,
+                    displayName: name.charAt(0).toUpperCase() + name.slice(1),
+                    unreadCount: data.unreadItemCount || 0,
+                    totalCount: data.totalItemCount || 0,
+                });
+            } catch (err) {
+                // Folder may not exist (e.g. Archive) — skip it
+                console.warn(`Folder "${name}" not found for ${config.email}:`, err.message);
+            }
+        }
+        res.json({ success: true, folders });
+    } catch (err) {
+        console.error(`Graph folder fetch failed for ${config.email}:`, err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch folders: ' + err.message });
+    }
+});
+
+// --- GET EMAILS IN A FOLDER ---
+app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (req, res) => {
+    const { accountId, folderName } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    const graphFolder = GRAPH_FOLDER_MAP[folderName];
+    if (!graphFolder) return res.status(400).json({ success: false, error: 'Invalid folder name' });
+
+    try {
+        const data = await graphRequest(
+            `/users/${config.email}/mailFolders/${graphFolder}/messages` +
+            `?$top=${limit}&$orderby=receivedDateTime desc` +
+            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId`
+        );
+
+        const emails = (data.value || []).map(msg => ({
+            id: msg.id,
+            uid: undefined,
+            accountId,
+            folderId: `${accountId}-${folderName}`,
+            from: {
+                email: msg.from?.emailAddress?.address || '',
+                name: msg.from?.emailAddress?.name || null,
+            },
+            to: (msg.toRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            cc: (msg.ccRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            subject: msg.subject || '(No Subject)',
+            bodyText: msg.bodyPreview || '',
+            receivedAt: msg.receivedDateTime || new Date().toISOString(),
+            isRead: msg.isRead || false,
+            isStarred: msg.flag?.flagStatus === 'flagged',
+            isDraft: msg.isDraft || false,
+            hasAttachments: msg.hasAttachments || false,
+            threadId: msg.conversationId || undefined,
+        }));
+
+        res.json({ success: true, emails });
+    } catch (err) {
+        console.error(`Graph message fetch failed for ${config.email}/${folderName}:`, err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch messages: ' + err.message });
+    }
+});
+
+// --- GET SINGLE EMAIL WITH FULL BODY ---
+app.get('/api/email/accounts/:accountId/messages/:messageId', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        // Fetch full message with body and attachments list
+        const msg = await graphRequest(
+            `/users/${config.email}/messages/${messageId}` +
+            `?$select=id,subject,from,toRecipients,ccRecipients,body,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId` +
+            `&$expand=attachments`
+        );
+
+        // Mark as read if not already
+        if (!msg.isRead) {
+            graphRequest(`/users/${config.email}/messages/${messageId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ isRead: true }),
+            }).catch(err => console.error('Failed to mark as read:', err.message));
+        }
+
+        const attachments = (msg.attachments || []).map(att => ({
+            id: att.id,
+            filename: att.name || 'attachment',
+            mimeType: att.contentType || 'application/octet-stream',
+            size: att.size || 0,
+            isInline: att.isInline || false,
+            contentId: att.contentId || null,
+        }));
+
+        const email = {
+            id: msg.id,
+            accountId,
+            folderId: `${accountId}-inbox`,
+            from: {
+                email: msg.from?.emailAddress?.address || '',
+                name: msg.from?.emailAddress?.name || null,
+            },
+            to: (msg.toRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            cc: (msg.ccRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            subject: msg.subject || '(No Subject)',
+            bodyText: msg.bodyPreview || '',
+            bodyHtml: msg.body?.contentType === 'html' ? msg.body.content : undefined,
+            receivedAt: msg.receivedDateTime || new Date().toISOString(),
+            isRead: true,
+            isStarred: msg.flag?.flagStatus === 'flagged',
+            isDraft: msg.isDraft || false,
+            hasAttachments: attachments.length > 0,
+            attachments: attachments.length > 0 ? attachments : undefined,
+            threadId: msg.conversationId || undefined,
+        };
+
+        // If body is text-only, put it in bodyText
+        if (msg.body?.contentType === 'text') {
+            email.bodyText = msg.body.content || msg.bodyPreview || '';
+        }
+
+        res.json({ success: true, email });
+    } catch (err) {
+        console.error('Graph message detail fetch failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch message: ' + err.message });
+    }
+});
+
+// --- GET THREAD MESSAGES (all messages in a conversation) ---
+app.get('/api/email/accounts/:accountId/threads/:conversationId/messages', async (req, res) => {
+    const { accountId, conversationId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        // Fetch message IDs in the conversation (filter + expand together causes InefficientFilter error)
+        const data = await graphRequest(
+            `/users/${config.email}/messages` +
+            `?$filter=conversationId eq '${conversationId}'` +
+            `&$select=id,receivedDateTime` +
+            `&$top=50`
+        );
+
+        // Sort by date ascending (server-side since $orderby + $filter is too complex for Graph)
+        const sorted = (data.value || []).sort((a, b) =>
+            new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime()
+        );
+
+        // Fetch full details for each message (including body and attachments)
+        const fullMessages = await Promise.all(
+            sorted.map(stub =>
+                graphRequest(
+                    `/users/${config.email}/messages/${stub.id}` +
+                    `?$select=id,subject,from,toRecipients,ccRecipients,body,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId` +
+                    `&$expand=attachments`
+                )
+            )
+        );
+
+        const emails = fullMessages.map(msg => {
+            const attachments = (msg.attachments || []).map(att => ({
+                id: att.id,
+                filename: att.name || 'attachment',
+                mimeType: att.contentType || 'application/octet-stream',
+                size: att.size || 0,
+                isInline: att.isInline || false,
+                contentId: att.contentId || null,
+            }));
+
+            return {
+                id: msg.id,
+                accountId,
+                folderId: `${accountId}-inbox`,
+                from: {
+                    email: msg.from?.emailAddress?.address || '',
+                    name: msg.from?.emailAddress?.name || null,
+                },
+                to: (msg.toRecipients || []).map(r => ({
+                    email: r.emailAddress?.address || '',
+                    name: r.emailAddress?.name || null,
+                })),
+                cc: (msg.ccRecipients || []).map(r => ({
+                    email: r.emailAddress?.address || '',
+                    name: r.emailAddress?.name || null,
+                })),
+                subject: msg.subject || '(No Subject)',
+                bodyText: msg.bodyPreview || '',
+                bodyHtml: msg.body?.contentType === 'html' ? msg.body.content : (msg.body?.contentType === 'text' ? undefined : undefined),
+                receivedAt: msg.receivedDateTime || new Date().toISOString(),
+                isRead: msg.isRead || false,
+                isStarred: msg.flag?.flagStatus === 'flagged',
+                isDraft: msg.isDraft || false,
+                hasAttachments: attachments.length > 0,
+                attachments: attachments.length > 0 ? attachments : undefined,
+                threadId: msg.conversationId || undefined,
+            };
+        });
+
+        res.json({ success: true, emails });
+    } catch (err) {
+        console.error('Graph thread fetch failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch thread: ' + err.message });
+    }
+});
+
+// --- MARK EMAIL AS READ/UNREAD ---
+app.put('/api/email/accounts/:accountId/messages/:messageId/read', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { isRead } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ isRead: !!isRead }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph flag update failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to update read status: ' + err.message });
+    }
+});
+
+// --- DOWNLOAD EMAIL ATTACHMENT ---
+app.get('/api/email/accounts/:accountId/messages/:messageId/attachments/:attachmentId', async (req, res) => {
+    const { accountId, messageId, attachmentId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const att = await graphRequest(
+            `/users/${config.email}/messages/${messageId}/attachments/${attachmentId}`
+        );
+
+        if (!att.contentBytes) {
+            return res.status(404).json({ success: false, error: 'Attachment content not found' });
+        }
+
+        const buffer = Buffer.from(att.contentBytes, 'base64');
+        const contentType = att.contentType || 'application/octet-stream';
+        const filename = att.name || 'attachment';
+
+        // Use inline disposition for previewable types (PDF, images, text) so they render in-browser
+        // Use ?download=true query param to force download when needed
+        const forceDownload = req.query.download === 'true';
+        const previewableTypes = ['application/pdf', 'image/', 'text/'];
+        const isPreviewable = previewableTypes.some(t => contentType.startsWith(t));
+        const disposition = (!forceDownload && isPreviewable) ? 'inline' : 'attachment';
+
+        res.set({
+            'Content-Type': contentType,
+            'Content-Disposition': `${disposition}; filename="${filename}"`,
+            'Content-Length': buffer.length,
+        });
+        res.send(buffer);
+    } catch (err) {
+        console.error('Attachment download failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to download attachment: ' + err.message });
+    }
+});
+
+// --- BACKGROUND WORKER: PROCESS PENDING LOAs ---
+// Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Consolidated Server running on port ${port} (listening on all interfaces)`);
+});
