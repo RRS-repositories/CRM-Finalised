@@ -78,6 +78,11 @@ const columnGradients: Record<string, { gradient: string; iconBg: string; countB
     iconBg: 'bg-emerald-400/30',
     countBg: 'bg-emerald-700/50'
   },
+  'debt-recovery': {
+    gradient: 'bg-gradient-to-r from-cyan-500 to-teal-600',
+    iconBg: 'bg-cyan-400/30',
+    countBg: 'bg-cyan-700/50'
+  },
 };
 
 // AI recommendation suggestions based on status

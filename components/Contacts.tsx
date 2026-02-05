@@ -955,6 +955,22 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setEditingBankDetails(false);
    };
 
+   const handleDeleteBankDetails = async () => {
+      if (!window.confirm('Are you sure you want to delete the bank details? This action cannot be undone.')) {
+         return;
+      }
+      const emptyBankDetails = {
+         bankName: '',
+         accountName: '',
+         sortCode: '',
+         accountNumber: ''
+      };
+      await updateContactExtended(contact.id, { bankDetails: emptyBankDetails });
+      setBankDetails(emptyBankDetails);
+      setEditingBankDetails(false);
+      addNotification('success', 'Bank details deleted');
+   };
+
    const handleSaveCurrentAddress = async () => {
       await updateContactExtended(contact.id, {
          address: {
@@ -2013,7 +2029,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           />
                                        </div>
                                     </div>
-                                    <div className="flex justify-end mt-3">
+                                    <div className="flex justify-end gap-2 mt-3">
+                                       <button
+                                          onClick={handleDeleteBankDetails}
+                                          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium"
+                                       >
+                                          Delete
+                                       </button>
                                        <button
                                           onClick={handleSaveBankDetails}
                                           className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
@@ -2353,7 +2375,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  id: 'onboarding',
                                  label: 'Onboarding',
                                  color: '#a855f7', // purple
-                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'POA Required', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
                               },
                               {
                                  id: 'dsar-process',
@@ -4731,17 +4753,6 @@ const Contacts: React.FC = () => {
                <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
                <div className="flex gap-3">
                   <button
-                     onClick={() => setShowSearchFilters(!showSearchFilters)}
-                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors border ${showSearchFilters
-                           ? 'bg-navy-600 text-white border-navy-600'
-                           : 'bg-white dark:bg-slate-700 border-gray-200 dark:border-slate-600 text-gray-700 dark:text-white hover:bg-gray-50 dark:hover:bg-slate-600'
-                        }`}
-                  >
-                     <Filter size={18} />
-                     Search Filters
-                     {showSearchFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  </button>
-                  <button
                      onClick={() => setShowBulkImport(true)}
                      className="bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 text-navy-700 dark:text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
                   >
@@ -4756,10 +4767,19 @@ const Contacts: React.FC = () => {
                </div>
             </div>
 
-            {/* Search Filters Panel */}
-            {showSearchFilters && (
-               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
+            {/* Search Filters Panel - Always visible */}
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
                   <div className="grid grid-cols-5 gap-4">
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Client ID / Reference</label>
+                        <input
+                           type="text"
+                           placeholder="Search ID or reference..."
+                           value={searchClientId}
+                           onChange={(e) => setSearchClientId(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
                      <div>
                         <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Full Name</label>
                         <input
@@ -4800,16 +4820,6 @@ const Contacts: React.FC = () => {
                            className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
                         />
                      </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Client ID</label>
-                        <input
-                           type="text"
-                           placeholder="Search client ID..."
-                           value={searchClientId}
-                           onChange={(e) => setSearchClientId(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
                   </div>
                   <div className="flex justify-between items-center mt-4">
                      <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -4830,7 +4840,6 @@ const Contacts: React.FC = () => {
                      </button>
                   </div>
                </div>
-            )}
          </div>
 
          {/* List */}

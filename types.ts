@@ -11,6 +11,7 @@ export enum ClaimStatus {
   LOA_SIGNED = "LOA Signed",
   ID_REQUEST_SENT = "ID Request Sent",
   ID_VERIFICATION_PENDING = "ID Verification Pending",
+  POA_REQUIRED = "POA Required",
   EXTRA_LENDER_FORM_SENT = "Extra Lender Selection Form Sent",
   EXTRA_LENDER_FORM_COMPLETED = "Extra Lender Selection Form Completed",
   QUESTIONNAIRE_SENT = "Questionnaire Sent",
@@ -62,10 +63,18 @@ export enum ClaimStatus {
   CLIENT_PAID = "Client Paid",
   CLAIM_SUCCESSFUL = "Claim Successful",
   CLAIM_UNSUCCESSFUL = "Claim Unsuccessful",
-  CLAIM_WITHDRAWN = "Claim Withdrawn"
+  CLAIM_WITHDRAWN = "Claim Withdrawn",
+
+  // Category 7: Debt Recovery
+  DEBT_RECOVERY_INITIATED = "Debt Recovery Initiated",
+  PAYMENT_PLAN_AGREED = "Payment Plan Agreed",
+  DEBT_COLLECTION_STARTED = "Debt Collection Started",
+  PARTIAL_PAYMENT_RECEIVED = "Partial Payment Received",
+  DEBT_SETTLED = "Debt Settled",
+  DEBT_WRITTEN_OFF = "Debt Written Off"
 }
 
-export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments";
+export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments" | "Debt Recovery";
 
 export interface Address {
   line1: string;

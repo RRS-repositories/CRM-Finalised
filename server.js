@@ -2264,7 +2264,8 @@ app.get('/api/contacts/paginated', async (req, res) => {
             paramIdx++;
         }
         if (clientId) {
-            conditions.push(`(c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx})`);
+            // Search in client_id, id, and reference (comma-separated references)
+            conditions.push(`(c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx} OR c.reference ILIKE $${paramIdx})`);
             params.push(`%${clientId}%`);
             paramIdx++;
         }

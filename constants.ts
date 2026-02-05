@@ -22,6 +22,7 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.LOA_SIGNED,
       ClaimStatus.ID_REQUEST_SENT,
       ClaimStatus.ID_VERIFICATION_PENDING,
+      ClaimStatus.POA_REQUIRED,
       ClaimStatus.EXTRA_LENDER_FORM_SENT,
       ClaimStatus.EXTRA_LENDER_FORM_COMPLETED,
       ClaimStatus.QUESTIONNAIRE_SENT,
@@ -94,6 +95,19 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.CLAIM_SUCCESSFUL,
       ClaimStatus.CLAIM_UNSUCCESSFUL,
       ClaimStatus.CLAIM_WITHDRAWN,
+    ],
+  },
+  {
+    id: 'debt-recovery',
+    title: 'Debt Recovery',
+    color: 'border-l-cyan-500',
+    statuses: [
+      ClaimStatus.DEBT_RECOVERY_INITIATED,
+      ClaimStatus.PAYMENT_PLAN_AGREED,
+      ClaimStatus.DEBT_COLLECTION_STARTED,
+      ClaimStatus.PARTIAL_PAYMENT_RECEIVED,
+      ClaimStatus.DEBT_SETTLED,
+      ClaimStatus.DEBT_WRITTEN_OFF,
     ],
   },
 ];
@@ -316,6 +330,7 @@ export const getSpecStatusColor = (status: string): string => {
 
   // Category 2: Client Onboarding - Purple (#9C27B0)
   if (status === 'LOA Signed' || status === 'ID Request Sent' || status === 'ID Verification Pending' ||
+    status === 'POA Required' ||
     status === 'Extra Lender Selection Form Sent' || status === 'Extra Lender Selection Form Completed' ||
     status === 'Questionnaire Sent' || status === 'Questionnaire Completed' ||
     status === 'Bank Statements Requested' || status === 'Bank Statements Received' ||
@@ -369,6 +384,13 @@ export const getSpecStatusColor = (status: string): string => {
   // Unsuccessful/Withdrawn - Dark red
   if (status === 'Claim Unsuccessful' || status === 'Claim Withdrawn') {
     return '#B71C1C';
+  }
+
+  // Category 7: Debt Recovery - Cyan (#0891B2)
+  if (status === 'Debt Recovery Initiated' || status === 'Payment Plan Agreed' ||
+    status === 'Debt Collection Started' || status === 'Partial Payment Received' ||
+    status === 'Debt Settled' || status === 'Debt Written Off') {
+    return '#0891B2';
   }
 
   // Check spec statuses for legacy support

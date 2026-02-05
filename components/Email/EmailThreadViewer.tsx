@@ -441,7 +441,7 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   const threadSubject = threadEmails[0].subject || '(No Subject)';
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-slate-900 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-white dark:bg-slate-900 overflow-hidden min-w-0">
       {/* Preview Modal */}
       {previewAttachment && (
         <AttachmentPreviewModal

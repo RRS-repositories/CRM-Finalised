@@ -570,11 +570,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               ? JSON.parse(c.document_checklist)
               : c.document_checklist
           ) : { identification: false, extraLender: false, questionnaire: false, poa: false },
-          bankDetails: c.bank_details ? (
-            typeof c.bank_details === 'string'
-              ? JSON.parse(c.bank_details)
-              : c.bank_details
-          ) : undefined,
+          bankDetails: {
+            bankName: c.bank_name || '',
+            accountName: c.account_name || '',
+            sortCode: c.sort_code || '',
+            accountNumber: c.bank_account_number || ''
+          },
           extraLenders: c.extra_lenders
         }));
 
@@ -672,11 +673,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               ? JSON.parse(c.document_checklist)
               : c.document_checklist
           ) : { identification: false, extraLender: false, questionnaire: false, poa: false },
-          bankDetails: c.bank_details ? (
-            typeof c.bank_details === 'string'
-              ? JSON.parse(c.bank_details)
-              : c.bank_details
-          ) : undefined,
+          bankDetails: {
+            bankName: c.bank_name || '',
+            accountName: c.account_name || '',
+            sortCode: c.sort_code || '',
+            accountNumber: c.bank_account_number || ''
+          },
           extraLenders: c.extra_lenders,
           clientId: c.client_id
         }));
@@ -879,11 +881,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   ? JSON.parse(c.document_checklist)
                   : c.document_checklist
               ) : { identification: false, extraLender: false, questionnaire: false, poa: false },
-              bankDetails: c.bank_details ? (
-                typeof c.bank_details === 'string'
-                  ? JSON.parse(c.bank_details)
-                  : c.bank_details
-              ) : undefined,
+              bankDetails: {
+                bankName: c.bank_name || '',
+                accountName: c.account_name || '',
+                sortCode: c.sort_code || '',
+                accountNumber: c.bank_account_number || ''
+              },
               extraLenders: c.extra_lenders,
               clientId: c.client_id
             }));

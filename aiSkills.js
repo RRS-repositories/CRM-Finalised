@@ -49,10 +49,11 @@ export const KNOWLEDGE_BASE = {
 - SALE
 - LOA Sent
 
-**CATEGORY 2: CLIENT ONBOARDING** (10 statuses)
+**CATEGORY 2: CLIENT ONBOARDING** (11 statuses)
 - LOA Signed
 - ID Request Sent
 - ID Verification Pending
+- POA Required
 - Extra Lender Selection Form Sent
 - Extra Lender Selection Form Completed
 - Questionnaire Sent
@@ -104,7 +105,15 @@ export const KNOWLEDGE_BASE = {
 - Client Paid
 - Claim Successful
 - Claim Unsuccessful
-- Claim Withdrawn`
+- Claim Withdrawn
+
+**CATEGORY 7: DEBT RECOVERY** (6 statuses)
+- Debt Recovery Initiated
+- Payment Plan Agreed
+- Debt Collection Started
+- Partial Payment Received
+- Debt Settled
+- Debt Written Off`
     },
 
     lenders: {

@@ -397,7 +397,7 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-slate-900">
+    <div className="flex-1 flex flex-col bg-white dark:bg-slate-900 min-w-0">
       {/* Preview Modal */}
       {previewAttachment && (
         <AttachmentPreviewModal
@@ -411,59 +411,61 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
       )}
 
       {/* Action Toolbar */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <div className="flex items-center px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0">
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-            <Reply size={16} />
-            <span>Reply</span>
+          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+            <Reply size={14} />
+            <span className="hidden sm:inline">Reply</span>
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-            <ReplyAll size={16} />
-            <span>Reply All</span>
+          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+            <ReplyAll size={14} />
+            <span className="hidden sm:inline">Reply All</span>
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-            <Forward size={16} />
-            <span>Forward</span>
+          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+            <Forward size={14} />
+            <span className="hidden sm:inline">Forward</span>
           </button>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex-1" />
+
+        <div className="flex items-center gap-0.5">
           <button
             onClick={handleToggleFlag}
             disabled={actionLoading === 'flag'}
-            className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 ${
+            className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 ${
               email.isStarred ? 'text-yellow-500' : 'text-gray-400'
             }`}
             title={email.isStarred ? 'Remove flag' : 'Flag'}
           >
             {actionLoading === 'flag' ? (
-              <Loader2 size={18} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin" />
             ) : (
-              <Star size={18} className={email.isStarred ? 'fill-yellow-500' : ''} />
+              <Star size={16} className={email.isStarred ? 'fill-yellow-500' : ''} />
             )}
           </button>
           <button
             onClick={handleArchive}
             disabled={actionLoading === 'archive'}
-            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
             title="Archive"
           >
             {actionLoading === 'archive' ? (
-              <Loader2 size={18} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin" />
             ) : (
-              <Archive size={18} />
+              <Archive size={16} />
             )}
           </button>
           <button
             onClick={handleDelete}
             disabled={actionLoading === 'delete'}
-            className="p-2 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
             title="Delete"
           >
             {actionLoading === 'delete' ? (
-              <Loader2 size={18} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin" />
             ) : (
-              <Trash2 size={18} />
+              <Trash2 size={16} />
             )}
           </button>
 
@@ -471,10 +473,10 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
           <div className="relative" ref={moreMenuRef}>
             <button
               onClick={() => setShowMoreMenu(!showMoreMenu)}
-              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               title="More options"
             >
-              <MoreVertical size={18} />
+              <MoreVertical size={16} />
             </button>
 
             {showMoreMenu && (
