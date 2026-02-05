@@ -601,9 +601,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Server-side paginated fetch (replaces contacts in state)
   const fetchContactsPage = async (page: number, limit: number, filters?: {
-    firstName?: string;
-    lastName?: string;
     fullName?: string;
+    email?: string;
     phone?: string;
     postcode?: string;
     clientId?: string;
@@ -611,9 +610,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setContactsPagination(prev => ({ ...prev, isLoadingMore: true }));
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-      if (filters?.firstName) params.set('firstName', filters.firstName);
-      if (filters?.lastName) params.set('lastName', filters.lastName);
       if (filters?.fullName) params.set('fullName', filters.fullName);
+      if (filters?.email) params.set('email', filters.email);
       if (filters?.phone) params.set('phone', filters.phone);
       if (filters?.postcode) params.set('postcode', filters.postcode);
       if (filters?.clientId) params.set('clientId', filters.clientId);
@@ -742,6 +740,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         productType: cs.product_type,
         accountNumber: cs.account_number,
         startDate: cs.start_date ? new Date(cs.start_date).toLocaleDateString('en-GB') : '',
+        createdAt: cs.created_at,
         daysInStage: 0
       }));
       // Merge with existing claims, replacing any existing claims for this contact
@@ -769,6 +768,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         productType: cs.product_type,
         accountNumber: cs.account_number,
         startDate: cs.start_date ? new Date(cs.start_date).toLocaleDateString('en-GB') : '',
+        createdAt: cs.created_at,
         daysInStage: 0
       }));
       setClaims(allClaims);
@@ -901,6 +901,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               productType: cs.product_type,
               accountNumber: cs.account_number,
               startDate: cs.start_date ? new Date(cs.start_date).toLocaleDateString('en-GB') : '',
+              createdAt: cs.created_at,
               daysInStage: 0
             }));
             setClaims(allClaims);

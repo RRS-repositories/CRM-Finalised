@@ -66,11 +66,12 @@ const EmailConversations: React.FC = () => {
         const otherFolders = prev.filter(f => f.accountId !== accountId);
         return [...otherFolders, ...fldrs];
       });
-      const inbox = fldrs.find(f => f.name === 'inbox');
+      // Find Inbox by displayName (case-insensitive) since name is now the Graph folder ID
+      const inbox = fldrs.find(f => f.displayName.toLowerCase() === 'inbox');
       if (inbox) {
         setSelectedFolderId(inbox.id);
-        setActiveFolderName('inbox');
-        await loadEmailsForFolder(accountId, 'inbox');
+        setActiveFolderName(inbox.name); // Use the Graph folder ID
+        await loadEmailsForFolder(accountId, inbox.name);
       }
     } catch (err: any) {
       console.error('Failed to load folders:', err);
@@ -153,24 +154,22 @@ const EmailConversations: React.FC = () => {
   };
 
   // Handle single email click (non-thread)
-  const handleEmailClick = (emailId: string) => {
+  const handleEmailClick = (emailId: string, accountId: string) => {
     setSelectedEmailId(emailId);
     setSelectedThreadId(null);
     setViewMode('single');
     setThreadEmails([]);
-    if (selectedAccountId) {
-      loadEmailDetail(selectedAccountId, emailId);
-    }
+    setSelectedAccountId(accountId);
+    loadEmailDetail(accountId, emailId);
   };
 
   // Handle thread click — load all messages in the conversation
-  const handleThreadClick = (threadId: string, latestEmailId: string) => {
+  const handleThreadClick = (threadId: string, latestEmailId: string, accountId: string) => {
     setSelectedThreadId(threadId);
     setSelectedEmailId(latestEmailId);
     setViewMode('thread');
-    if (selectedAccountId) {
-      loadThreadMessages(selectedAccountId, threadId);
-    }
+    setSelectedAccountId(accountId);
+    loadThreadMessages(accountId, threadId);
   };
 
   // Handle refresh
@@ -191,6 +190,67 @@ const EmailConversations: React.FC = () => {
     } catch (err) {
       console.error('Failed to mark as read:', err);
     }
+  };
+
+  // Handle delete email - remove from list and select next
+  const handleDelete = (emailId: string) => {
+    // Remove from emails list
+    setEmails(prev => {
+      const filtered = prev.filter(e => e.id !== emailId);
+      // If the deleted email was selected, select the next one
+      if (selectedEmailId === emailId && filtered.length > 0) {
+        const nextEmail = filtered[0];
+        setSelectedEmailId(nextEmail.id);
+        setSelectedEmail(null);
+        if (selectedAccountId) {
+          loadEmailDetail(selectedAccountId, nextEmail.id);
+        }
+      } else if (filtered.length === 0) {
+        setSelectedEmailId(null);
+        setSelectedEmail(null);
+      }
+      return filtered;
+    });
+    // Clear thread view if in thread mode
+    if (viewMode === 'thread') {
+      setViewMode('single');
+      setSelectedThreadId(null);
+      setThreadEmails([]);
+    }
+  };
+
+  // Handle flag toggle - update local state
+  const handleFlag = (emailId: string, flagged: boolean) => {
+    setEmails(prev => prev.map(e =>
+      e.id === emailId ? { ...e, isStarred: flagged } : e
+    ));
+    if (selectedEmail?.id === emailId) {
+      setSelectedEmail(prev => prev ? { ...prev, isStarred: flagged } : prev);
+    }
+    // Update thread emails if in thread view
+    setThreadEmails(prev => prev.map(e =>
+      e.id === emailId ? { ...e, isStarred: flagged } : e
+    ));
+  };
+
+  // Handle archive - remove from current folder view
+  const handleArchive = (emailId: string) => {
+    // Same as delete - removes from current view
+    handleDelete(emailId);
+  };
+
+  // Handle mark as unread
+  const handleMarkUnread = (emailId: string) => {
+    setEmails(prev => prev.map(e =>
+      e.id === emailId ? { ...e, isRead: false } : e
+    ));
+    if (selectedEmail?.id === emailId) {
+      setSelectedEmail(prev => prev ? { ...prev, isRead: false } : prev);
+    }
+    // Update thread emails if in thread view
+    setThreadEmails(prev => prev.map(e =>
+      e.id === emailId ? { ...e, isRead: false } : e
+    ));
   };
 
   // Handle sync all accounts
@@ -239,6 +299,10 @@ const EmailConversations: React.FC = () => {
         <EmailThreadViewer
           threadEmails={threadEmails}
           onMarkAsRead={handleMarkAsRead}
+          onDelete={handleDelete}
+          onFlag={handleFlag}
+          onArchive={handleArchive}
+          onMarkUnread={handleMarkUnread}
           loading={loadingThread}
           activeFolderName={activeFolderName}
           accountId={selectedAccountId}
@@ -247,6 +311,10 @@ const EmailConversations: React.FC = () => {
         <EmailViewer
           email={selectedEmail || undefined}
           onMarkAsRead={handleMarkAsRead}
+          onDelete={handleDelete}
+          onFlag={handleFlag}
+          onArchive={handleArchive}
+          onMarkUnread={handleMarkUnread}
           loading={loadingDetail}
           activeFolderName={activeFolderName}
           accountId={selectedAccountId}

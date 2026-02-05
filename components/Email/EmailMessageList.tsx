@@ -16,8 +16,8 @@ interface EmailMessageListProps {
   selectedEmailId: string | null;
   selectedThreadId: string | null;
   selectedFolder: EmailFolder | undefined;
-  onEmailClick: (emailId: string) => void;
-  onThreadClick: (threadId: string, latestEmailId: string) => void;
+  onEmailClick: (emailId: string, accountId: string) => void;
+  onThreadClick: (threadId: string, latestEmailId: string, accountId: string) => void;
   onRefresh?: () => Promise<void>;
   loading?: boolean;
 }
@@ -192,9 +192,9 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
                 key={thread.threadId}
                 onClick={() => {
                   if (isThread) {
-                    onThreadClick(thread.threadId, email.id);
+                    onThreadClick(thread.threadId, email.id, email.accountId);
                   } else {
-                    onEmailClick(email.id);
+                    onEmailClick(email.id, email.accountId);
                   }
                 }}
                 className={`px-4 py-3 border-b border-gray-100 dark:border-slate-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors ${

@@ -545,10 +545,13 @@ export interface EmailAccount {
 export interface EmailFolder {
   id: string;
   accountId: string;
-  name: 'inbox' | 'drafts' | 'sent' | 'archive' | 'trash';
+  name: string; // Graph folder ID or legacy folder name
   displayName: string;
   unreadCount: number;
   totalCount: number;
+  hasChildren?: boolean;
+  parentId?: string | null;
+  parentDisplayName?: string;
 }
 
 export interface EmailAddress {

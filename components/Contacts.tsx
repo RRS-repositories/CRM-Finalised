@@ -899,19 +899,28 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // CRM Note Handlers
    const handleAddCRMNote = async () => {
       if (!newNoteContent.trim()) return;
-      await addCRMNote(contact.id, newNoteContent, newNotePinned);
+      const noteContent = newNoteContent;
+      const notePinned = newNotePinned;
+      // Close modal and reset state immediately for better UX
+      setShowAddNoteModal(false);
       setNewNoteContent('');
       setNewNotePinned(false);
-      setShowAddNoteModal(false);
+      // Then save the note
+      await addCRMNote(contact.id, noteContent, notePinned);
    };
 
    const handleUpdateNote = async () => {
       if (!editingNote || !newNoteContent.trim()) return;
-      await updateCRMNote(editingNote.id, newNoteContent, newNotePinned);
+      const noteId = editingNote.id;
+      const noteContent = newNoteContent;
+      const notePinned = newNotePinned;
+      // Close modal and reset state immediately for better UX
+      setShowAddNoteModal(false);
       setEditingNote(null);
       setNewNoteContent('');
       setNewNotePinned(false);
-      setShowAddNoteModal(false);
+      // Then update the note
+      await updateCRMNote(noteId, noteContent, notePinned);
    };
 
    const handleDeleteNote = async (noteId: string) => {
@@ -1500,7 +1509,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   <div className="px-3 py-1.5 bg-navy-50 dark:bg-navy-900/30 border-2 border-navy-200 dark:border-navy-700 rounded-lg">
                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Client ID</span>
                      <p className="text-sm font-bold font-mono text-navy-700 dark:text-navy-300">
-                        {contact.clientId || `RR-${new Date(contact.createdAt || Date.now()).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6)}-${contact.id.slice(-4).toUpperCase()}`}
+                        {contact.clientId || `RR-${new Date(contact.createdAt || Date.now()).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6)}-${contact.id}`}
                      </p>
                   </div>
                </div>
@@ -1557,7 +1566,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                {CONTACT_TABS.map(tab => (
                   <button
                      key={tab.id}
-                     onClick={() => setActiveTab(tab.id)}
+                     onClick={() => {
+                        setActiveTab(tab.id);
+                        // If clicking Claims tab while viewing a claim file, go back to claims list
+                        if (tab.id === 'claims') {
+                           setViewingClaimId(null);
+                        }
+                     }}
                      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id
                         ? 'border-navy-600 text-navy-900 dark:text-white'
                         : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-300'
@@ -2445,8 +2460,99 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            );
                         })()}
 
+                        {/* Lender and Status - Above Sections */}
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                           {/* Lender Box */}
+                           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
+                              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Lender</label>
+                              <select
+                                 value={claimFileForm.lender}
+                                 onChange={(e) => setClaimFileForm({ ...claimFileForm, lender: e.target.value })}
+                                 className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm font-semibold bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              >
+                                 <option value="">Select Lender...</option>
+                                 {SPEC_LENDERS.map(lender => (
+                                    <option key={lender} value={lender}>{lender}</option>
+                                 ))}
+                              </select>
+                              {claimFileForm.lender === 'Other (specify)' && (
+                                 <input
+                                    type="text"
+                                    value={claimFileForm.lenderOther}
+                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, lenderOther: e.target.value })}
+                                    className="w-full mt-2 px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                    placeholder="Enter lender name"
+                                 />
+                              )}
+                           </div>
+
+                           {/* Status Box */}
+                           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
+                              {(() => {
+                                 const currentClaim = claims.find(c => c.id === viewingClaimId);
+                                 const actualClaimStatus = currentClaim?.status || '';
+                                 const categoryColors: Record<string, string> = {
+                                    'lead-generation': '#3B82F6',
+                                    'onboarding': '#9C27B0',
+                                    'dsar-process': '#FF9800',
+                                    'complaint': '#F06292',
+                                    'fos-escalation': '#EF5350',
+                                    'payments': '#4CAF50'
+                                 };
+                                 const pipelineStages = PIPELINE_CATEGORIES.map(cat => ({
+                                    id: cat.id,
+                                    label: cat.title,
+                                    color: categoryColors[cat.id] || '#6b7280',
+                                    statuses: cat.statuses as string[]
+                                 }));
+                                 const currentStage = pipelineStages.find(stage =>
+                                    stage.statuses.includes(actualClaimStatus)
+                                 );
+                                 const stageColor = currentStage ? currentStage.color : '#6b7280';
+
+                                 return (
+                                    <>
+                                       <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                                          Status
+                                          {currentStage && (
+                                             <span
+                                                className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold text-white"
+                                                style={{ backgroundColor: stageColor }}
+                                             >
+                                                {currentStage.label.split(' ')[0]}
+                                             </span>
+                                          )}
+                                       </label>
+                                       <select
+                                          value={actualClaimStatus}
+                                          onChange={(e) => {
+                                             const newStatus = e.target.value;
+                                             if (currentClaim) {
+                                                updateClaimStatus(currentClaim.id, newStatus);
+                                             }
+                                          }}
+                                          className="w-full px-3 py-2.5 border-2 border-gray-300 dark:border-slate-500 rounded-lg text-sm font-semibold bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                          style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
+                                       >
+                                          {pipelineStages.map(stage => (
+                                             <optgroup key={stage.id} label={stage.label}>
+                                                {stage.statuses.map(status => (
+                                                   <option key={status} value={status}>{status}</option>
+                                                ))}
+                                             </optgroup>
+                                          ))}
+                                       </select>
+                                       <p className="text-[10px] text-gray-400 mt-1">
+                                          Showing all {pipelineStages.reduce((sum, stage) => sum + stage.statuses.length, 0)} statuses
+                                       </p>
+                                    </>
+                                 );
+                              })()}
+                           </div>
+                        </div>
+
                         {/* Sections Container with darker background for depth */}
-                        <div className="bg-slate-200 dark:bg-slate-950 rounded-xl p-5 space-y-5">
+                        <div className="bg-slate-200 dark:bg-slate-950 rounded-xl p-5 space-y-5 mt-4">
 
                            {/* ==================== SECTION 1: CLAIM DETAILS ==================== */}
                            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border-2 border-blue-200 dark:border-blue-900 overflow-hidden">
@@ -2492,109 +2598,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
                                     {/* All fields in SINGLE COLUMN layout as per spec */}
                                     <div className="space-y-4">
-                                       {/* Lender - Dropdown Single Select */}
-                                       <div>
-                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Lender</label>
-                                          <select
-                                             value={claimFileForm.lender}
-                                             onChange={(e) => setClaimFileForm({ ...claimFileForm, lender: e.target.value })}
-                                             className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                          >
-                                             <option value="">Select Lender...</option>
-                                             {SPEC_LENDERS.map(lender => (
-                                                <option key={lender} value={lender}>{lender}</option>
-                                             ))}
-                                          </select>
-                                       </div>
-                                       {claimFileForm.lender === 'Other (specify)' && (
-                                          <div>
-                                             <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Other Lender (specify)</label>
-                                             <input
-                                                type="text"
-                                                value={claimFileForm.lenderOther}
-                                                onChange={(e) => setClaimFileForm({ ...claimFileForm, lenderOther: e.target.value })}
-                                                className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                                placeholder="Enter lender name"
-                                             />
-                                          </div>
-                                       )}
-
-                                       {/* Status - Dropdown showing statuses for current stage only */}
-                                       {(() => {
-                                          // Get the actual claim status from the claims list
-                                          const currentClaim = claims.find(c => c.id === viewingClaimId);
-                                          const actualClaimStatus = currentClaim?.status || '';
-
-                                          // Use PIPELINE_CATEGORIES from constants.ts for single source of truth
-                                          // Map category colors to match the visual style
-                                          const categoryColors: Record<string, string> = {
-                                             'lead-generation': '#3B82F6',
-                                             'onboarding': '#9C27B0',
-                                             'dsar-process': '#FF9800',
-                                             'complaint': '#F06292',
-                                             'fos-escalation': '#EF5350',
-                                             'payments': '#4CAF50'
-                                          };
-
-                                          // Transform PIPELINE_CATEGORIES to the format we need
-                                          const pipelineStages = PIPELINE_CATEGORIES.map(cat => ({
-                                             id: cat.id,
-                                             label: cat.title,
-                                             color: categoryColors[cat.id] || '#6b7280',
-                                             statuses: cat.statuses as string[]
-                                          }));
-
-                                          // Find current stage based on actual claim status
-                                          const currentStage = pipelineStages.find(stage =>
-                                             stage.statuses.includes(actualClaimStatus)
-                                          );
-
-                                          // Get statuses for current stage (or all if not found)
-                                          const availableStatuses = currentStage ? currentStage.statuses : [];
-                                          const stageLabel = currentStage ? currentStage.label : 'Select Stage';
-                                          const stageColor = currentStage ? currentStage.color : '#6b7280';
-
-                                          return (
-                                             <div>
-                                                <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">
-                                                   Status
-                                                   {currentStage && (
-                                                      <span
-                                                         className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold text-white"
-                                                         style={{ backgroundColor: stageColor }}
-                                                      >
-                                                         {currentStage.label.split(' ')[0]}
-                                                      </span>
-                                                   )}
-                                                </label>
-                                                <select
-                                                   value={actualClaimStatus}
-                                                   onChange={(e) => {
-                                                      // Update the claim status in the claims list (persist to DB)
-                                                      const newStatus = e.target.value;
-                                                      if (currentClaim) {
-                                                         updateClaimStatus(currentClaim.id, newStatus);
-                                                      }
-                                                   }}
-                                                   className="claim-input w-full px-3 py-2 border-2 border-gray-400 dark:border-slate-500 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                                                   style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
-                                                >
-                                                   {/* Show all statuses grouped by stage */}
-                                                   {pipelineStages.map(stage => (
-                                                      <optgroup key={stage.id} label={stage.label}>
-                                                         {stage.statuses.map(status => (
-                                                            <option key={status} value={status}>{status}</option>
-                                                         ))}
-                                                      </optgroup>
-                                                   ))}
-                                                </select>
-                                                <p className="text-[10px] text-gray-400 mt-1">
-                                                   Showing all {pipelineStages.reduce((sum, stage) => sum + stage.statuses.length, 0)} statuses
-                                                </p>
-                                             </div>
-                                          );
-                                       })()}
-
                                        {/* Type of Finance - Multi-Select Dropdown */}
                                        <div>
                                           <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 text-center">Type of Finance (Multi-Select)</label>
@@ -4578,9 +4581,8 @@ const Contacts: React.FC = () => {
    }, [pendingContactNavigation, clearContactNavigation]);
 
    // Individual search fields
-   const [searchFirstName, setSearchFirstName] = useState('');
-   const [searchSurname, setSearchSurname] = useState('');
    const [searchFullName, setSearchFullName] = useState('');
+   const [searchEmail, setSearchEmail] = useState('');
    const [searchPhone, setSearchPhone] = useState('');
    const [searchPostcode, setSearchPostcode] = useState('');
    const [searchClientId, setSearchClientId] = useState('');
@@ -4593,21 +4595,20 @@ const Contacts: React.FC = () => {
    useEffect(() => {
       const timer = setTimeout(() => {
          fetchContactsPage(currentContactsPage, contactsPerPage, {
-            firstName: searchFirstName || undefined,
-            lastName: searchSurname || undefined,
             fullName: searchFullName || undefined,
+            email: searchEmail || undefined,
             phone: searchPhone || undefined,
             postcode: searchPostcode || undefined,
             clientId: searchClientId || undefined,
          });
       }, 400);
       return () => clearTimeout(timer);
-   }, [searchFirstName, searchSurname, searchFullName, searchPhone, searchPostcode, searchClientId, contactsPerPage, currentContactsPage]);
+   }, [searchFullName, searchEmail, searchPhone, searchPostcode, searchClientId, contactsPerPage, currentContactsPage]);
 
    // Reset to page 1 when filters or per-page changes
    useEffect(() => {
       setCurrentContactsPage(1);
-   }, [searchFirstName, searchSurname, searchFullName, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
+   }, [searchFullName, searchEmail, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
 
    // Action Menu & Delete Logic
    const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -4758,27 +4759,7 @@ const Contacts: React.FC = () => {
             {/* Search Filters Panel */}
             {showSearchFilters && (
                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
-                  <div className="grid grid-cols-6 gap-4">
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">First Name</label>
-                        <input
-                           type="text"
-                           placeholder="Search first name..."
-                           value={searchFirstName}
-                           onChange={(e) => setSearchFirstName(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Surname</label>
-                        <input
-                           type="text"
-                           placeholder="Search surname..."
-                           value={searchSurname}
-                           onChange={(e) => setSearchSurname(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
+                  <div className="grid grid-cols-5 gap-4">
                      <div>
                         <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Full Name</label>
                         <input
@@ -4786,6 +4767,16 @@ const Contacts: React.FC = () => {
                            placeholder="Search full name..."
                            value={searchFullName}
                            onChange={(e) => setSearchFullName(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Email</label>
+                        <input
+                           type="text"
+                           placeholder="Search email..."
+                           value={searchEmail}
+                           onChange={(e) => setSearchEmail(e.target.value)}
                            className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
                         />
                      </div>
@@ -4826,9 +4817,8 @@ const Contacts: React.FC = () => {
                      </span>
                      <button
                         onClick={() => {
-                           setSearchFirstName('');
-                           setSearchSurname('');
                            setSearchFullName('');
+                           setSearchEmail('');
                            setSearchPhone('');
                            setSearchPostcode('');
                            setSearchClientId('');

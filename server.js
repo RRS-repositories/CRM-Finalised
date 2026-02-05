@@ -2228,9 +2228,8 @@ app.get('/api/contacts/paginated', async (req, res) => {
 
         // Support both single 'search' param and individual field params
         const search = req.query.search || '';
-        const firstName = req.query.firstName || '';
-        const lastName = req.query.lastName || '';
         const fullName = req.query.fullName || '';
+        const email = req.query.email || '';
         const phone = req.query.phone || '';
         const postcode = req.query.postcode || '';
         const clientId = req.query.clientId || '';
@@ -2244,19 +2243,14 @@ app.get('/api/contacts/paginated', async (req, res) => {
             params.push(`%${search}%`);
             paramIdx++;
         }
-        if (firstName) {
-            conditions.push(`c.first_name ILIKE $${paramIdx}`);
-            params.push(`%${firstName}%`);
-            paramIdx++;
-        }
-        if (lastName) {
-            conditions.push(`c.last_name ILIKE $${paramIdx}`);
-            params.push(`%${lastName}%`);
-            paramIdx++;
-        }
         if (fullName) {
             conditions.push(`c.full_name ILIKE $${paramIdx}`);
             params.push(`%${fullName}%`);
+            paramIdx++;
+        }
+        if (email) {
+            conditions.push(`c.email ILIKE $${paramIdx}`);
+            params.push(`%${email}%`);
             paramIdx++;
         }
         if (phone) {
@@ -6358,6 +6352,8 @@ const msalClient = new msal.ConfidentialClientApplication(msalConfig);
 // Email accounts to read via Graph API
 const EMAIL_ACCOUNTS_CONFIG = [
     { id: 'acc-irl', email: 'irl@rowanrose.co.uk', displayName: 'Rowan Rose IRL', provider: 'office365', color: '#9333ea' },
+    { id: 'acc-info', email: 'info@fastactionclaims.co.uk', displayName: 'FAC Info', provider: 'office365', color: '#2563eb' },
+    { id: 'acc-dsar', email: 'Dsar@fastactionclaims.co.uk', displayName: 'FAC DSAR', provider: 'office365', color: '#059669' },
 ];
 
 // Graph API folder name mapping
@@ -6432,23 +6428,52 @@ app.get('/api/email/accounts/:accountId/folders', async (req, res) => {
     if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
 
     try {
+        // Fetch ALL folders from Microsoft Graph API (including subfolders)
+        const data = await graphRequest(
+            `/users/${config.email}/mailFolders?$top=100&$select=id,displayName,unreadItemCount,totalItemCount,parentFolderId,childFolderCount`
+        );
+
         const folders = [];
-        for (const [name, graphName] of Object.entries(GRAPH_FOLDER_MAP)) {
-            try {
-                const data = await graphRequest(`/users/${config.email}/mailFolders/${graphName}?$select=displayName,unreadItemCount,totalItemCount`);
-                folders.push({
-                    id: `${accountId}-${name}`,
-                    accountId,
-                    name,
-                    displayName: name.charAt(0).toUpperCase() + name.slice(1),
-                    unreadCount: data.unreadItemCount || 0,
-                    totalCount: data.totalItemCount || 0,
-                });
-            } catch (err) {
-                // Folder may not exist (e.g. Archive) — skip it
-                console.warn(`Folder "${name}" not found for ${config.email}:`, err.message);
+
+        // Process top-level folders (these are the ones directly returned by mailFolders endpoint)
+        for (const folder of (data.value || [])) {
+            const folderData = {
+                id: `${accountId}-${folder.id}`,
+                accountId,
+                name: folder.id, // Use Graph folder ID as the name for API calls
+                displayName: folder.displayName,
+                unreadCount: folder.unreadItemCount || 0,
+                totalCount: folder.totalItemCount || 0,
+                hasChildren: folder.childFolderCount > 0,
+                parentId: null, // Top-level folders have no parent in our UI
+            };
+            folders.push(folderData);
+
+            // Fetch child folders if any
+            if (folder.childFolderCount > 0) {
+                try {
+                    const childData = await graphRequest(
+                        `/users/${config.email}/mailFolders/${folder.id}/childFolders?$top=50&$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount`
+                    );
+                    for (const child of (childData.value || [])) {
+                        folders.push({
+                            id: `${accountId}-${child.id}`,
+                            accountId,
+                            name: child.id,
+                            displayName: child.displayName,
+                            unreadCount: child.unreadItemCount || 0,
+                            totalCount: child.totalItemCount || 0,
+                            hasChildren: child.childFolderCount > 0,
+                            parentId: folder.id, // Child folders reference their parent's Graph ID
+                            parentDisplayName: folder.displayName,
+                        });
+                    }
+                } catch (childErr) {
+                    console.warn(`Failed to fetch child folders for ${folder.displayName}:`, childErr.message);
+                }
             }
         }
+
         res.json({ success: true, folders });
     } catch (err) {
         console.error(`Graph folder fetch failed for ${config.email}:`, err.message);
@@ -6463,8 +6488,8 @@ app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (re
     const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
     if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
 
-    const graphFolder = GRAPH_FOLDER_MAP[folderName];
-    if (!graphFolder) return res.status(400).json({ success: false, error: 'Invalid folder name' });
+    // Support both old hardcoded folder names and new Graph folder IDs
+    const graphFolder = GRAPH_FOLDER_MAP[folderName] || folderName;
 
     try {
         const data = await graphRequest(
@@ -6709,6 +6734,132 @@ app.get('/api/email/accounts/:accountId/messages/:messageId/attachments/:attachm
     } catch (err) {
         console.error('Attachment download failed:', err.message);
         res.status(500).json({ success: false, error: 'Failed to download attachment: ' + err.message });
+    }
+});
+
+// --- DOWNLOAD EMAIL AS MIME (EML) ---
+app.get('/api/email/accounts/:accountId/messages/:messageId/download', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        // Get message subject for filename first
+        const msg = await graphRequest(
+            `/users/${config.email}/messages/${messageId}?$select=subject,receivedDateTime`
+        );
+
+        // Fetch the email in MIME format using raw fetch
+        const token = await getGraphToken();
+        const mimeRes = await fetch(
+            `https://graph.microsoft.com/v1.0/users/${config.email}/messages/${messageId}/$value`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (!mimeRes.ok) {
+            throw new Error(`Graph API ${mimeRes.status}: ${await mimeRes.text()}`);
+        }
+
+        const mimeContent = await mimeRes.text();
+
+        // Create a safe filename from subject
+        const subject = (msg.subject || 'email').replace(/[^a-zA-Z0-9\s-]/g, '').substring(0, 50).trim();
+        const date = new Date(msg.receivedDateTime).toISOString().split('T')[0];
+        const filename = `${subject}_${date}.eml`;
+
+        res.set({
+            'Content-Type': 'message/rfc822',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+        });
+        res.send(mimeContent);
+    } catch (err) {
+        console.error('Email download failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to download email: ' + err.message });
+    }
+});
+
+// --- DELETE EMAIL ---
+app.delete('/api/email/accounts/:accountId/messages/:messageId', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}`, {
+            method: 'DELETE',
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph delete message failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to delete email: ' + err.message });
+    }
+});
+
+// --- TOGGLE EMAIL FLAG (Star/Unflag) ---
+app.patch('/api/email/accounts/:accountId/messages/:messageId/flag', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { flagStatus } = req.body; // 'flagged' or 'notFlagged'
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+                flag: {
+                    flagStatus: flagStatus || 'notFlagged'
+                }
+            }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph flag update failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to update flag: ' + err.message });
+    }
+});
+
+// --- MOVE EMAIL TO FOLDER (Archive, etc.) ---
+app.post('/api/email/accounts/:accountId/messages/:messageId/move', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { destinationFolderId } = req.body; // The Graph folder ID to move to
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const result = await graphRequest(`/users/${config.email}/messages/${messageId}/move`, {
+            method: 'POST',
+            body: JSON.stringify({ destinationId: destinationFolderId }),
+        });
+        res.json({ success: true, newMessageId: result.id });
+    } catch (err) {
+        console.error('Graph move message failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to move email: ' + err.message });
+    }
+});
+
+// --- GET ARCHIVE FOLDER ID ---
+app.get('/api/email/accounts/:accountId/folders/archive', async (req, res) => {
+    const { accountId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        // First try to find Archive folder by well-known name
+        const data = await graphRequest(
+            `/users/${config.email}/mailFolders?$filter=displayName eq 'Archive'&$select=id,displayName`
+        );
+
+        if (data.value && data.value.length > 0) {
+            res.json({ success: true, folderId: data.value[0].id });
+        } else {
+            // Archive folder doesn't exist - could create one or return error
+            res.status(404).json({ success: false, error: 'Archive folder not found' });
+        }
+    } catch (err) {
+        console.error('Graph get archive folder failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to get archive folder: ' + err.message });
     }
 });
 

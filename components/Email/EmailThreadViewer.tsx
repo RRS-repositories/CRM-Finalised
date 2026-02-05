@@ -2,10 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Reply, ReplyAll, Forward, Trash2, Archive, Star, MoreVertical,
   Paperclip, Download, FileText, Image as ImageIcon, Mail, Loader2,
-  ChevronDown, ChevronUp, ArrowLeft, Eye
+  ChevronDown, ChevronUp, ArrowLeft, Eye, MailOpen, Printer, Flag, ExternalLink
 } from 'lucide-react';
 import { Email } from '../../types';
-import { getAttachmentUrl, getAttachmentDownloadUrl } from '../../services/emailApiService';
+import {
+  getAttachmentUrl,
+  getAttachmentDownloadUrl,
+  deleteEmail,
+  toggleEmailFlag,
+  moveEmail,
+  getArchiveFolderId,
+  markEmailUnread
+} from '../../services/emailApiService';
 import AttachmentPreviewModal from './AttachmentPreviewModal';
 
 // Resolve cid: references in HTML body with actual attachment download URLs
@@ -32,6 +40,10 @@ const resolveCidReferences = (
 interface EmailThreadViewerProps {
   threadEmails: Email[];
   onMarkAsRead?: (emailId: string) => void;
+  onDelete?: (emailId: string) => void;
+  onFlag?: (emailId: string, flagged: boolean) => void;
+  onArchive?: (emailId: string) => void;
+  onMarkUnread?: (emailId: string) => void;
   loading?: boolean;
   activeFolderName?: string;
   accountId?: string | null;
@@ -174,6 +186,10 @@ const SafeHtmlBody: React.FC<{ html: string }> = ({ html }) => {
 const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   threadEmails,
   onMarkAsRead,
+  onDelete,
+  onFlag,
+  onArchive,
+  onMarkUnread,
   loading,
   activeFolderName,
   accountId,
@@ -185,6 +201,147 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   const [previewAttachment, setPreviewAttachment] = useState<{
     url: string; filename: string; mimeType: string; size: number;
   } | null>(null);
+
+  // Action loading states
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Get the latest email in the thread for thread-level actions
+  const latestEmail = threadEmails.length > 0 ? threadEmails[threadEmails.length - 1] : null;
+
+  // Handle delete entire thread (deletes all messages)
+  const handleDeleteThread = async () => {
+    if (!latestEmail) return;
+    setActionLoading('delete');
+    try {
+      // Delete all messages in the thread
+      await Promise.all(threadEmails.map(email => deleteEmail(email.accountId, email.id)));
+      onDelete?.(latestEmail.id);
+    } catch (err) {
+      console.error('Failed to delete thread:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle toggle flag for latest email
+  const handleToggleFlag = async () => {
+    if (!latestEmail) return;
+    setActionLoading('flag');
+    try {
+      const newFlagStatus = !latestEmail.isStarred;
+      await toggleEmailFlag(latestEmail.accountId, latestEmail.id, newFlagStatus);
+      onFlag?.(latestEmail.id, newFlagStatus);
+    } catch (err) {
+      console.error('Failed to toggle flag:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle archive thread (moves all messages)
+  const handleArchiveThread = async () => {
+    if (!latestEmail) return;
+    setActionLoading('archive');
+    try {
+      const archiveFolderId = await getArchiveFolderId(latestEmail.accountId);
+      await Promise.all(threadEmails.map(email => moveEmail(email.accountId, email.id, archiveFolderId)));
+      onArchive?.(latestEmail.id);
+    } catch (err) {
+      console.error('Failed to archive thread:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle mark thread as unread
+  const handleMarkUnread = async () => {
+    if (!latestEmail) return;
+    setActionLoading('unread');
+    try {
+      await markEmailUnread(latestEmail.accountId, latestEmail.id);
+      onMarkUnread?.(latestEmail.id);
+    } catch (err) {
+      console.error('Failed to mark as unread:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Dropdown menu state
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Handle print thread
+  const handlePrint = () => {
+    setShowMoreMenu(false);
+    if (threadEmails.length === 0) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const subject = threadEmails[0].subject || '(No Subject)';
+    const messagesHtml = threadEmails.map(email => `
+      <div class="message">
+        <div class="message-header">
+          <div><strong>From:</strong> ${email.from.name || email.from.email} &lt;${email.from.email}&gt;</div>
+          <div><strong>To:</strong> ${email.to.map(t => t.name || t.email).join(', ')}</div>
+          <div><strong>Date:</strong> ${new Date(email.receivedAt).toLocaleString()}</div>
+        </div>
+        <div class="message-body">${email.bodyHtml || `<pre>${email.bodyText}</pre>`}</div>
+      </div>
+    `).join('<hr/>');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${subject}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          .header { border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 20px; }
+          .subject { font-size: 20px; font-weight: bold; }
+          .message { margin: 20px 0; }
+          .message-header { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 14px; color: #666; }
+          .message-body { line-height: 1.6; }
+          hr { border: none; border-top: 1px solid #ddd; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="subject">${subject}</div>
+          <div style="color: #666; font-size: 14px;">${threadEmails.length} messages in conversation</div>
+        </div>
+        ${messagesHtml}
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  // Handle download thread
+  const handleDownloadThread = () => {
+    setShowMoreMenu(false);
+    if (!latestEmail) return;
+    window.open(`/api/email/accounts/${latestEmail.accountId}/messages/${encodeURIComponent(latestEmail.id)}/download`, '_blank');
+  };
+
+  // Handle open in Outlook
+  const handleOpenInOutlook = () => {
+    setShowMoreMenu(false);
+    if (!latestEmail) return;
+    window.open(`https://outlook.office.com/mail/inbox/id/${encodeURIComponent(latestEmail.id)}`, '_blank');
+  };
 
   useEffect(() => {
     if (threadEmails.length > 0) {
@@ -251,14 +408,12 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   };
 
   const handleDownload = (email: Email, attachmentId: string) => {
-    if (!accountId) return;
-    const url = getAttachmentDownloadUrl(accountId, email.id, attachmentId);
+    const url = getAttachmentDownloadUrl(email.accountId, email.id, attachmentId);
     window.open(url, '_blank');
   };
 
   const handlePreview = (email: Email, attachmentId: string, filename: string, mimeType: string, size: number) => {
-    if (!accountId) return;
-    const url = getAttachmentUrl(accountId, email.id, attachmentId);
+    const url = getAttachmentUrl(email.accountId, email.id, attachmentId);
     setPreviewAttachment({ url, filename, mimeType, size });
   };
 
@@ -338,12 +493,120 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
             <span>Forward</span>
           </button>
           <div className="flex-1" />
-          <button className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Delete">
-            <Trash2 size={16} />
+          <button
+            onClick={handleToggleFlag}
+            disabled={actionLoading === 'flag'}
+            className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 ${
+              latestEmail?.isStarred ? 'text-yellow-500' : 'text-gray-400'
+            }`}
+            title={latestEmail?.isStarred ? 'Remove flag' : 'Flag'}
+          >
+            {actionLoading === 'flag' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Star size={16} className={latestEmail?.isStarred ? 'fill-yellow-500' : ''} />
+            )}
           </button>
-          <button className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="More">
-            <MoreVertical size={16} />
+          <button
+            onClick={handleArchiveThread}
+            disabled={actionLoading === 'archive'}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            title="Archive thread"
+          >
+            {actionLoading === 'archive' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Archive size={16} />
+            )}
           </button>
+          <button
+            onClick={handleDeleteThread}
+            disabled={actionLoading === 'delete'}
+            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            title="Delete thread"
+          >
+            {actionLoading === 'delete' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Trash2 size={16} />
+            )}
+          </button>
+
+          {/* More Options Dropdown */}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              title="More options"
+            >
+              <MoreVertical size={16} />
+            </button>
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg z-50 py-1">
+                {/* Delete */}
+                <button
+                  onClick={() => { setShowMoreMenu(false); handleDeleteThread(); }}
+                  disabled={actionLoading === 'delete'}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete thread</span>
+                </button>
+
+                {/* Mark as unread */}
+                <button
+                  onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
+                  disabled={actionLoading === 'unread'}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  <MailOpen size={16} />
+                  <span>Mark as unread</span>
+                </button>
+
+                {/* Flag */}
+                <button
+                  onClick={() => { setShowMoreMenu(false); handleToggleFlag(); }}
+                  disabled={actionLoading === 'flag'}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  <Flag size={16} className={latestEmail?.isStarred ? 'text-red-500' : ''} />
+                  <span>{latestEmail?.isStarred ? 'Remove flag' : 'Flag'}</span>
+                </button>
+
+                <div className="border-t border-gray-200 dark:border-slate-600 my-1" />
+
+                {/* Print */}
+                <button
+                  onClick={handlePrint}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <Printer size={16} />
+                  <span>Print</span>
+                </button>
+
+                {/* Download */}
+                <button
+                  onClick={handleDownloadThread}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <Download size={16} />
+                  <span>Download</span>
+                </button>
+
+                <div className="border-t border-gray-200 dark:border-slate-600 my-1" />
+
+                {/* Open in Outlook */}
+                <button
+                  onClick={handleOpenInOutlook}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <ExternalLink size={16} />
+                  <span>Open in Outlook</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -461,7 +724,7 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
                               className="relative group cursor-pointer rounded-lg overflow-hidden border border-gray-200 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 transition-colors shadow-sm"
                             >
                               <img
-                                src={accountId ? getAttachmentUrl(accountId, email.id, attachment.id) : ''}
+                                src={getAttachmentUrl(email.accountId, email.id, attachment.id)}
                                 alt={attachment.filename}
                                 className="max-h-48 max-w-[240px] object-cover"
                                 onError={(e) => {
@@ -479,8 +742,8 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
 
                     {email.bodyHtml ? (
                       <SafeHtmlBody html={
-                        accountId && email.attachments
-                          ? resolveCidReferences(email.bodyHtml, email.attachments, accountId, email.id)
+                        email.attachments
+                          ? resolveCidReferences(email.bodyHtml, email.attachments, email.accountId, email.id)
                           : email.bodyHtml
                       } />
                     ) : (

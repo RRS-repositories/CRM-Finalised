@@ -1,5 +1,5 @@
-import React from 'react';
-import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff, Trash2, Archive, FolderOpen } from 'lucide-react';
 import { EmailAccount, EmailFolder } from '../../types';
 
 interface EmailAccountsSidebarProps {
@@ -14,17 +14,14 @@ interface EmailAccountsSidebarProps {
   loading?: boolean;
 }
 
-const FolderIcon: React.FC<{ folderName: string; size?: number }> = ({ folderName, size = 16 }) => {
-  switch (folderName) {
-    case 'inbox':
-      return <Inbox size={size} className="text-blue-500" />;
-    case 'drafts':
-      return <FileEdit size={size} className="text-gray-400" />;
-    case 'sent':
-      return <Send size={size} className="text-green-500" />;
-    default:
-      return <Mail size={size} className="text-gray-400" />;
-  }
+const FolderIcon: React.FC<{ displayName: string; size?: number }> = ({ displayName, size = 16 }) => {
+  const name = displayName.toLowerCase();
+  if (name === 'inbox') return <Inbox size={size} className="text-blue-500" />;
+  if (name === 'drafts') return <FileEdit size={size} className="text-amber-500" />;
+  if (name === 'sent items' || name === 'sent') return <Send size={size} className="text-green-500" />;
+  if (name === 'deleted items' || name === 'trash') return <Trash2 size={size} className="text-red-400" />;
+  if (name === 'archive') return <Archive size={size} className="text-purple-500" />;
+  return <FolderOpen size={size} className="text-gray-400" />;
 };
 
 const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
@@ -38,8 +35,46 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
   onSyncAll,
   loading,
 }) => {
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
   const getAccountFolders = (accountId: string) => {
-    return folders.filter(f => f.accountId === accountId);
+    // Get folders for this account, sorted: main folders first, then by name
+    const accountFolders = folders.filter(f => f.accountId === accountId);
+
+    // Separate top-level and child folders
+    const topLevel = accountFolders.filter(f => !f.parentId);
+    const children = accountFolders.filter(f => f.parentId);
+
+    // Sort top-level: Inbox first, then Sent Items, then Drafts, then others alphabetically
+    const priorityOrder = ['inbox', 'sent items', 'drafts', 'deleted items', 'archive'];
+    topLevel.sort((a, b) => {
+      const aName = a.displayName.toLowerCase();
+      const bName = b.displayName.toLowerCase();
+      const aIdx = priorityOrder.indexOf(aName);
+      const bIdx = priorityOrder.indexOf(bName);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return aName.localeCompare(bName);
+    });
+
+    return { topLevel, children };
+  };
+
+  const getChildFolders = (parentName: string, accountId: string) => {
+    return folders.filter(f => f.accountId === accountId && f.parentId === parentName);
+  };
+
+  const toggleFolderExpand = (folderId: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
   };
 
   const getTotalUnreadForAccount = (accountId: string) => {
@@ -116,40 +151,98 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
               {/* Folders (when expanded) */}
               <div
                 className={`overflow-hidden transition-all duration-200 ease-in-out ${
-                  isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                  isExpanded ? 'max-h-[600px] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0'
                 }`}
               >
-                {accountFolders.map(folder => (
-                  <div
-                    key={folder.id}
-                    onClick={() => onFolderClick(account.id, folder.id)}
-                    className={`flex items-center pl-10 pr-4 py-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
-                      selectedFolderId === folder.id
-                        ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
-                        : 'border-l-4 border-l-transparent'
-                    }`}
-                  >
-                    <FolderIcon folderName={folder.name} size={14} />
-                    <span className={`ml-3 text-sm flex-1 ${
-                      selectedFolderId === folder.id
-                        ? 'font-medium text-blue-700 dark:text-blue-300'
-                        : 'text-gray-700 dark:text-gray-300'
-                    }`}>
-                      {folder.displayName}
-                    </span>
+                {accountFolders.topLevel.map(folder => {
+                  const childFolders = getChildFolders(folder.name, account.id);
+                  const hasChildren = childFolders.length > 0;
+                  const isFolderExpanded = expandedFolders.has(folder.id);
 
-                    {/* Folder Unread Count */}
-                    {folder.unreadCount > 0 && (
-                      <span className={`text-xs font-medium ${
-                        selectedFolderId === folder.id
-                          ? 'text-blue-600 dark:text-blue-300'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {folder.unreadCount}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                  return (
+                    <React.Fragment key={folder.id}>
+                      <div
+                        className={`flex items-center pl-8 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
+                          selectedFolderId === folder.id
+                            ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
+                            : 'border-l-4 border-l-transparent'
+                        }`}
+                      >
+                        {/* Expand/collapse for folders with children */}
+                        {hasChildren ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleFolderExpand(folder.id); }}
+                            className="w-4 h-4 flex items-center justify-center mr-1"
+                          >
+                            {isFolderExpanded ? (
+                              <ChevronDown size={12} className="text-gray-400" />
+                            ) : (
+                              <ChevronRight size={12} className="text-gray-400" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="w-4 h-4 mr-1" />
+                        )}
+
+                        <div
+                          className="flex items-center flex-1 min-w-0"
+                          onClick={() => onFolderClick(account.id, folder.id)}
+                        >
+                          <FolderIcon displayName={folder.displayName} size={14} />
+                          <span className={`ml-2 text-sm flex-1 truncate ${
+                            selectedFolderId === folder.id
+                              ? 'font-medium text-blue-700 dark:text-blue-300'
+                              : 'text-gray-700 dark:text-gray-300'
+                          }`}>
+                            {folder.displayName}
+                          </span>
+
+                          {folder.unreadCount > 0 && (
+                            <span className={`text-xs font-medium ml-2 ${
+                              selectedFolderId === folder.id
+                                ? 'text-blue-600 dark:text-blue-300'
+                                : 'text-gray-500 dark:text-gray-400'
+                            }`}>
+                              {folder.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Child folders */}
+                      {hasChildren && isFolderExpanded && childFolders.map(child => (
+                        <div
+                          key={child.id}
+                          onClick={() => onFolderClick(account.id, child.id)}
+                          className={`flex items-center pl-14 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
+                            selectedFolderId === child.id
+                              ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
+                              : 'border-l-4 border-l-transparent'
+                          }`}
+                        >
+                          <FolderIcon displayName={child.displayName} size={12} />
+                          <span className={`ml-2 text-xs flex-1 truncate ${
+                            selectedFolderId === child.id
+                              ? 'font-medium text-blue-700 dark:text-blue-300'
+                              : 'text-gray-600 dark:text-gray-400'
+                          }`}>
+                            {child.displayName}
+                          </span>
+
+                          {child.unreadCount > 0 && (
+                            <span className={`text-xs font-medium ${
+                              selectedFolderId === child.id
+                                ? 'text-blue-600 dark:text-blue-300'
+                                : 'text-gray-500 dark:text-gray-400'
+                            }`}>
+                              {child.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
           );

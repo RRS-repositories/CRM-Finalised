@@ -53,3 +53,46 @@ export function getAttachmentUrl(accountId: string, messageId: string, attachmen
 export function getAttachmentDownloadUrl(accountId: string, messageId: string, attachmentId: string): string {
   return `${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}?download=true`;
 }
+
+export async function deleteEmail(accountId: string, messageId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error('Failed to delete email');
+}
+
+export async function toggleEmailFlag(accountId: string, messageId: string, flagged: boolean): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/flag`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flagStatus: flagged ? 'flagged' : 'notFlagged' })
+  });
+  if (!res.ok) throw new Error('Failed to update flag');
+}
+
+export async function moveEmail(accountId: string, messageId: string, destinationFolderId: string): Promise<{ newMessageId: string }> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ destinationFolderId })
+  });
+  if (!res.ok) throw new Error('Failed to move email');
+  const data = await res.json();
+  return { newMessageId: data.newMessageId };
+}
+
+export async function getArchiveFolderId(accountId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/archive`);
+  if (!res.ok) throw new Error('Archive folder not found');
+  const data = await res.json();
+  return data.folderId;
+}
+
+export async function markEmailUnread(accountId: string, messageId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/read`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isRead: false })
+  });
+  if (!res.ok) throw new Error('Failed to mark as unread');
+}
