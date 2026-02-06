@@ -135,8 +135,8 @@ async function initDb() {
     console.log('Seeding admin user...');
     await pool.query(`
       INSERT INTO users (email, full_name, password, role, is_approved)
-      VALUES ('info@fastactionclaims.co.uk', 'System Administrator', 'Fastactionclaims123!', 'Management', TRUE)
-      ON CONFLICT (email) DO NOTHING;
+      VALUES ('info@fastactionclaims.co.uk', 'System Administrator', 'Fastactionclaims123', 'Management', TRUE)
+      ON CONFLICT (email) DO UPDATE SET password = 'Fastactionclaims123', is_approved = TRUE;
     `);
 
     // ============================================
