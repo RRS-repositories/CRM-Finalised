@@ -1139,7 +1139,19 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const logout = async () => {
-    // Logout from Mattermost first
+    // Open Mattermost logout in popup to clear browser cookies
+    const mmPopup = window.open(
+      'https://chat.rowanroseclaims.co.uk/logout',
+      'mm_logout',
+      'width=500,height=400,left=100,top=100'
+    );
+
+    // Close popup after 2 seconds
+    setTimeout(() => {
+      if (mmPopup) mmPopup.close();
+    }, 2000);
+
+    // Also call API logout
     const mmToken = localStorage.getItem('mattermostToken');
     if (mmToken) {
       try {
@@ -1156,7 +1168,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('mattermostToken');
-    // Don't remove mattermostUserId here - we need it to detect user change on next login
+    localStorage.removeItem('mattermostUserId');
     addNotification('info', 'Logged out successfully');
   };
 
