@@ -1138,28 +1138,11 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const logout = async () => {
-    // Create hidden iframe to logout from Mattermost
-    const iframe = document.createElement('iframe');
-    iframe.src = 'https://chat.rowanroseclaims.co.uk/logout';
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-
-    // Also open in new tab as backup (more reliable for clearing cookies)
-    window.open('https://chat.rowanroseclaims.co.uk/logout', '_blank');
-
-    // Wait for logout to process
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Clean up iframe
-    document.body.removeChild(iframe);
-
-    // Clear CRM data
+  const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('mattermostToken');
-    localStorage.removeItem('mattermostUserId');
-    addNotification('info', 'Logged out from CRM and Mattermost');
+    addNotification('info', 'Logged out successfully');
   };
 
   const updateUserRole = async (userId: string, newRole: Role) => {
