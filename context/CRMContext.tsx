@@ -300,8 +300,15 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setPendingContactNavigation(null);
   }, []);
 
-  // Temporary storage for users who haven't verified email yet
-  const [pendingRegistrations, setPendingRegistrations] = useState<Record<string, PendingRegistration>>({});
+  // Temporary storage for users who haven't verified email yet (initialized from localStorage)
+  const [pendingRegistrations, setPendingRegistrations] = useState<Record<string, PendingRegistration>>(() => {
+    try {
+      const stored = localStorage.getItem('pendingRegistrations');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // Temporary storage for password resets
   const [resetTokens, setResetTokens] = useState<Record<string, { email: string, expiresAt: number }>>({});
@@ -1067,9 +1074,14 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       expiresAt
     };
 
-    setPendingRegistrations(prev => ({ ...prev, [email]: pendingUser }));
+    // Store in both state and localStorage (survives page refresh)
+    setPendingRegistrations(prev => {
+      const updated = { ...prev, [email]: pendingUser };
+      localStorage.setItem('pendingRegistrations', JSON.stringify(updated));
+      return updated;
+    });
 
-    // Send the simulated email
+    // Send the email
     await emailService.sendVerificationEmail(email, code);
     addNotification('info', 'Verification code sent to email');
 
@@ -1077,7 +1089,16 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const verifyRegistration = async (email: string, code: string): Promise<{ success: boolean; message: string }> => {
-    const pending = pendingRegistrations[email];
+    // Check both state and localStorage
+    let pending = pendingRegistrations[email];
+    if (!pending) {
+      // Try to load from localStorage
+      const stored = localStorage.getItem('pendingRegistrations');
+      if (stored) {
+        const storedPending = JSON.parse(stored);
+        pending = storedPending[email];
+      }
+    }
     if (!pending) return { success: false, message: "No registration in progress for this email." };
     if (pending.code !== code) return { success: false, message: "Invalid verification code." };
     if (Date.now() > pending.expiresAt) return { success: false, message: "Verification code expired." };
@@ -1096,10 +1117,11 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const data = await response.json();
       if (data.success) {
-        // Clear pending
+        // Clear pending from both state and localStorage
         const newPending = { ...pendingRegistrations };
         delete newPending[email];
         setPendingRegistrations(newPending);
+        localStorage.setItem('pendingRegistrations', JSON.stringify(newPending));
 
         // If a manager is somehow logged in (e.g. testing), refresh list
         if (currentUser?.role === 'Management') {

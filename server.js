@@ -1295,19 +1295,24 @@ app.post('/api/auth/login', async (req, res) => {
         // Update last login
         await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
-        // Get Mattermost token (async, don't block login)
+        // Get Mattermost token (with 3s timeout, don't block login)
         let mattermostToken = null;
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
             const mmResponse = await fetch(`${MATTERMOST_URL}/api/v4/users/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ login_id: email.toLowerCase(), password })
+                body: JSON.stringify({ login_id: email.toLowerCase(), password }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             if (mmResponse.ok) {
                 mattermostToken = mmResponse.headers.get('token');
             }
         } catch (mmErr) {
-            console.error('Mattermost login failed:', mmErr);
+            // Mattermost unavailable - continue without token
+            console.log('Mattermost login skipped:', mmErr.name === 'AbortError' ? 'timeout' : mmErr.message);
         }
 
         res.json({
