@@ -1156,6 +1156,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('mattermostToken');
+    // Don't remove mattermostUserId here - we need it to detect user change on next login
     addNotification('info', 'Logged out successfully');
   };
 
