@@ -1139,37 +1139,27 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const logout = async () => {
-    // Open Mattermost logout in popup to clear browser cookies
-    const mmPopup = window.open(
-      'https://chat.rowanroseclaims.co.uk/logout',
-      'mm_logout',
-      'width=500,height=400,left=100,top=100'
-    );
+    // Create hidden iframe to logout from Mattermost
+    const iframe = document.createElement('iframe');
+    iframe.src = 'https://chat.rowanroseclaims.co.uk/logout';
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
 
-    // Close popup after 2 seconds
-    setTimeout(() => {
-      if (mmPopup) mmPopup.close();
-    }, 2000);
+    // Also open in new tab as backup (more reliable for clearing cookies)
+    window.open('https://chat.rowanroseclaims.co.uk/logout', '_blank');
 
-    // Also call API logout
-    const mmToken = localStorage.getItem('mattermostToken');
-    if (mmToken) {
-      try {
-        await fetch(`${API_BASE_URL}/mattermost/logout`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: mmToken })
-        });
-      } catch (err) {
-        console.error('Mattermost logout error:', err);
-      }
-    }
+    // Wait for logout to process
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
+    // Clean up iframe
+    document.body.removeChild(iframe);
+
+    // Clear CRM data
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('mattermostToken');
     localStorage.removeItem('mattermostUserId');
-    addNotification('info', 'Logged out successfully');
+    addNotification('info', 'Logged out from CRM and Mattermost');
   };
 
   const updateUserRole = async (userId: string, newRole: Role) => {
