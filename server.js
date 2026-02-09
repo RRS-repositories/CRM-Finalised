@@ -1411,6 +1411,27 @@ app.post('/api/mattermost/login', async (req, res) => {
     }
 });
 
+// Mattermost logout - revokes session token
+app.post('/api/mattermost/logout', async (req, res) => {
+    const { token } = req.body;
+    if (!token) {
+        return res.json({ success: true }); // No token to revoke
+    }
+    try {
+        const response = await fetch(`${MATTERMOST_URL}/api/v4/users/logout`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        res.json({ success: response.ok });
+    } catch (err) {
+        console.error('Mattermost logout error:', err);
+        res.json({ success: false, message: err.message });
+    }
+});
+
 app.get('/api/users', async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT id, email, full_name as "fullName", role, is_approved as "isApproved", last_login as "lastLogin", created_at as "createdAt" FROM users ORDER BY created_at DESC');

@@ -1138,7 +1138,21 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Logout from Mattermost first
+    const mmToken = localStorage.getItem('mattermostToken');
+    if (mmToken) {
+      try {
+        await fetch(`${API_BASE_URL}/mattermost/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: mmToken })
+        });
+      } catch (err) {
+        console.error('Mattermost logout error:', err);
+      }
+    }
+
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('mattermostToken');
