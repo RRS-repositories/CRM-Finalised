@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, MessageSquare, Target, Building2,
   FileText, ClipboardList, Settings, Workflow, Calendar,
   Bell, Sparkles, Megaphone, Shield, ChevronDown, ChevronRight,
-  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut
+  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut, MessagesSquare
 } from 'lucide-react';
 import { ViewState } from '../types';
 import { useCRM } from '../context/CRMContext';
@@ -85,6 +85,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
   const bottomNavItems = [
     { id: ViewState.LENDERS, label: 'Accounts', icon: Building2 },
+    { id: ViewState.MATTERMOST, label: 'Mattermost', icon: MessagesSquare },
     { id: ViewState.SETTINGS, label: 'Settings', icon: Settings },
   ];
 
@@ -185,6 +186,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
           {/* Accounts */}
           {renderNavItem(bottomNavItems[0])}
 
+          {/* Mattermost */}
+          {renderNavItem(bottomNavItems[1])}
+
           {/* Sign Out Button */}
           <button
             onClick={logout}
@@ -195,7 +199,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
           </button>
 
           {/* Settings */}
-          {renderNavItem(bottomNavItems[1])}
+          {renderNavItem(bottomNavItems[2])}
         </div>
       </aside>
 

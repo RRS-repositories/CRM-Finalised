@@ -40,6 +40,65 @@ const EMAIL_DRAFT_MODE = false; // ENABLED - Lender Selection Form & General Ema
 // NOTE: DSAR emails (worker.js) have separate DRAFT mode control
 // ============================================================================
 
+// --- MATTERMOST CONFIGURATION ---
+const MATTERMOST_URL = process.env.MATTERMOST_URL || 'https://chat.rowanroseclaims.co.uk';
+const MATTERMOST_BOT_TOKEN = process.env.MATTERMOST_BOT_TOKEN || 'quzf9nxpx3bdx8im4abycsgzuw';
+
+// Mattermost API helper
+async function mattermostAPI(endpoint, method = 'GET', body = null) {
+    const options = {
+        method,
+        headers: {
+            'Authorization': `Bearer ${MATTERMOST_BOT_TOKEN}`,
+            'Content-Type': 'application/json'
+        }
+    };
+    if (body) options.body = JSON.stringify(body);
+
+    const response = await fetch(`${MATTERMOST_URL}/api/v4${endpoint}`, options);
+    const data = await response.json();
+    if (!response.ok) {
+        console.error('Mattermost API error:', data);
+    }
+    return { ok: response.ok, data };
+}
+
+// Create Mattermost user
+async function createMattermostUser(email, password, fullName) {
+    try {
+        // Create user
+        const username = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+        const { ok, data } = await mattermostAPI('/users', 'POST', {
+            email,
+            username,
+            password,
+            first_name: fullName.split(' ')[0] || fullName,
+            last_name: fullName.split(' ').slice(1).join(' ') || ''
+        });
+
+        if (ok) {
+            console.log(`✅ Mattermost user created: ${email}`);
+            // Add to default team
+            const teamsRes = await mattermostAPI('/teams');
+            if (teamsRes.ok && teamsRes.data.length > 0) {
+                const teamId = teamsRes.data[0].id;
+                await mattermostAPI(`/teams/${teamId}/members`, 'POST', {
+                    team_id: teamId,
+                    user_id: data.id
+                });
+                console.log(`✅ Added ${email} to team`);
+            }
+            return data;
+        } else {
+            console.error(`❌ Failed to create Mattermost user: ${data.message}`);
+            return null;
+        }
+    } catch (err) {
+        console.error('Mattermost user creation error:', err);
+        return null;
+    }
+}
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -1236,6 +1295,21 @@ app.post('/api/auth/login', async (req, res) => {
         // Update last login
         await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
+        // Get Mattermost token (async, don't block login)
+        let mattermostToken = null;
+        try {
+            const mmResponse = await fetch(`${MATTERMOST_URL}/api/v4/users/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login_id: email.toLowerCase(), password })
+            });
+            if (mmResponse.ok) {
+                mattermostToken = mmResponse.headers.get('token');
+            }
+        } catch (mmErr) {
+            console.error('Mattermost login failed:', mmErr);
+        }
+
         res.json({
             success: true,
             user: {
@@ -1244,7 +1318,8 @@ app.post('/api/auth/login', async (req, res) => {
                 fullName: user.full_name,
                 role: user.role,
                 isApproved: user.is_approved
-            }
+            },
+            mattermostToken
         });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -1265,7 +1340,67 @@ app.post('/api/auth/register', async (req, res) => {
             [email.toLowerCase(), password, fullName, 'Sales', false]
         );
 
+        // Create Mattermost user (async, don't block registration)
+        createMattermostUser(email.toLowerCase(), password, fullName).catch(err => {
+            console.error('Mattermost user creation failed:', err);
+        });
+
         res.json({ success: true, message: 'Registration successful, pending approval', user: rows[0] });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Verify user session - checks if user still exists and is approved
+app.post('/api/auth/verify', async (req, res) => {
+    const { userId, email } = req.body;
+    try {
+        const { rows } = await pool.query(
+            'SELECT id, is_approved FROM users WHERE id = $1 OR email = $2',
+            [userId, email?.toLowerCase()]
+        );
+
+        if (rows.length === 0) {
+            return res.json({ valid: false, reason: 'User not found' });
+        }
+
+        if (!rows[0].is_approved) {
+            return res.json({ valid: false, reason: 'Account not approved' });
+        }
+
+        res.json({ valid: true });
+    } catch (err) {
+        res.status(500).json({ valid: false, reason: err.message });
+    }
+});
+
+// Get Mattermost URL for embedding
+app.get('/api/mattermost/config', (req, res) => {
+    res.json({
+        url: MATTERMOST_URL,
+        team: 'beacon-legal-group' // Your team name (lowercase, hyphenated)
+    });
+});
+
+// Mattermost login - returns session token for auto-login
+app.post('/api/mattermost/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        // Login to Mattermost directly
+        const response = await fetch(`${MATTERMOST_URL}/api/v4/users/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login_id: email, password })
+        });
+
+        if (response.ok) {
+            const token = response.headers.get('token');
+            const user = await response.json();
+            res.json({ success: true, token, userId: user.id });
+        } else {
+            const error = await response.json();
+            res.status(401).json({ success: false, message: error.message || 'Mattermost login failed' });
+        }
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

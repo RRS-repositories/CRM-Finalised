@@ -19,6 +19,7 @@ import ClientIntake from './components/IntakeForm/ClientIntake';
 import LenderIntake from './components/IntakeForm/LenderIntake';
 import LoaSelectionForm from './components/LoaSelectionForm';
 import Login from './components/Login';
+import MattermostPanel from './components/MattermostPanel';
 import { ViewState } from './types';
 import { CRMProvider, useCRM } from './context/CRMContext';
 
@@ -41,6 +42,7 @@ const routeToViewState: Record<string, ViewState> = {
   '/settings': ViewState.SETTINGS,
   '/management': ViewState.MANAGEMENT,
   '/accounts': ViewState.LENDERS,
+  '/mattermost': ViewState.MATTERMOST,
 };
 
 // ViewState to route mapping
@@ -63,6 +65,7 @@ export const viewStateToRoute: Record<ViewState, string> = {
   [ViewState.MANAGEMENT]: '/management',
   [ViewState.LENDERS]: '/accounts',
   [ViewState.CLIENT_INTAKE]: '/client-intake',
+  [ViewState.MATTERMOST]: '/mattermost',
 };
 
 // Loading spinner component
@@ -184,6 +187,9 @@ const AppContent = () => {
                   <p>The Accounts module is under development.</p>
                 </div>
               } />
+
+              {/* Mattermost Team Chat */}
+              <Route path="/mattermost" element={<MattermostPanel />} />
 
               {/* Client Intake (internal) */}
               <Route path="/client-intake" element={<ClientIntake />} />

@@ -340,12 +340,30 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     isLoadingMore: false
   });
 
-  // Auth Persistence Initialization
+  // Auth Persistence Initialization with session verification
   useEffect(() => {
     const savedUser = localStorage.getItem('currentUser');
     if (savedUser) {
       try {
-        setCurrentUser(JSON.parse(savedUser));
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+
+        // Verify session is still valid (user exists and is approved)
+        fetch(`${API_BASE_URL}/auth/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, email: user.email })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.valid) {
+              console.warn('Session invalid:', data.reason);
+              localStorage.removeItem('currentUser');
+              localStorage.removeItem('mattermostToken');
+              setCurrentUser(null);
+            }
+          })
+          .catch(err => console.error('Session verification error:', err));
       } catch (e) {
         console.error('Error parsing saved user:', e);
         localStorage.removeItem('currentUser');
@@ -1006,6 +1024,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (data.success) {
         setCurrentUser(data.user);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
+
+        // Store Mattermost token if available
+        if (data.mattermostToken) {
+          localStorage.setItem('mattermostToken', data.mattermostToken);
+        }
+
         addNotification('success', `Welcome back, ${data.user.fullName}`);
 
         if (data.user.role === 'Management') {
@@ -1095,6 +1119,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
+    localStorage.removeItem('mattermostToken');
     addNotification('info', 'Logged out successfully');
   };
 
