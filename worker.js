@@ -1538,5 +1538,5 @@ setTimeout(() => {
     // Then run every 60 seconds
     setInterval(() => {
         runWorkerCycle();
-    }, 300000);
+    }, 60000);
 }, 5000);
