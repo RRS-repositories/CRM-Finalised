@@ -11,7 +11,7 @@ import {
    Eye, File as GenericFileIcon, AlertTriangle, Edit, FileUp,
    User, Briefcase, Workflow, History, Send, XCircle,
    Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle, RotateCcw,
-   Loader2
+   Loader2, Lock
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
@@ -1242,7 +1242,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             feeWithoutVat: fullClaim?.fee_without_vat?.toString() || '',
             vat: fullClaim?.vat?.toString() || '',
             ourFeeNet: fullClaim?.our_fee_net?.toString() || '',
-            specStatus: fullClaim?.spec_status || basicClaim?.status || 'New Claim'
+            specStatus: fullClaim?.spec_status || fullClaim?.status || basicClaim?.status || 'New Lead'
          });
       }
    };
@@ -2487,32 +2487,18 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            {/* Lender Box */}
                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
                               <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Lender</label>
-                              <select
-                                 value={claimFileForm.lender}
-                                 onChange={(e) => setClaimFileForm({ ...claimFileForm, lender: e.target.value })}
-                                 className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm font-semibold bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              >
-                                 <option value="">Select Lender...</option>
-                                 {SPEC_LENDERS.map(lender => (
-                                    <option key={lender} value={lender}>{lender}</option>
-                                 ))}
-                              </select>
-                              {claimFileForm.lender === 'Other (specify)' && (
-                                 <input
-                                    type="text"
-                                    value={claimFileForm.lenderOther}
-                                    onChange={(e) => setClaimFileForm({ ...claimFileForm, lenderOther: e.target.value })}
-                                    className="w-full mt-2 px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                    placeholder="Enter lender name"
-                                 />
-                              )}
+                              <div className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-slate-600 text-gray-900 dark:text-white flex items-center justify-between">
+                                 <span>{claimFileForm.lender || 'No Lender'}</span>
+                                 <Lock size={14} className="text-gray-400" />
+                              </div>
                            </div>
 
                            {/* Status Box */}
                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
                               {(() => {
                                  const currentClaim = claims.find(c => c.id === viewingClaimId);
-                                 const actualClaimStatus = currentClaim?.status || '';
+                                 // Use claimFileData (fetched full claim) as fallback when claim not in local state
+                                 const actualClaimStatus = currentClaim?.status || claimFileData?.status || '';
                                  const categoryColors: Record<string, string> = {
                                     'lead-generation': '#3B82F6',
                                     'onboarding': '#9C27B0',
@@ -2549,13 +2535,30 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           value={actualClaimStatus}
                                           onChange={(e) => {
                                              const newStatus = e.target.value;
+                                             // Update local state immediately (optimistic update)
+                                             if (claimFileData) {
+                                                setClaimFileData({ ...claimFileData, status: newStatus });
+                                             }
+                                             // Update claims array immediately
                                              if (currentClaim) {
-                                                updateClaimStatus(currentClaim.id, newStatus);
+                                                updateClaim({ ...currentClaim, status: newStatus as any });
+                                             }
+                                             // Save to database in background
+                                             if (viewingClaimId) {
+                                                fetch(`/api/cases/${viewingClaimId}`, {
+                                                   method: 'PATCH',
+                                                   headers: { 'Content-Type': 'application/json' },
+                                                   body: JSON.stringify({ status: newStatus })
+                                                }).catch(err => console.error('Failed to save status:', err));
                                              }
                                           }}
                                           className="w-full px-3 py-2.5 border-2 border-gray-300 dark:border-slate-500 rounded-lg text-sm font-semibold bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                                           style={{ borderLeftWidth: '4px', borderLeftColor: stageColor }}
                                        >
+                                          {/* Show current status if not in pipeline stages */}
+                                          {actualClaimStatus && !pipelineStages.some(s => s.statuses.includes(actualClaimStatus)) && (
+                                             <option value={actualClaimStatus}>{actualClaimStatus}</option>
+                                          )}
                                           {pipelineStages.map(stage => (
                                              <optgroup key={stage.id} label={stage.label}>
                                                 {stage.statuses.map(status => (

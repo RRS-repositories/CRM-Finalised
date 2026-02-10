@@ -1582,6 +1582,25 @@ function standardizeLender(lenderName) {
     return match || lenderName;
 }
 
+// Helper function to set reference_specified on a case and add to contact's reference column
+async function setReferenceSpecified(pool, contactId, caseId) {
+    const refSpec = `x${contactId}${caseId}`;
+    // Update case with reference_specified
+    await pool.query(
+        `UPDATE cases SET reference_specified = $1 WHERE id = $2`,
+        [refSpec, caseId]
+    );
+    // Append to contact's reference column (comma-separated)
+    await pool.query(
+        `UPDATE contacts SET reference = CASE
+            WHEN reference IS NULL OR reference = '' THEN $1
+            ELSE reference || ',' || $1
+        END WHERE id = $2`,
+        [refSpec, contactId]
+    );
+    return refSpec;
+}
+
 // Helper function to send LOA email
 async function sendLOAEmail(toEmail, clientName, loaLink) {
     const mailOptions = {
@@ -1851,6 +1870,7 @@ app.post('/api/submit-page1', async (req, res) => {
                         [contactId, finalLender, 'Extra Lender Selection Form Sent', false, dsarSendAfter]
                     );
                     const claimId = claimRes.rows[0].id;
+                    await setReferenceSpecified(pool, contactId, claimId);
 
                     console.log(`[Server] Created claim ${claimId} for ${lender_type}. Offloading PDF generation to worker.`);
 
@@ -2054,6 +2074,7 @@ app.post('/api/upload-document-by-name', upload.single('document'), async (req, 
             );
             claim = newClaim.rows[0];
             claimCreated = true;
+            await setReferenceSpecified(pool, contact_id, claim.id);
             console.log(`[Upload-by-Name] Auto-created claim for contact ${contact_id}, lender "${lender_name}"`);
         } else {
             claim = claimRes.rows[0];
@@ -2169,10 +2190,11 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
         const { first_name, last_name } = contactRes.rows[0];
         const baseFolder = `${first_name}_${last_name}_${contactId}/`;
-        // Scan both Documents/ and LOA/ subfolders
+        // Scan Documents/, Lenders/ (new structure), and LOA/ (legacy) subfolders
         const foldersToScan = [
             { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
-            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' }
+            { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
+            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' }  // Legacy fallback
         ];
 
         console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}`);
@@ -2231,14 +2253,22 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
                 // Auto-detect category from filename
                 let category = folder.defaultCategory;
-                if (fileName.includes('Cover_Letter')) category = 'Cover Letter';
-                else if (fileName.includes('_LOA')) category = 'LOA';
+                if (fileName.includes('Cover_Letter') || fileName.includes('COVER LETTER')) category = 'Cover Letter';
+                else if (fileName.includes('_LOA') || fileName.includes(' - LOA.pdf')) category = 'LOA';
 
-                // Extract lender name from LOA/Cover Letter filenames for tags
+                // Extract info from LOA/Cover Letter filenames for tags
                 const tags = ['Synced from S3'];
                 if (category === 'LOA' || category === 'Cover Letter') {
-                    const lenderMatch = fileName.replace('_LOA.pdf', '').replace('_Cover_Letter.pdf', '').replace(/_/g, ' ');
-                    if (lenderMatch) tags.push(lenderMatch);
+                    // Handle both old format (LENDER_LOA.pdf) and new format (x123456 - First - Last - LOA.pdf)
+                    if (fileName.startsWith('x') && fileName.includes(' - ')) {
+                        // New format: extract reference
+                        const refMatch = fileName.match(/^(x\d+)/);
+                        if (refMatch) tags.push(refMatch[1]);
+                    } else {
+                        // Old format: extract lender name
+                        const lenderMatch = fileName.replace('_LOA.pdf', '').replace('_Cover_Letter.pdf', '').replace(/_/g, ' ');
+                        if (lenderMatch) tags.push(lenderMatch);
+                    }
                 }
 
                 const sizeKB = obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown';
@@ -2587,6 +2617,7 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9) RETURNING *`,
             [req.params.id, case_number, lender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
         );
+        await setReferenceSpecified(pool, req.params.id, rows[0].id);
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3042,22 +3073,27 @@ app.post('/api/cases/bulk', async (req, res) => {
                 SELECT * FROM UNNEST(
                     $1::integer[], $2::text[], $3::text[], $4::numeric[],
                     $5::text[], $6::text[], $7::boolean[]
-                )`,
+                ) RETURNING id, contact_id`,
                 [
                     contactIds, lenders, statuses, claimValues,
                     productTypes, accountNumbers, Array(batch.length).fill(false)
                 ]
             );
             results.created += result.rowCount;
+            // Set reference_specified for each created case
+            for (const row of result.rows) {
+                await setReferenceSpecified(pool, row.contact_id, row.id);
+            }
         } catch (error) {
             // Fall back to individual inserts if batch fails
             for (const c of batch) {
                 try {
-                    await pool.query(
+                    const insertRes = await pool.query(
                         `INSERT INTO cases (contact_id, lender, status, claim_value, product_type, account_number, loa_generated)
-                        VALUES ($1, $2, $3, $4, $5, $6, false)`,
+                        VALUES ($1, $2, $3, $4, $5, $6, false) RETURNING id`,
                         [c.contactId, c.lender, c.status, c.claimValue, c.productType, c.accountNumber]
                     );
+                    await setReferenceSpecified(pool, c.contactId, insertRes.rows[0].id);
                     results.created++;
                 } catch (err) {
                     results.failed++;
@@ -3957,29 +3993,46 @@ app.delete('/api/cases/:id', async (req, res) => {
 
         const claim = claimRes.rows[0];
         const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
-        const loaPath = `${folderPath}LOA/${claim.lender}_LOA.pdf`;
+        const refSpec = `x${claim.contact_id}${id}`;
+        const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+        // New structure paths (Lenders/{lenderName}/)
+        const newLoaPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - LOA.pdf`;
+        const newCoverPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - COVER LETTER.pdf`;
+        // Old LOA/ folder paths (for backwards compatibility)
+        const oldLoaPath = `${folderPath}LOA/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - LOA.pdf`;
+        const oldCoverPath = `${folderPath}LOA/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - COVER LETTER.pdf`;
+        // Legacy naming format paths
+        const legacyLoaPath = `${folderPath}LOA/${sanitizedLender}_LOA.pdf`;
+        const legacyCoverPath = `${folderPath}LOA/${sanitizedLender}_Cover_Letter.pdf`;
 
         console.log(`🗑️  Deleting claim ${id} for lender: ${claim.lender}`);
 
-        // 2. Delete claim-specific LOA from S3
+        // 2. Delete claim-specific LOA and Cover Letter from S3 (all formats)
         try {
             const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
 
-            await s3Client.send(new DeleteObjectCommand({
-                Bucket: BUCKET_NAME,
-                Key: loaPath
-            }));
-
-            console.log(`✅ Deleted LOA file from S3: ${loaPath}`);
+            // Try deleting all format files (new Lenders/ structure, old LOA/ folder, legacy naming)
+            for (const path of [newLoaPath, newCoverPath, oldLoaPath, oldCoverPath, legacyLoaPath, legacyCoverPath]) {
+                try {
+                    await s3Client.send(new DeleteObjectCommand({
+                        Bucket: BUCKET_NAME,
+                        Key: path
+                    }));
+                    console.log(`✅ Deleted file from S3: ${path}`);
+                } catch (e) {
+                    // Ignore - file may not exist
+                }
+            }
         } catch (s3Error) {
-            console.error('⚠️  S3 deletion error (LOA may not exist):', s3Error.message);
+            console.error('⚠️  S3 deletion error:', s3Error.message);
             // Continue with database deletion even if S3 fails
         }
 
-        // 3. Delete claim-specific documents from documents table
+        // 3. Delete claim-specific documents from documents table (both formats)
         await client.query(
-            "DELETE FROM documents WHERE contact_id = $1 AND name LIKE $2",
-            [claim.contact_id, `%${claim.lender}%LOA%`]
+            "DELETE FROM documents WHERE contact_id = $1 AND (name LIKE $2 OR name LIKE $3)",
+            [claim.contact_id, `%${claim.lender}%`, `${refSpec}%`]
         );
 
         // 4. Delete the claim from cases table
@@ -5003,11 +5056,12 @@ app.post('/api/submit-loa-form', async (req, res) => {
                             return { lender, success: true, status: 'updated' };
                         } else {
                             // Case does not exist - create new
-                            await pool.query(
+                            const newCaseRes = await pool.query(
                                 `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
-                                 VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false, $4)`,
+                                 VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false, $4) RETURNING id`,
                                 [contactId, standardizedLenderName, initialStatus, dsarSendAfterLender]
                             );
+                            await setReferenceSpecified(pool, contactId, newCaseRes.rows[0].id);
 
                             console.log(`[Background LOA] Created Case for ${lender} with status ${initialStatus} (PDF Generation Pending)`);
                             return { lender, success: true, status: 'created' };
@@ -5036,11 +5090,12 @@ app.post('/api/submit-loa-form', async (req, res) => {
 
                     if (updateResult.rowCount === 0) {
                         // If not exists (meaning user didn't select it? or it wasn't in list?), create it
-                        await pool.query(
+                        const intakeCaseRes = await pool.query(
                             `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
-                             VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3)`,
+                             VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3) RETURNING id`,
                             [contactId, stdIntakeLender, intakeDsarSendAfter]
                         );
+                        await setReferenceSpecified(pool, contactId, intakeCaseRes.rows[0].id);
                     }
                 }
 

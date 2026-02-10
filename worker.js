@@ -105,7 +105,10 @@ const pool = new Pool({
     ssl: {
         require: true,
         rejectUnauthorized: false
-    }
+    },
+    connectionTimeoutMillis: 30000,  // 30 seconds for local dev
+    idleTimeoutMillis: 30000,
+    max: 5
 });
 
 const s3Client = new S3Client({
@@ -123,6 +126,10 @@ pool.on('error', (err, client) => {
 // --- ENSURE DSAR COLUMNS EXIST (same migration as server.js) ---
 (async () => {
     try {
+        // Test connection first
+        await pool.query('SELECT 1');
+        console.log('[Worker] ✅ Database connection established');
+
         await pool.query(`
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_sent') THEN
@@ -305,7 +312,7 @@ async function fetchPdfFromS3(s3Key) {
 }
 
 // --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
-async function gatherDocumentsForCase(contactId, lenderName, folderName) {
+async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName) {
     const documents = {
         loa: null,
         coverLetter: null,
@@ -313,26 +320,114 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName) {
         idDocument: null
     };
 
+    const refSpec = `x${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
-    // 1. LOA PDF
-    const loaKey = `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`;
-    console.log(`[Worker] 🔍 Looking for LOA at: ${loaKey}`);
-    documents.loa = await fetchPdfFromS3(loaKey);
-    if (documents.loa) {
-        console.log(`[Worker] ✅ Found LOA for ${lenderName}`);
-    } else {
-        console.log(`[Worker] ❌ LOA not found at: ${loaKey}`);
+    // Helper to try fetching a document from multiple possible S3 paths
+    async function tryFetchFromPaths(fileName, docType) {
+        const pathsToTry = [
+            `${folderName}/Lenders/${sanitizedLenderName}/${fileName}`,
+            `${folderName}/LOA/${fileName}`,
+            `${folderName}/Documents/${fileName}`
+        ];
+        for (const path of pathsToTry) {
+            const result = await fetchPdfFromS3(path);
+            if (result) {
+                console.log(`[Worker] ✅ Found ${docType} from DB at: ${path}`);
+                return result;
+            }
+        }
+        return null;
     }
 
-    // 2. Cover Letter PDF
-    const coverLetterKey = `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`;
-    console.log(`[Worker] 🔍 Looking for Cover Letter at: ${coverLetterKey}`);
-    documents.coverLetter = await fetchPdfFromS3(coverLetterKey);
-    if (documents.coverLetter) {
-        console.log(`[Worker] ✅ Found Cover Letter for ${lenderName}`);
-    } else {
-        console.log(`[Worker] ❌ Cover Letter not found at: ${coverLetterKey}`);
+    // 1. LOA PDF - First check documents table, then fall back to filename guessing
+    try {
+        const loaQuery = await pool.query(
+            `SELECT name FROM documents
+             WHERE contact_id = $1
+             AND category = 'LOA'
+             AND LOWER(name) LIKE $2
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [contactId, `%${lenderName.toLowerCase()}%loa%`]
+        );
+
+        if (loaQuery.rows.length > 0) {
+            const loaFileName = loaQuery.rows[0].name;
+            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName}`);
+            documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
+        }
+    } catch (err) {
+        console.log(`[Worker] DB query for LOA failed: ${err.message}`);
+    }
+
+    // Fallback to constructed filenames if not found in DB
+    if (!documents.loa) {
+        const loaKey = `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`;
+        console.log(`[Worker] 🔍 Looking for LOA at: ${loaKey}`);
+        documents.loa = await fetchPdfFromS3(loaKey);
+        if (documents.loa) {
+            console.log(`[Worker] ✅ Found LOA for ${lenderName}`);
+        } else {
+            const oldLoaKey = `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`;
+            documents.loa = await fetchPdfFromS3(oldLoaKey);
+            if (documents.loa) {
+                console.log(`[Worker] ✅ Found LOA (old LOA/ folder) for ${lenderName}`);
+            } else {
+                const legacyLoaKey = `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`;
+                documents.loa = await fetchPdfFromS3(legacyLoaKey);
+                if (documents.loa) {
+                    console.log(`[Worker] ✅ Found LOA (legacy format) for ${lenderName}`);
+                } else {
+                    console.log(`[Worker] ❌ LOA not found`);
+                }
+            }
+        }
+    }
+
+    // 2. Cover Letter PDF - First check documents table, then fall back to filename guessing
+    try {
+        const coverQuery = await pool.query(
+            `SELECT name FROM documents
+             WHERE contact_id = $1
+             AND category = 'Cover Letter'
+             AND LOWER(name) LIKE $2
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [contactId, `%${lenderName.toLowerCase()}%`]
+        );
+
+        if (coverQuery.rows.length > 0) {
+            const coverFileName = coverQuery.rows[0].name;
+            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName}`);
+            documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
+        }
+    } catch (err) {
+        console.log(`[Worker] DB query for Cover Letter failed: ${err.message}`);
+    }
+
+    // Fallback to constructed filenames if not found in DB
+    if (!documents.coverLetter) {
+        const coverLetterKey = `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`;
+        console.log(`[Worker] 🔍 Looking for Cover Letter at: ${coverLetterKey}`);
+        documents.coverLetter = await fetchPdfFromS3(coverLetterKey);
+        if (documents.coverLetter) {
+            console.log(`[Worker] ✅ Found Cover Letter for ${lenderName}`);
+        } else {
+            const oldCoverKey = `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`;
+            documents.coverLetter = await fetchPdfFromS3(oldCoverKey);
+            if (documents.coverLetter) {
+                console.log(`[Worker] ✅ Found Cover Letter (old LOA/ folder) for ${lenderName}`);
+            } else {
+                const legacyCoverKey = `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`;
+                documents.coverLetter = await fetchPdfFromS3(legacyCoverKey);
+                if (documents.coverLetter) {
+                    console.log(`[Worker] ✅ Found Cover Letter (legacy format) for ${lenderName}`);
+                } else {
+                    console.log(`[Worker] ❌ Cover Letter not found`);
+                }
+            }
+        }
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
@@ -548,8 +643,13 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         return { success: false, reason: 'no_email' };
     }
 
+    // Extract first and last name from clientName
+    const nameParts = clientName.split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
     // Gather all available documents
-    const documents = await gatherDocumentsForCase(contactId, lenderName, folderName);
+    const documents = await gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName);
 
     // Must have at least LOA and Cover Letter
     if (!documents.loa || !documents.coverLetter) {
@@ -559,17 +659,18 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
 
     // Build attachments array
     const attachments = [];
+    const refSpec = `x${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
     // Always include LOA and Cover Letter
     attachments.push({
-        filename: `${sanitizedLenderName}_LOA.pdf`,
+        filename: `${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
         content: documents.loa,
         contentType: 'application/pdf'
     });
 
     attachments.push({
-        filename: `${sanitizedLenderName}_Cover_Letter.pdf`,
+        filename: `${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
         content: documents.coverLetter,
         contentType: 'application/pdf'
     });
@@ -1225,7 +1326,7 @@ const processPendingLOAs = async () => {
                     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
                 });
                 const page = await browser.newPage();
-                await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+                await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
                 const pdfBuffer = await page.pdf({
                     format: 'A4',
                     printBackground: true,
@@ -1235,9 +1336,10 @@ const processPendingLOAs = async () => {
 
                 // Upload S3
                 const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
+                const refSpec = `x${record.contact_id}${record.case_id}`;
                 const sanitizedLenderName = record.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-                const pdfFileName = `${sanitizedLenderName}_LOA.pdf`;
-                const pdfKey = `${folderName}/LOA/${pdfFileName}`;
+                const pdfFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - LOA.pdf`;
+                const pdfKey = `${folderName}/Lenders/${sanitizedLenderName}/${pdfFileName}`;
 
                 await s3Client.send(new PutObjectCommand({
                     Bucket: BUCKET_NAME,
@@ -1274,7 +1376,7 @@ const processPendingLOAs = async () => {
                         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
                     });
                     const coverPage = await coverBrowser.newPage();
-                    await coverPage.setContent(coverLetterHtml, { waitUntil: 'networkidle0' });
+                    await coverPage.setContent(coverLetterHtml, { waitUntil: 'domcontentloaded', timeout: 60000 });
                     const coverPdfBuffer = await coverPage.pdf({
                         format: 'A4',
                         printBackground: true,
@@ -1283,8 +1385,8 @@ const processPendingLOAs = async () => {
                     await coverBrowser.close();
 
                     // Upload Cover Letter to S3
-                    const coverLetterFileName = `${sanitizedLenderName}_Cover_Letter.pdf`;
-                    const coverLetterKey = `${folderName}/LOA/${coverLetterFileName}`;
+                    const coverLetterFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - COVER LETTER.pdf`;
+                    const coverLetterKey = `${folderName}/Lenders/${sanitizedLenderName}/${coverLetterFileName}`;
 
                     await s3Client.send(new PutObjectCommand({
                         Bucket: BUCKET_NAME,

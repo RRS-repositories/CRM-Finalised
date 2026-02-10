@@ -1,0 +1,13 @@
+Reference	Lender	Email	Reason
+218007470	AQUA	nan	Email not found
+220897425	VANQUIS	anthonyhylton@hotmail.co.uk	Email not found
+224316343	VANQUIS	nan	Email not found
+224560705	EQUIFAX	nan	Email not found
+224638723	EQUIFAX	sophienstonesmith@gmail.com	Ref not in contact
+224639163	EQUIFAX	nina.pcasey@hotmail.com	Ref not in contact
+224639949	EQUIFAX	davekobe76@gmail.com	Ref not in contact
+224640306	EQUIFAX	emmarimmington@icloud.com	Ref not in contact
+224640387	EQUIFAX	natalielmann@yahoo.co.uk	Ref not in contact
+224641509	EQUIFAX	lolatilly@hotmail.co.uk	Ref not in contact
+224642436	EQUIFAX	brian.donaghy13@googlemail.com	Ref not in contact
+224681505	ONDAL FINANCE	kghj080801@gmail.com	Ref not in contact
