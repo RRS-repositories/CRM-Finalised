@@ -9,6 +9,7 @@ export enum ClaimStatus {
 
   // Category 2: Client Onboarding
   LOA_SIGNED = "LOA Signed",
+  LOA_UPLOADED = "LOA Uploaded",
   ID_REQUEST_SENT = "ID Request Sent",
   ID_VERIFICATION_PENDING = "ID Verification Pending",
   POA_REQUIRED = "POA Required",
