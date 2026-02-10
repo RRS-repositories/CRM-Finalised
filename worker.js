@@ -651,9 +651,9 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     // Gather all available documents
     const documents = await gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName);
 
-    // Must have at least LOA and Cover Letter
-    if (!documents.loa || !documents.coverLetter) {
-        console.log(`[Worker] ⚠️ Missing required documents (LOA or Cover Letter). Skipping.`);
+    // Must have at least LOA (Cover Letter, Previous Address, ID are optional)
+    if (!documents.loa) {
+        console.log(`[Worker] ⚠️ Missing required document (LOA). Skipping.`);
         return { success: false, reason: 'missing_required_docs' };
     }
 
@@ -662,18 +662,21 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     const refSpec = `x${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
-    // Always include LOA and Cover Letter
+    // Always include LOA (required)
     attachments.push({
         filename: `${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
         content: documents.loa,
         contentType: 'application/pdf'
     });
 
-    attachments.push({
-        filename: `${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
-        content: documents.coverLetter,
-        contentType: 'application/pdf'
-    });
+    // Add Cover Letter if available (optional)
+    if (documents.coverLetter) {
+        attachments.push({
+            filename: `${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
+            content: documents.coverLetter,
+            contentType: 'application/pdf'
+        });
+    }
 
     // Add Previous Address if available
     if (documents.previousAddress) {
