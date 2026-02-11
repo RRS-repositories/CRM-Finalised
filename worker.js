@@ -1564,6 +1564,14 @@ const processPendingDSAREmails = async () => {
                         `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true WHERE id = $1`,
                         [record.case_id]
                     );
+
+                    // Log to action timeline
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                         VALUES ($1, $2, 'system', 'worker', 'dsar_sent', 'claims', $3)`,
+                        [record.contact_id, record.case_id, `DSAR ${EMAIL_DRAFT_MODE ? 'draft created' : 'sent'} to ${record.lender} (${emailResult.email})`]
+                    );
+
                     console.log(`[Worker] ✅ ${statusMessage}`);
                 } else {
                     console.log(`[Worker] ⚠️ DSAR not ${EMAIL_DRAFT_MODE ? 'drafted' : 'sent'} for Case ${record.case_id}: ${emailResult.reason}${emailResult.error ? ' - ' + emailResult.error : ''}`);
@@ -1573,14 +1581,32 @@ const processPendingDSAREmails = async () => {
                             `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true WHERE id = $1`,
                             [record.case_id]
                         );
+                        // Log to action timeline
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_skipped', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `DSAR skipped for ${record.lender} - no email address available`]
+                        );
                     } else if (emailResult.reason === 'send_failed' || emailResult.reason === 'draft_failed') {
                         console.error(`[Worker] ❌ ${EMAIL_DRAFT_MODE ? 'Draft creation' : 'Email send'} FAILED for Case ${record.case_id}. Error: ${emailResult.error}`);
                         await pool.query(
                             `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true WHERE id = $1`,
                             [record.case_id]
                         );
+                    } else if (emailResult.reason === 'missing_required_docs') {
+                        // Missing LOA - revert to LOA Signed so user knows action is needed
+                        await pool.query(
+                            `UPDATE cases SET status = 'LOA Signed' WHERE id = $1`,
+                            [record.case_id]
+                        );
+                        // Log to action timeline
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `DSAR failed for ${record.lender} - missing LOA document. Status reverted to LOA Signed.`]
+                        );
+                        console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing LOA`);
                     }
-                    // If missing_required_docs, keep status as 'DSAR Prepared' - retry next cycle
                 }
             } catch (err) {
                 console.error(`[Worker] ❌ Error sending DSAR for Case ${record.case_id}:`, err.message);
