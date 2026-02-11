@@ -3,7 +3,7 @@ dotenv.config();
 
 import pkg from 'pg';
 const { Pool } = pkg;
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -311,6 +311,61 @@ async function fetchPdfFromS3(s3Key) {
     }
 }
 
+// Known lender aliases - ONLY these get flexible matching (to avoid false positives like BARCLAYS vs BARCLAYS CREDIT CARD)
+const LENDER_ALIASES = {
+    'ZABLE': ['ZABLE', 'ZABLE CREDIT', 'ZABLE_CREDIT'],
+    'ZABLE CREDIT': ['ZABLE', 'ZABLE CREDIT', 'ZABLE_CREDIT'],
+    'OCEAN FINANCE': ['OCEAN FINANCE', 'OCEAN', 'OCEAN_FINANCE'],
+    'OCEAN': ['OCEAN FINANCE', 'OCEAN', 'OCEAN_FINANCE'],
+};
+
+// --- HELPER FUNCTION: FIND FILE IN S3 FOLDER BY PATTERN ---
+async function findFileInS3Folder(folderPrefix, lenderName, docType) {
+    try {
+        const command = new ListObjectsV2Command({
+            Bucket: BUCKET_NAME,
+            Prefix: folderPrefix
+        });
+        const response = await s3Client.send(command);
+
+        if (!response.Contents || response.Contents.length === 0) {
+            return null;
+        }
+
+        const docTypeLower = docType.toLowerCase(); // 'loa' or 'cover letter'
+        const lenderUpper = lenderName.toUpperCase();
+
+        // Get all names to search for (including aliases if defined, otherwise just the lender name)
+        const namesToMatch = LENDER_ALIASES[lenderUpper] || [lenderName];
+
+        for (const obj of response.Contents) {
+            const fileName = obj.Key.toLowerCase();
+
+            // Check if file matches docType
+            if (!fileName.endsWith('.pdf') || !fileName.includes(docTypeLower)) {
+                continue;
+            }
+
+            // Check if any of the lender names/aliases match (strict matching)
+            for (const name of namesToMatch) {
+                const nameLower = name.toLowerCase();
+                const nameNoSpaces = nameLower.replace(/[\s_-]+/g, '');
+                const fileNameNoSpaces = fileName.replace(/[\s_-]+/g, '');
+
+                if (fileNameNoSpaces.includes(nameNoSpaces) ||
+                    obj.Key.toLowerCase().includes(`/lenders/${nameLower.replace(/\s+/g, '_')}/`)) {
+                    console.log(`[Worker] 🔍 Found ${docType} via S3 listing: ${obj.Key}`);
+                    return await fetchPdfFromS3(obj.Key);
+                }
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error(`[Worker] Error listing S3 folder (${folderPrefix}):`, error.message);
+        return null;
+    }
+}
+
 // --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
 async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName) {
     const documents = {
@@ -320,7 +375,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         idDocument: null
     };
 
-    const refSpec = `x${contactId}${caseId}`;
+    const refSpec = `${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
     // Helper to try fetching a document from multiple possible S3 paths
@@ -363,25 +418,32 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
     // Fallback to constructed filenames if not found in DB
     if (!documents.loa) {
-        const loaKey = `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`;
-        console.log(`[Worker] 🔍 Looking for LOA at: ${loaKey}`);
-        documents.loa = await fetchPdfFromS3(loaKey);
-        if (documents.loa) {
-            console.log(`[Worker] ✅ Found LOA for ${lenderName}`);
-        } else {
-            const oldLoaKey = `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`;
-            documents.loa = await fetchPdfFromS3(oldLoaKey);
+        const xRefSpec = `x${contactId}${caseId}`; // Backwards compatibility with x prefix
+        const loaPathsToTry = [
+            // New format (no x prefix)
+            `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
+            `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
+            // Old format (with x prefix)
+            `${folderName}/Lenders/${sanitizedLenderName}/${xRefSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
+            `${folderName}/LOA/${xRefSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
+            // Legacy format
+            `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`
+        ];
+        console.log(`[Worker] 🔍 Looking for LOA at: ${loaPathsToTry[0]}`);
+        for (const loaPath of loaPathsToTry) {
+            documents.loa = await fetchPdfFromS3(loaPath);
             if (documents.loa) {
-                console.log(`[Worker] ✅ Found LOA (old LOA/ folder) for ${lenderName}`);
-            } else {
-                const legacyLoaKey = `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`;
-                documents.loa = await fetchPdfFromS3(legacyLoaKey);
-                if (documents.loa) {
-                    console.log(`[Worker] ✅ Found LOA (legacy format) for ${lenderName}`);
-                } else {
-                    console.log(`[Worker] ❌ LOA not found`);
-                }
+                console.log(`[Worker] ✅ Found LOA for ${lenderName} at: ${loaPath}`);
+                break;
             }
+        }
+        // Last resort: search S3 Lenders folder for any file matching lender + LOA pattern
+        if (!documents.loa) {
+            console.log(`[Worker] 🔍 Searching S3 Lenders folder for LOA...`);
+            documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA');
+        }
+        if (!documents.loa) {
+            console.log(`[Worker] ❌ LOA not found`);
         }
     }
 
@@ -408,25 +470,32 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
     // Fallback to constructed filenames if not found in DB
     if (!documents.coverLetter) {
-        const coverLetterKey = `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`;
-        console.log(`[Worker] 🔍 Looking for Cover Letter at: ${coverLetterKey}`);
-        documents.coverLetter = await fetchPdfFromS3(coverLetterKey);
-        if (documents.coverLetter) {
-            console.log(`[Worker] ✅ Found Cover Letter for ${lenderName}`);
-        } else {
-            const oldCoverKey = `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`;
-            documents.coverLetter = await fetchPdfFromS3(oldCoverKey);
+        const xRefSpecCover = `x${contactId}${caseId}`; // Backwards compatibility with x prefix
+        const coverPathsToTry = [
+            // New format (no x prefix)
+            `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
+            `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
+            // Old format (with x prefix)
+            `${folderName}/Lenders/${sanitizedLenderName}/${xRefSpecCover} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
+            `${folderName}/LOA/${xRefSpecCover} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
+            // Legacy format
+            `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`
+        ];
+        console.log(`[Worker] 🔍 Looking for Cover Letter at: ${coverPathsToTry[0]}`);
+        for (const coverPath of coverPathsToTry) {
+            documents.coverLetter = await fetchPdfFromS3(coverPath);
             if (documents.coverLetter) {
-                console.log(`[Worker] ✅ Found Cover Letter (old LOA/ folder) for ${lenderName}`);
-            } else {
-                const legacyCoverKey = `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`;
-                documents.coverLetter = await fetchPdfFromS3(legacyCoverKey);
-                if (documents.coverLetter) {
-                    console.log(`[Worker] ✅ Found Cover Letter (legacy format) for ${lenderName}`);
-                } else {
-                    console.log(`[Worker] ❌ Cover Letter not found`);
-                }
+                console.log(`[Worker] ✅ Found Cover Letter for ${lenderName} at: ${coverPath}`);
+                break;
             }
+        }
+        // Last resort: search S3 Lenders folder for any file matching lender + COVER LETTER pattern
+        if (!documents.coverLetter) {
+            console.log(`[Worker] 🔍 Searching S3 Lenders folder for Cover Letter...`);
+            documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER');
+        }
+        if (!documents.coverLetter) {
+            console.log(`[Worker] ❌ Cover Letter not found`);
         }
     }
 
@@ -659,7 +728,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
 
     // Build attachments array
     const attachments = [];
-    const refSpec = `x${contactId}${caseId}`;
+    const refSpec = `${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
     // Always include LOA (required)
@@ -1339,7 +1408,7 @@ const processPendingLOAs = async () => {
 
                 // Upload S3
                 const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
-                const refSpec = `x${record.contact_id}${record.case_id}`;
+                const refSpec = `${record.contact_id}${record.case_id}`;
                 const sanitizedLenderName = record.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
                 const pdfFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - LOA.pdf`;
                 const pdfKey = `${folderName}/Lenders/${sanitizedLenderName}/${pdfFileName}`;
@@ -1535,8 +1604,8 @@ const runWorkerCycle = async () => {
 // Run immediately on start (with small delay for DB migration)
 setTimeout(() => {
     runWorkerCycle();
-    // Then run every 60 seconds
+    // Then run every 2 minutes
     setInterval(() => {
         runWorkerCycle();
-    }, 60000);
+    }, 120000);
 }, 5000);

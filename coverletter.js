@@ -502,7 +502,7 @@ export async function generateCoverLetterFromTemplate(caseId, pool, s3Client) {
     // 8. Upload to S3 (same naming convention as worker.js)
     const bucketName = process.env.S3_BUCKET_NAME;
     const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
-    const refSpec = `x${record.contact_id}${record.id}`;
+    const refSpec = `${record.contact_id}${record.id}`;
     const sanitizedLenderName = (caseData.lender || 'Unknown').replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
     const coverLetterFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - COVER LETTER.pdf`;
     const coverLetterKey = `${folderName}/Lenders/${sanitizedLenderName}/${coverLetterFileName}`;
@@ -595,7 +595,7 @@ const isMainModule = process.argv[1] && (
 
 if (isMainModule) {
     const caseIdArg = process.argv[2] ? parseInt(process.argv[2]) : null;
-    const POLL_INTERVAL = 60_000; // 60 seconds
+    const POLL_INTERVAL = 120_000; // 2 minutes
 
     // Load env vars (when run standalone, dotenv hasn't been called yet)
     const dotenv = await import('dotenv');

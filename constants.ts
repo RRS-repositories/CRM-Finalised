@@ -195,45 +195,45 @@ export const TEMPLATE_VARIABLES: Array<{
   category: string;
   vars: Array<{ key: string; label: string; contactField: string | null }>;
 }> = [
-  {
-    category: 'Client Details',
-    vars: [
-      { key: '{{fullName}}', label: 'Full Name', contactField: 'fullName' },
-      { key: '{{firstName}}', label: 'First Name', contactField: 'firstName' },
-      { key: '{{lastName}}', label: 'Last Name', contactField: 'lastName' },
-      { key: '{{email}}', label: 'Email', contactField: 'email' },
-      { key: '{{phone}}', label: 'Phone', contactField: 'phone' },
-      { key: '{{address}}', label: 'Address', contactField: 'address' },
-      { key: '{{dateOfBirth}}', label: 'Date of Birth', contactField: 'dateOfBirth' },
-    ]
-  },
-  {
-    category: 'Claim Details',
-    vars: [
-      { key: '{{lender}}', label: 'Lender', contactField: 'lender' },
-      { key: '{{claimValue}}', label: 'Claim Value', contactField: 'claimValue' },
-      { key: '{{caseRef}}', label: 'Case Reference', contactField: 'id' },
-      { key: '{{clientId}}', label: 'Client ID', contactField: 'clientId' },
-    ]
-  },
-  {
-    category: 'Lender Details',
-    vars: [
-      { key: '{{lenderCompanyName}}', label: 'Lender Company Name', contactField: 'lenderCompanyName' },
-      { key: '{{lenderAddress}}', label: 'Lender Address', contactField: 'lenderAddress' },
-      { key: '{{lenderCity}}', label: 'Lender City', contactField: 'lenderCity' },
-      { key: '{{lenderPostcode}}', label: 'Lender Postcode', contactField: 'lenderPostcode' },
-      { key: '{{lenderEmail}}', label: 'Lender Email', contactField: 'lenderEmail' },
-    ]
-  },
-  {
-    category: 'General',
-    vars: [
-      { key: '{{today}}', label: 'Today\'s Date', contactField: null },
-      { key: '{{companyName}}', label: 'Company Name', contactField: null },
-    ]
-  }
-];
+    {
+      category: 'Client Details',
+      vars: [
+        { key: '{{fullName}}', label: 'Full Name', contactField: 'fullName' },
+        { key: '{{firstName}}', label: 'First Name', contactField: 'firstName' },
+        { key: '{{lastName}}', label: 'Last Name', contactField: 'lastName' },
+        { key: '{{email}}', label: 'Email', contactField: 'email' },
+        { key: '{{phone}}', label: 'Phone', contactField: 'phone' },
+        { key: '{{address}}', label: 'Address', contactField: 'address' },
+        { key: '{{dateOfBirth}}', label: 'Date of Birth', contactField: 'dateOfBirth' },
+      ]
+    },
+    {
+      category: 'Claim Details',
+      vars: [
+        { key: '{{lender}}', label: 'Lender', contactField: 'lender' },
+        { key: '{{claimValue}}', label: 'Claim Value', contactField: 'claimValue' },
+        { key: '{{caseRef}}', label: 'Case Reference', contactField: 'id' },
+        { key: '{{clientId}}', label: 'Client ID', contactField: 'clientId' },
+      ]
+    },
+    {
+      category: 'Lender Details',
+      vars: [
+        { key: '{{lenderCompanyName}}', label: 'Lender Company Name', contactField: 'lenderCompanyName' },
+        { key: '{{lenderAddress}}', label: 'Lender Address', contactField: 'lenderAddress' },
+        { key: '{{lenderCity}}', label: 'Lender City', contactField: 'lenderCity' },
+        { key: '{{lenderPostcode}}', label: 'Lender Postcode', contactField: 'lenderPostcode' },
+        { key: '{{lenderEmail}}', label: 'Lender Email', contactField: 'lenderEmail' },
+      ]
+    },
+    {
+      category: 'General',
+      vars: [
+        { key: '{{today}}', label: 'Today\'s Date', contactField: null },
+        { key: '{{companyName}}', label: 'Company Name', contactField: null },
+      ]
+    }
+  ];
 
 // Flat lookup map: variable key -> { label, contactField }
 export const VARIABLE_LOOKUP: Record<string, { label: string; contactField: string | null }> = {};
@@ -474,7 +474,6 @@ export const SPEC_LENDERS = [
   'CASH ASAP',
   'CASHASAP',
   'CASH CONVERTERS',
-  'CASH FLOAT',
   'CASH PLUS',
   'CASHFLOAT',
   'CASHPLUS',
@@ -498,7 +497,6 @@ export const SPEC_LENDERS = [
   'EQUIFAX',
   'EVANS CATALOGUE',
   'EVERYDAY LENDING',
-  'EVERYDAY LOANS',
   'EVOLUTION FUNDING',
   'EVOLUTION LENDING',
   'EVOLUTION MONEY',
@@ -526,7 +524,6 @@ export const SPEC_LENDERS = [
   'GRATTAN',
   'GREAT UNIVERSAL',
   'GUARANTOR MY LOAN',
-  'H&T PAWN BROKERS',
   'H&T PAWNBROKERS',
   'HALIFAX',
   'HERO LOANS',

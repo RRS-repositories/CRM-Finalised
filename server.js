@@ -1589,7 +1589,7 @@ function standardizeLender(lenderName) {
 
 // Helper function to set reference_specified on a case and add to contact's reference column
 async function setReferenceSpecified(pool, contactId, caseId) {
-    const refSpec = `x${contactId}${caseId}`;
+    const refSpec = `${contactId}${caseId}`;
     // Update case with reference_specified
     await pool.query(
         `UPDATE cases SET reference_specified = $1 WHERE id = $2`,
@@ -4018,7 +4018,7 @@ app.delete('/api/cases/:id', async (req, res) => {
 
         const claim = claimRes.rows[0];
         const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
-        const refSpec = `x${claim.contact_id}${id}`;
+        const refSpec = `${claim.contact_id}${id}`;
         const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
         // New structure paths (Lenders/{lenderName}/)

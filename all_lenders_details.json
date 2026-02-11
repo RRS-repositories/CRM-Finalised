@@ -330,16 +330,6 @@
         }
     },
     {
-        "lender": "CASH FLOAT",
-        "email": "dataprotection@westerncircle.co.uk",
-        "address": {
-            "company_name": "Western Circle Limited",
-            "first_line_address": "2 Brewery Wharf, Mowbray Street",
-            "town_city": "Sheffield",
-            "postcode": "S3 8EL"
-        }
-    },
-    {
         "lender": "CASH PLUS",
         "email": "complaints@cashplus.com",
         "address": {
@@ -520,20 +510,10 @@
         }
     },
     {
-        "lender": "EVERDAY LENDING",
+        "lender": "EVERYDAY LENDING",
         "email": "dpo@evlo.co.uk",
         "address": {
             "company_name": "Everyday Lending Limited",
-            "first_line_address": "Suite 3, 1st Floor Aquasulis House, 10-14 Bath Road",
-            "town_city": "Slough",
-            "postcode": "SL1 3SQ"
-        }
-    },
-    {
-        "lender": "EVERY DAY",
-        "email": "dpo@everyday-loans.co.uk",
-        "address": {
-            "company_name": "Everyday Loans Limited",
             "first_line_address": "Suite 3, 1st Floor Aquasulis House, 10-14 Bath Road",
             "town_city": "Slough",
             "postcode": "SL1 3SQ"
@@ -1931,7 +1911,7 @@
     },
     {
         "lender": "ZILCH",
-        "email": "privacy@zilch.com",
+        "email": "privacy@payzilch.com",
         "address": {
             "company_name": "Zilch Technology Limited",
             "first_line_address": "75 Wells Street",
