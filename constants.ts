@@ -21,6 +21,7 @@ export const PIPELINE_CATEGORIES = [
     statuses: [
       ClaimStatus.LOA_UPLOADED,
       ClaimStatus.LOA_SIGNED,
+      ClaimStatus.LOA_UPLOADED,
       ClaimStatus.ID_REQUEST_SENT,
       ClaimStatus.ID_VERIFICATION_PENDING,
       ClaimStatus.POA_REQUIRED,
