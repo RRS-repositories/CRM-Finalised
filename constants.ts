@@ -19,6 +19,7 @@ export const PIPELINE_CATEGORIES = [
     title: 'Client Onboarding',
     color: 'border-l-purple-500',
     statuses: [
+      ClaimStatus.LOA_UPLOADED,
       ClaimStatus.LOA_SIGNED,
       ClaimStatus.ID_REQUEST_SENT,
       ClaimStatus.ID_VERIFICATION_PENDING,
@@ -189,34 +190,57 @@ export const MOCK_TEMPLATE_FOLDERS = [
 ];
 
 // Template variables for mail merge (grouped by category)
-export const TEMPLATE_VARIABLES = [
+export const TEMPLATE_VARIABLES: Array<{
+  category: string;
+  vars: Array<{ key: string; label: string; contactField: string | null }>;
+}> = [
   {
     category: 'Client Details',
     vars: [
-      { key: '{{fullName}}', label: 'Full Name' },
-      { key: '{{firstName}}', label: 'First Name' },
-      { key: '{{lastName}}', label: 'Last Name' },
-      { key: '{{email}}', label: 'Email' },
-      { key: '{{phone}}', label: 'Phone' },
-      { key: '{{address}}', label: 'Address' },
+      { key: '{{fullName}}', label: 'Full Name', contactField: 'fullName' },
+      { key: '{{firstName}}', label: 'First Name', contactField: 'firstName' },
+      { key: '{{lastName}}', label: 'Last Name', contactField: 'lastName' },
+      { key: '{{email}}', label: 'Email', contactField: 'email' },
+      { key: '{{phone}}', label: 'Phone', contactField: 'phone' },
+      { key: '{{address}}', label: 'Address', contactField: 'address' },
+      { key: '{{dateOfBirth}}', label: 'Date of Birth', contactField: 'dateOfBirth' },
     ]
   },
   {
     category: 'Claim Details',
     vars: [
-      { key: '{{lender}}', label: 'Lender' },
-      { key: '{{claimValue}}', label: 'Claim Value' },
-      { key: '{{caseRef}}', label: 'Case Reference' },
+      { key: '{{lender}}', label: 'Lender', contactField: 'lender' },
+      { key: '{{claimValue}}', label: 'Claim Value', contactField: 'claimValue' },
+      { key: '{{caseRef}}', label: 'Case Reference', contactField: 'id' },
+      { key: '{{clientId}}', label: 'Client ID', contactField: 'clientId' },
+    ]
+  },
+  {
+    category: 'Lender Details',
+    vars: [
+      { key: '{{lenderCompanyName}}', label: 'Lender Company Name', contactField: 'lenderCompanyName' },
+      { key: '{{lenderAddress}}', label: 'Lender Address', contactField: 'lenderAddress' },
+      { key: '{{lenderCity}}', label: 'Lender City', contactField: 'lenderCity' },
+      { key: '{{lenderPostcode}}', label: 'Lender Postcode', contactField: 'lenderPostcode' },
+      { key: '{{lenderEmail}}', label: 'Lender Email', contactField: 'lenderEmail' },
     ]
   },
   {
     category: 'General',
     vars: [
-      { key: '{{today}}', label: 'Today\'s Date' },
-      { key: '{{companyName}}', label: 'Company Name' },
+      { key: '{{today}}', label: 'Today\'s Date', contactField: null },
+      { key: '{{companyName}}', label: 'Company Name', contactField: null },
     ]
   }
 ];
+
+// Flat lookup map: variable key -> { label, contactField }
+export const VARIABLE_LOOKUP: Record<string, { label: string; contactField: string | null }> = {};
+TEMPLATE_VARIABLES.forEach(group => {
+  group.vars.forEach(v => {
+    VARIABLE_LOOKUP[v.key] = { label: v.label, contactField: v.contactField };
+  });
+});
 
 export const MOCK_CONVERSATIONS: Conversation[] = [
   {
@@ -329,7 +353,7 @@ export const getSpecStatusColor = (status: string): string => {
   }
 
   // Category 2: Client Onboarding - Purple (#9C27B0)
-  if (status === 'LOA Signed' || status === 'ID Request Sent' || status === 'ID Verification Pending' ||
+  if (status === 'LOA Uploaded' || status === 'LOA Signed' || status === 'ID Request Sent' || status === 'ID Verification Pending' ||
     status === 'POA Required' ||
     status === 'Extra Lender Selection Form Sent' || status === 'Extra Lender Selection Form Completed' ||
     status === 'Questionnaire Sent' || status === 'Questionnaire Completed' ||

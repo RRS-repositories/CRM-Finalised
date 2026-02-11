@@ -49,7 +49,8 @@ export const KNOWLEDGE_BASE = {
 - SALE
 - LOA Sent
 
-**CATEGORY 2: CLIENT ONBOARDING** (11 statuses)
+**CATEGORY 2: CLIENT ONBOARDING** (12 statuses)
+- LOA Uploaded
 - LOA Signed
 - ID Request Sent
 - ID Verification Pending

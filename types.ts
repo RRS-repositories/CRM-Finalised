@@ -8,6 +8,7 @@ export enum ClaimStatus {
   LOA_SENT = "LOA Sent",
 
   // Category 2: Client Onboarding
+  LOA_UPLOADED = "LOA Uploaded",
   LOA_SIGNED = "LOA Signed",
   ID_REQUEST_SENT = "ID Request Sent",
   ID_VERIFICATION_PENDING = "ID Verification Pending",
@@ -289,6 +290,14 @@ export interface Document {
   url?: string; // Base64 Data URL or blob URL for uploaded files
 }
 
+export interface CustomVariable {
+  id: string;
+  name: string;        // Display name, e.g. "Policy Number"
+  key: string;         // Template key, e.g. "{{custom_policyNumber}}"
+  defaultValue?: string;
+  description?: string;
+}
+
 export interface Template {
   id: string;
   name: string;
@@ -296,6 +305,7 @@ export interface Template {
   description: string;
   content: string; // The text with {{variables}}
   lastModified: string;
+  customVariables?: CustomVariable[];
 }
 
 export interface TemplateFolder {

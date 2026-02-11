@@ -57,3 +57,200 @@ body {
 .count-animate {
   animation: countPulse 0.3s ease-out;
 }
+
+/* ========== A4 Paged Editor - Multi-page visual breaks ========== */
+
+.editor-page {
+  width: 794px;
+  min-height: 1123px;
+  padding: 96px 72px;
+  margin: 20px auto;
+  background: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  position: relative;
+  /* NO overflow:hidden — page grows with content */
+  /* NO max-height — let it extend */
+}
+
+/* Multi-page TipTap editor — stacked A4 page cards like Google Docs / Word Online.
+   White page card backgrounds are absolutely positioned behind the content.
+   Grey gaps between cards are visible through the transparent wrapper background.
+   Content flows continuously in a single ProseMirror contenteditable. */
+.a4-paged-editor {
+  position: relative;
+  /* Transparent so the parent grey bg (#ebebeb) shows through the gaps */
+  background: transparent;
+}
+
+/* Content layer: white background ensures text is always visible.
+   Grey gap bars (position: absolute, z-index 15) sit on top to visually
+   separate pages. No CSS mask needed — content is never invisible. */
+.a4-content-layer {
+  /* No mask — white bg set inline on the element */
+}
+
+/* The page gap labels sitting between page cards */
+.page-gap-label {
+  /* Visual styling is inline; this class is for optional overrides */
+}
+
+/* DOCX page break rendered inside the editor */
+.template-editor-prosemirror hr.docx-page-break,
+.ProseMirror hr.docx-page-break {
+  border: none;
+  height: 24px;
+  background: #d9d9d9;
+  margin: 0 -72px;
+  position: relative;
+  cursor: default;
+}
+
+.template-editor-prosemirror hr.docx-page-break::before,
+.ProseMirror hr.docx-page-break::before {
+  content: 'PAGE BREAK';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9px;
+  color: #9ca3af;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* ProseMirror inside the paged editor — content flows continuously.
+   Padding creates the A4 margins on the first page. The content layer
+   sits above the page card backgrounds (z-index: 1). */
+.a4-paged-editor .ProseMirror {
+  outline: none;
+  min-height: 919px; /* content zone per page */
+  padding: 112px 72px 92px 72px; /* top: header zone, sides: margins, bottom: footer zone */
+  font-family: 'Times New Roman', 'Georgia', serif;
+  font-size: 12pt;
+  line-height: 1.15; /* Match Word default */
+}
+
+/* ========== TipTap Template Editor Styles ========== */
+
+/* ProseMirror base */
+.template-editor-prosemirror {
+  min-height: 100%;
+}
+
+.template-editor-prosemirror p {
+  margin: 0; /* Match Word default — no extra space between paragraphs */
+}
+
+.template-editor-prosemirror h1 {
+  font-size: 18pt;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.template-editor-prosemirror h2 {
+  font-size: 14pt;
+  font-weight: bold;
+  margin-bottom: 3px;
+}
+
+.template-editor-prosemirror h3 {
+  font-size: 12pt;
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+
+.template-editor-prosemirror ul,
+.template-editor-prosemirror ol {
+  padding-left: 1.5em;
+  margin-bottom: 0;
+}
+
+.template-editor-prosemirror li {
+  margin-bottom: 0;
+}
+
+.template-editor-prosemirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.template-editor-prosemirror td,
+.template-editor-prosemirror th {
+  border: 1px solid #d1d5db;
+  padding: 8px;
+  min-width: 60px;
+}
+
+.template-editor-prosemirror th {
+  background: #f9fafb;
+  font-weight: bold;
+}
+
+.template-editor-prosemirror img {
+  max-width: 100%;
+  height: auto;
+  margin: 0; /* No extra margins — Word doesn't add them */
+}
+
+/* Letterhead: logo floats left, company details flow beside it */
+.template-editor-prosemirror > p:first-child:has(> img) {
+  float: left;
+  margin: 0 15px 10px 0;
+}
+.template-editor-prosemirror > p:first-child:has(> img) ~ *:not([style*="right"]) {
+  clear: left;
+}
+
+.template-editor-prosemirror hr {
+  border: none;
+  border-top: 2px solid #e5e7eb;
+  margin: 1.5em 0;
+}
+
+.template-editor-prosemirror blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1em;
+  margin-left: 0;
+  color: #6b7280;
+}
+
+/* Placeholder text */
+.template-editor-prosemirror p.is-editor-empty:first-child::before {
+  color: #adb5bd;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Variable chip inline style (rendered by TipTap NodeView) */
+.variable-chip-inline {
+  display: inline;
+  vertical-align: baseline;
+  line-height: inherit;
+}
+
+.variable-chip-inline.selected {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Table resize handle */
+.template-editor-prosemirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: #3b82f6;
+  cursor: col-resize;
+}
+
+/* Selected table cell */
+.template-editor-prosemirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.1);
+  pointer-events: none;
+}

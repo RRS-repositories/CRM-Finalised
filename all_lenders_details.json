@@ -111,7 +111,7 @@
     },
     {
         "lender": "ARGOS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Home Retail Group Card Services Limited",
             "first_line_address": "489-499 Avebury Boulevard",
@@ -251,7 +251,7 @@
     },
     {
         "lender": "BRIGHTHOUSE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Caversham Finance Limited (trading as BrightHouse)",
             "first_line_address": "5 Hercules Way, Leavesden Park",
@@ -291,7 +291,7 @@
     },
     {
         "lender": "CAR CASH POINT",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Car Cash Point Limited",
             "first_line_address": "Unit 1B, 6 Wadsworth Road",
@@ -301,7 +301,7 @@
     },
     {
         "lender": "CASH 4 U NOW",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Cash4Unow Ltd",
             "first_line_address": "Unit 6 Axis Business Centre, 10 Commerce Way",
@@ -401,7 +401,7 @@
     },
     {
         "lender": "CO-OP BANK OVERDRAFT",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "The Co-operative Bank p.l.c.",
             "first_line_address": "1 Balloon Street",
@@ -421,12 +421,12 @@
     },
     {
         "lender": "CONSOLADATION LOAN",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Various Lenders",
-            "first_line_address": NaN,
-            "town_city": NaN,
-            "postcode": NaN
+            "first_line_address": null,
+            "town_city": null,
+            "postcode": null
         }
     },
     {
@@ -641,7 +641,7 @@
     },
     {
         "lender": "FLURO",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Fluro Ltd",
             "first_line_address": "8 Devonshire Square",
@@ -721,7 +721,7 @@
     },
     {
         "lender": "GUARANTOR MY LOAN",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Guarantor My Loan Ltd",
             "first_line_address": "Rosedale House, Rosedale Road",
@@ -761,7 +761,7 @@
     },
     {
         "lender": "HERO LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Hero Finance Limited",
             "first_line_address": "26 Red Lion Square",
@@ -821,7 +821,7 @@
     },
     {
         "lender": "JUO LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Juo Loans Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -901,7 +901,7 @@
     },
     {
         "lender": "LIFE STYLE LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Life Style Loans Limited",
             "first_line_address": "125 London Road",
@@ -941,7 +941,7 @@
     },
     {
         "lender": "LIVE LEND",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Live Lend Limited",
             "first_line_address": "71-75 Shelton Street",
@@ -1131,7 +1131,7 @@
     },
     {
         "lender": "MONTHLY ADVANCE LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Monthly Advance Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1201,7 +1201,7 @@
     },
     {
         "lender": "MY COMMUNITY BANK",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "My Community Bank Ltd",
             "first_line_address": "57-63 Scrutton Street",
@@ -1211,7 +1211,7 @@
     },
     {
         "lender": "MY COMMUNITY FINANCE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "My Community Finance Ltd",
             "first_line_address": "57-63 Scrutton Street",
@@ -1231,7 +1231,7 @@
     },
     {
         "lender": "MY KREDIT",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "My Kredit Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1241,7 +1241,7 @@
     },
     {
         "lender": "NATIONWIDE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Nationwide Building Society",
             "first_line_address": "Nationwide House, Pipers Way",
@@ -1251,7 +1251,7 @@
     },
     {
         "lender": "NATWEST / RBS OVERDRAFT",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "National Westminster Bank Plc",
             "first_line_address": "250 Bishopsgate",
@@ -1261,7 +1261,7 @@
     },
     {
         "lender": "NATWEST BANK / ROYAL BANK OF SCOTLAND",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "National Westminster Bank Plc",
             "first_line_address": "250 Bishopsgate",
@@ -1301,7 +1301,7 @@
     },
     {
         "lender": "NORWICH TRUST",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Norwich Trust Ltd",
             "first_line_address": "Norwich House, Savile Street East",
@@ -1341,7 +1341,7 @@
     },
     {
         "lender": "ONE PLUS ONE LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "1Plus1 Guarantor Loans Ltd",
             "first_line_address": "Oakwood House, 414-422 Hackney Road",
@@ -1361,7 +1361,7 @@
     },
     {
         "lender": "OODLE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Oodle Finance Limited",
             "first_line_address": "2nd Floor, Manfield House, 1 Southampton Street",
@@ -1441,7 +1441,7 @@
     },
     {
         "lender": "PLATA FINANCE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Plata Finance Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1451,7 +1451,7 @@
     },
     {
         "lender": "PLEND",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Plend Ltd",
             "first_line_address": "57 Southwark Street",
@@ -1481,7 +1481,7 @@
     },
     {
         "lender": "POST OFFICE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Post Office Limited",
             "first_line_address": "Finsbury Dials, 20 Finsbury Street",
@@ -1511,7 +1511,7 @@
     },
     {
         "lender": "PROGRESSIVE MONEY",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Progressive Money Ltd",
             "first_line_address": "7 Cobden Court, Wimpole Close",
@@ -1541,7 +1541,7 @@
     },
     {
         "lender": "QUICK LOANS",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Quick Loans Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1561,7 +1561,7 @@
     },
     {
         "lender": "RCI FINANCIAL",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "RCI Financial Services Limited",
             "first_line_address": "Rivers Office Park, Denham Way",
@@ -1571,7 +1571,7 @@
     },
     {
         "lender": "REEVO",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Reevo Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1591,7 +1591,7 @@
     },
     {
         "lender": "SAINSBURY'S BANK / POST",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Sainsbury's Bank plc",
             "first_line_address": "33 Holborn",
@@ -1691,7 +1691,7 @@
     },
     {
         "lender": "SUCO",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Suco Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1771,7 +1771,7 @@
     },
     {
         "lender": "TM ADVANCES",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "TM Advances Ltd",
             "first_line_address": "71-75 Shelton Street",
@@ -1881,7 +1881,7 @@
     },
     {
         "lender": "WAGE DAY ADVANCES",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Wage Day Advance Limited",
             "first_line_address": "71-75 Shelton Street",
@@ -1901,7 +1901,7 @@
     },
     {
         "lender": "WAVE",
-        "email": NaN,
+        "email": null,
         "address": {
             "company_name": "Wave (trading name of Likely Loans)",
             "first_line_address": "1 Triton Square, Regent's Place",

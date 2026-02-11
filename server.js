@@ -20,6 +20,11 @@ import { buildSystemPrompt, getEnabledTools, getCompactContext, TOOLS } from './
 import { createCanvas, loadImage } from 'canvas';
 import puppeteer from 'puppeteer';
 import fs from 'fs';
+import os from 'os';
+import { exec } from 'child_process';
+import mammoth from 'mammoth';
+import juice from 'juice';
+import { generateCoverLetterFromTemplate } from './coverletter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3930,6 +3935,17 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
+        // If status = "LOA Uploaded", generate cover letter from template asynchronously
+        if (status === 'LOA Uploaded') {
+            generateCoverLetterFromTemplate(parseInt(id), pool, s3Client)
+                .then(result => {
+                    console.log(`📄 Cover letter generated for case ${id}: ${result.fileName}`);
+                })
+                .catch(err => {
+                    console.error(`❌ Cover letter generation failed for case ${id}:`, err.message);
+                });
+        }
+
         console.log(`✅ Updated case ${id} status to: ${status}`);
         res.json(updatedCase);
     } catch (error) {
@@ -3956,6 +3972,15 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
             [status, claimIds]
         );
+
+        // If status = "LOA Uploaded", generate cover letters for each case asynchronously
+        if (status === 'LOA Uploaded') {
+            for (const updatedCase of result.rows) {
+                generateCoverLetterFromTemplate(updatedCase.id, pool, s3Client)
+                    .then(res => console.log(`📄 Cover letter generated for case ${updatedCase.id}: ${res.fileName}`))
+                    .catch(err => console.error(`❌ Cover letter generation failed for case ${updatedCase.id}:`, err.message));
+            }
+        }
 
         console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);
         res.json({
@@ -7080,8 +7105,1241 @@ app.get('/api/email/accounts/:accountId/folders/archive', async (req, res) => {
     }
 });
 
+// ============================================================================
+// TEMPLATE MANAGEMENT ENDPOINTS
+// ============================================================================
+
+// POST /api/templates/upload-url - Get presigned URL for template file upload to S3
+app.post('/api/templates/upload-url', async (req, res) => {
+    try {
+        const { fileName, contentType } = req.body;
+        if (!fileName || !contentType) {
+            return res.status(400).json({ success: false, message: 'fileName and contentType are required' });
+        }
+
+        const s3Key = `templates/${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const command = new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            ContentType: contentType,
+        });
+
+        const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
+        res.json({ success: true, uploadUrl, s3Key });
+    } catch (err) {
+        console.error('Error generating template upload URL:', err);
+        res.status(500).json({ success: false, message: 'Could not generate upload URL' });
+    }
+});
+
+// ============================================
+// TEMPLATE METADATA CRUD (persisted to templates-store.json)
+// ============================================
+const TEMPLATES_STORE_PATH = path.join(__dirname, 'templates-store.json');
+
+function readTemplatesStore() {
+    try {
+        const data = fs.readFileSync(TEMPLATES_STORE_PATH, 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return [];
+    }
+}
+
+function writeTemplatesStore(templates) {
+    fs.writeFileSync(TEMPLATES_STORE_PATH, JSON.stringify(templates, null, 2), 'utf-8');
+}
+
+// GET /api/templates - List all templates
+app.get('/api/templates', (req, res) => {
+    try {
+        const templates = readTemplatesStore();
+        res.json({ success: true, templates });
+    } catch (err) {
+        console.error('[Templates] Error reading templates:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to load templates' });
+    }
+});
+
+// POST /api/templates - Create a new template
+app.post('/api/templates', (req, res) => {
+    try {
+        const templates = readTemplatesStore();
+        const newTemplate = {
+            id: req.body.id || `t${Date.now()}`,
+            name: req.body.name || 'Untitled Template',
+            category: req.body.category || 'General',
+            description: req.body.description || '',
+            content: req.body.content || '',
+            lastModified: req.body.lastModified || new Date().toISOString().split('T')[0],
+            customVariables: req.body.customVariables || [],
+        };
+        templates.unshift(newTemplate);
+        writeTemplatesStore(templates);
+        res.json({ success: true, template: newTemplate });
+    } catch (err) {
+        console.error('[Templates] Error creating template:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to create template' });
+    }
+});
+
+// PUT /api/templates/:id - Update a template
+app.put('/api/templates/:id', (req, res) => {
+    try {
+        const templates = readTemplatesStore();
+        const idx = templates.findIndex(t => t.id === req.params.id);
+        if (idx === -1) return res.status(404).json({ success: false, message: 'Template not found' });
+        templates[idx] = {
+            ...templates[idx],
+            name: req.body.name ?? templates[idx].name,
+            category: req.body.category ?? templates[idx].category,
+            description: req.body.description ?? templates[idx].description,
+            content: req.body.content ?? templates[idx].content,
+            lastModified: new Date().toISOString().split('T')[0],
+            customVariables: req.body.customVariables ?? templates[idx].customVariables,
+        };
+        writeTemplatesStore(templates);
+        res.json({ success: true, template: templates[idx] });
+    } catch (err) {
+        console.error('[Templates] Error updating template:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update template' });
+    }
+});
+
+// DELETE /api/templates/:id - Delete a template
+app.delete('/api/templates/:id', (req, res) => {
+    try {
+        let templates = readTemplatesStore();
+        const before = templates.length;
+        templates = templates.filter(t => t.id !== req.params.id);
+        if (templates.length === before) {
+            return res.status(404).json({ success: false, message: 'Template not found' });
+        }
+        writeTemplatesStore(templates);
+        res.json({ success: true, message: 'Template deleted' });
+    } catch (err) {
+        console.error('[Templates] Error deleting template:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete template' });
+    }
+});
+
+// POST /api/templates/upload - Upload template file via multer (alternative to presigned URL)
+app.post('/api/templates/upload', upload.single('file'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ success: false, message: 'No file provided' });
+
+        const s3Key = `templates/${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const command = new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+        });
+        await s3Client.send(command);
+
+        // Generate download URL
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const downloadUrl = await getSignedUrl(s3Client, getCmd, { expiresIn: 604800 });
+
+        res.json({
+            success: true,
+            s3Key,
+            downloadUrl,
+            fileName: file.originalname,
+            fileSize: file.size,
+            contentType: file.mimetype,
+        });
+    } catch (err) {
+        console.error('Error uploading template file:', err);
+        res.status(500).json({ success: false, message: 'Failed to upload template file' });
+    }
+});
+
+// GET /api/templates/:s3Key/download-url - Get presigned download URL for a template file
+app.get('/api/templates/download-url', async (req, res) => {
+    try {
+        const { s3Key } = req.query;
+        if (!s3Key) return res.status(400).json({ success: false, message: 's3Key query parameter is required' });
+
+        const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const downloadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+        res.json({ success: true, downloadUrl });
+    } catch (err) {
+        console.error('Error generating template download URL:', err);
+        res.status(500).json({ success: false, message: 'Could not generate download URL' });
+    }
+});
+
+// POST /api/templates/generate-pdf - Generate a PDF with overlay fields merged
+// Accepts: { s3Key (original PDF), fields (overlay field definitions), variableValues (resolved values) }
+app.post('/api/templates/generate-pdf', async (req, res) => {
+    try {
+        const { s3Key, fields, variableValues } = req.body;
+
+        if (!s3Key || !fields) {
+            return res.status(400).json({ success: false, message: 's3Key and fields are required' });
+        }
+
+        // 1. Download original PDF from S3
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const s3Response = await s3Client.send(getCmd);
+        const chunks = [];
+        for await (const chunk of s3Response.Body) {
+            chunks.push(chunk);
+        }
+        const pdfBytes = Buffer.concat(chunks);
+
+        // 2. Use pdf-lib to overlay field values
+        // Dynamic import for ESM compatibility
+        const { PDFDocument: PdfLibDoc, rgb, StandardFonts } = await import('pdf-lib');
+        const pdfDoc = await PdfLibDoc.load(pdfBytes);
+        const pages = pdfDoc.getPages();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+        for (const field of fields) {
+            const pageIndex = (field.page || 0);
+            if (pageIndex >= pages.length) continue;
+            const page = pages[pageIndex];
+            const { width: pageWidth, height: pageHeight } = page.getSize();
+
+            // Convert percentage to absolute coordinates
+            const x = (field.x / 100) * pageWidth;
+            // PDF Y is bottom-up, our Y is top-down percentage
+            const fieldH = (field.height / 100) * pageHeight;
+            const y = pageHeight - ((field.y / 100) * pageHeight) - fieldH;
+
+            const value = (field.variableKey && variableValues?.[field.variableKey])
+                || field.textContent
+                || field.value
+                || '';
+
+            if (field.type === 'text' || field.type === 'variable' || field.type === 'text_input' || field.type === 'text_block') {
+                if (value) {
+                    const fontSize = field.fontSize || 11;
+                    page.drawText(String(value), {
+                        x: x + 2,
+                        y: y + fieldH / 2 - fontSize / 3,
+                        size: fontSize,
+                        font: field.isBold ? fontBold : font,
+                        color: rgb(0, 0, 0),
+                    });
+                }
+            } else if (field.type === 'date') {
+                const dateValue = value || new Date().toLocaleDateString('en-GB');
+                page.drawText(dateValue, {
+                    x: x + 2,
+                    y: y + fieldH / 2 - 4,
+                    size: 11,
+                    font,
+                    color: rgb(0, 0, 0),
+                });
+            } else if (field.type === 'checkbox') {
+                if (value === 'true' || value === 'yes' || value === '1') {
+                    const checkSize = Math.min((field.width / 100) * pageWidth, fieldH) * 0.7;
+                    page.drawText('✓', {
+                        x: x + 2,
+                        y: y + 2,
+                        size: checkSize,
+                        font,
+                        color: rgb(0, 0, 0),
+                    });
+                }
+            } else if (field.type === 'signature') {
+                // If value is base64 PNG signature image
+                if (value && value.startsWith('data:image/png')) {
+                    try {
+                        const base64Data = value.replace(/^data:image\/png;base64,/, '');
+                        const sigImage = await pdfDoc.embedPng(Buffer.from(base64Data, 'base64'));
+                        const sigWidth = (field.width / 100) * pageWidth;
+                        page.drawImage(sigImage, {
+                            x,
+                            y,
+                            width: sigWidth,
+                            height: fieldH,
+                        });
+                    } catch (sigErr) {
+                        console.warn('Could not embed signature image:', sigErr.message);
+                    }
+                } else if (value) {
+                    // Fallback: draw signature as text
+                    page.drawText(value, {
+                        x: x + 2,
+                        y: y + fieldH / 2 - 5,
+                        size: 14,
+                        font,
+                        color: rgb(0, 0, 0.6),
+                    });
+                }
+            }
+        }
+
+        // 3. Save the final PDF
+        const finalPdfBytes = await pdfDoc.save();
+
+        // 4. Upload generated document to S3
+        const outputKey = `documents/generated/template-${Date.now()}.pdf`;
+        const putCmd = new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: outputKey,
+            Body: Buffer.from(finalPdfBytes),
+            ContentType: 'application/pdf',
+        });
+        await s3Client.send(putCmd);
+
+        // 5. Generate download URL for the output
+        const dlCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputKey });
+        const downloadUrl = await getSignedUrl(s3Client, dlCmd, { expiresIn: 604800 });
+
+        res.json({
+            success: true,
+            s3Key: outputKey,
+            downloadUrl,
+            size: finalPdfBytes.length,
+        });
+    } catch (err) {
+        console.error('Error generating PDF from template:', err);
+        res.status(500).json({ success: false, message: 'Failed to generate PDF: ' + err.message });
+    }
+});
+
+// ============================================================================
+// DOCX CONVERSION HELPERS
+// ============================================================================
+
+/**
+ * Find LibreOffice installation on the system.
+ * Returns the path to soffice/libreoffice binary, or null if not found.
+ */
+async function findLibreOffice() {
+    const candidates = process.platform === 'win32'
+        ? [
+            'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+            'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+        ]
+        : ['/usr/bin/libreoffice', '/usr/bin/soffice', '/usr/local/bin/libreoffice', '/usr/local/bin/soffice'];
+
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+
+    // Try PATH lookup
+    try {
+        const cmd = process.platform === 'win32' ? 'where soffice 2>nul' : 'which libreoffice 2>/dev/null || which soffice 2>/dev/null';
+        const result = await new Promise((resolve, reject) => {
+            exec(cmd, { timeout: 5000 }, (err, stdout) => {
+                if (err) reject(err);
+                else resolve(stdout.trim().split('\n')[0]);
+            });
+        });
+        if (result && fs.existsSync(result)) return result;
+    } catch { /* not found in PATH */ }
+
+    return null;
+}
+
+/**
+ * Convert DOCX buffer to target format using LibreOffice headless.
+ * @param {Buffer} docxBuffer - the raw DOCX file
+ * @param {string} outputFormat - 'pdf' or 'html'
+ * @param {string} libreOfficePath - path to soffice binary
+ * @returns {Promise<Buffer>} converted file buffer
+ */
+async function convertWithLibreOffice(docxBuffer, outputFormat, libreOfficePath) {
+    const tmpDir = path.join(os.tmpdir(), `docx-convert-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const docxPath = path.join(tmpDir, 'document.docx');
+    fs.writeFileSync(docxPath, docxBuffer);
+
+    await new Promise((resolve, reject) => {
+        exec(
+            `"${libreOfficePath}" --headless --convert-to ${outputFormat} --outdir "${tmpDir}" "${docxPath}"`,
+            { timeout: 60000 },
+            (error, stdout, stderr) => {
+                if (error) reject(new Error(`LibreOffice conversion failed: ${stderr || error.message}`));
+                else resolve(stdout);
+            }
+        );
+    });
+
+    const outputPath = path.join(tmpDir, `document.${outputFormat}`);
+    if (!fs.existsSync(outputPath)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        throw new Error(`LibreOffice produced no output file at ${outputPath}`);
+    }
+    const outputBuffer = fs.readFileSync(outputPath);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    return outputBuffer;
+}
+
+/**
+ * Fallback: Convert DOCX to PDF using mammoth (HTML extraction) + Puppeteer (HTML to PDF).
+ * This preserves less layout than LibreOffice but works without extra system dependencies.
+ */
+async function convertDocxToPdfWithPuppeteer(docxBuffer) {
+    // Step 1: Extract HTML via mammoth (with alignment preservation)
+    const htmlBody = await convertDocxToHtmlWithMammoth(docxBuffer);
+
+    // Step 2: Render to PDF via Puppeteer with A4 page format
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    const page = await browser.newPage();
+
+    const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page { size: A4; margin: 25mm; }
+    * { box-sizing: border-box; }
+    body {
+        font-family: 'Times New Roman', 'Georgia', serif;
+        font-size: 12pt;
+        line-height: 1.5;
+        margin: 0;
+        padding: 0;
+        color: #000;
+    }
+    h1 { font-size: 18pt; margin: 0.5em 0; }
+    h2 { font-size: 14pt; margin: 0.5em 0; }
+    h3 { font-size: 12pt; font-weight: bold; margin: 0.5em 0; }
+    p { margin: 0.3em 0; }
+    img { max-width: 100%; height: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
+    td, th { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; }
+    th { background: #f5f5f5; font-weight: bold; }
+    /* Layout tables (used for letterhead, side-by-side content) - no visible borders */
+    table.layout-table { border: none; margin: 0; }
+    table.layout-table td, table.layout-table th { border: none; padding: 0 8px; }
+    ul, ol { padding-left: 1.5em; }
+    a { color: #0563C1; text-decoration: underline; }
+</style>
+</head>
+<body>${htmlBody}</body>
+</html>`;
+
+    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '25mm', right: '25mm', bottom: '25mm', left: '25mm' },
+    });
+
+    await browser.close();
+    return Buffer.from(pdfBuffer);
+}
+
+/**
+ * Fallback: Convert DOCX to HTML using mammoth (server-side).
+ * Enhanced with DOCX XML parsing to preserve image sizes, paragraph alignment,
+ * indentation, and table column widths that mammoth normally discards.
+ * Returns the HTML body string.
+ */
+async function convertDocxToHtmlWithMammoth(docxBuffer) {
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(docxBuffer);
+    const docXml = await zip.file('word/document.xml')?.async('string') || '';
+
+    // ── 1. Parse image sizes from DOCX XML (EMU → px) ──
+    const imageSizes = [];
+    const drawingRegex = /<(?:wp:inline|wp:anchor)\b[\s\S]*?<\/(?:wp:inline|wp:anchor)>/g;
+    let drawMatch;
+    while ((drawMatch = drawingRegex.exec(docXml)) !== null) {
+        const block = drawMatch[0];
+        const extMatch = block.match(/<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"/);
+        if (extMatch) {
+            // 914400 EMU = 1 inch = 96px
+            const wPx = Math.round(parseInt(extMatch[1]) / 914400 * 96);
+            const hPx = Math.round(parseInt(extMatch[2]) / 914400 * 96);
+            imageSizes.push({ width: wPx, height: hPx });
+        }
+    }
+
+    // ── 2. Parse table column widths ──
+    // Tables in DOCX use <w:tblGrid><w:gridCol w:w="..." /> to define column widths (in twips)
+    const tableGrids = [];
+    const tblGridRegex = /<w:tblGrid>([\s\S]*?)<\/w:tblGrid>/g;
+    let gridMatch;
+    while ((gridMatch = tblGridRegex.exec(docXml)) !== null) {
+        const cols = [];
+        const colRegex = /<w:gridCol\s+w:w="(\d+)"/g;
+        let colMatch;
+        while ((colMatch = colRegex.exec(gridMatch[1])) !== null) {
+            // Twips to mm: 1 twip = 1/1440 inch = 25.4/1440 mm ≈ 0.01764 mm
+            cols.push(Math.round(parseInt(colMatch[1]) / 1440 * 25.4));
+        }
+        tableGrids.push(cols);
+    }
+
+    // ── 3. Parse table cell borders/properties to detect layout tables (no visible borders) ──
+    // Check if a table has all borders set to "none" or "nil" — if so, it's a layout table
+    const layoutTableIndices = new Set();
+    const tableRegex = /<w:tbl\b[\s\S]*?<\/w:tbl>/g;
+    let tblIdx = 0;
+    let tblMatch;
+    while ((tblMatch = tableRegex.exec(docXml)) !== null) {
+        const tblXml = tblMatch[0];
+        const hasBorders = /<w:tblBorders>/.test(tblXml);
+        if (hasBorders) {
+            const borderNoneCount = (tblXml.match(/<w:(?:top|left|bottom|right|insideH|insideV)\s+[^>]*w:val="(?:none|nil)"/g) || []).length;
+            if (borderNoneCount >= 4) {
+                layoutTableIndices.add(tblIdx);
+            }
+        }
+        tblIdx++;
+    }
+
+    // ── 4. Extract text box content (mammoth drops <w:txbxContent>) ──
+    // Text boxes in DOCX are inside <w:txbxContent> (floating text frames).
+    // Mammoth ignores them entirely, so we extract the text ourselves.
+    function extractHtmlFromDocxParagraphs(xmlFragment) {
+        const lines = [];
+        const pRegex = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+        let pm;
+        while ((pm = pRegex.exec(xmlFragment)) !== null) {
+            const pBody = pm[1];
+            const texts = [];
+            const runRegex = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+            let rm;
+            while ((rm = runRegex.exec(pBody)) !== null) {
+                const runBody = rm[1];
+                const tRegex = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+                let tm;
+                while ((tm = tRegex.exec(runBody)) !== null) {
+                    let text = tm[1];
+                    const isBold = /<w:b[\s/>]/.test(runBody) && !/<w:b\s+w:val="(?:0|false)"/.test(runBody);
+                    const isItalic = /<w:i[\s/>]/.test(runBody) && !/<w:i\s+w:val="(?:0|false)"/.test(runBody);
+                    const isUnderline = /<w:u\s/.test(runBody) && !/<w:u\s+w:val="none"/.test(runBody);
+                    if (isBold) text = `<strong>${text}</strong>`;
+                    if (isItalic) text = `<em>${text}</em>`;
+                    if (isUnderline) text = `<u>${text}</u>`;
+                    texts.push(text);
+                }
+            }
+            if (texts.length > 0) {
+                const alignMatch = pBody.match(/<w:jc\s+w:val="(\w+)"/);
+                const a = alignMatch ? alignMatch[1] : '';
+                let style = '';
+                if (a === 'right') style = ' style="text-align:right"';
+                else if (a === 'center') style = ' style="text-align:center"';
+                else if (a === 'both') style = ' style="text-align:justify"';
+                lines.push(`<p${style}>${texts.join('')}</p>`);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    // Extract text boxes from document body
+    const textBoxHtmlParts = [];
+    const txbxRegex = /<w:txbxContent>([\s\S]*?)<\/w:txbxContent>/g;
+    let txbxMatch;
+    while ((txbxMatch = txbxRegex.exec(docXml)) !== null) {
+        const tbHtml = extractHtmlFromDocxParagraphs(txbxMatch[1]);
+        if (tbHtml.trim()) textBoxHtmlParts.push(tbHtml);
+    }
+
+    // ── 4b. Extract header/footer content from DOCX ZIP ──
+    const headerFooterHtml = { headers: [], footers: [] };
+    const zipFiles = Object.keys(zip.files);
+    for (const fname of zipFiles) {
+        if (/^word\/header\d*\.xml$/i.test(fname)) {
+            const hdrXml = await zip.file(fname)?.async('string') || '';
+            const hHtml = extractHtmlFromDocxParagraphs(hdrXml);
+            if (hHtml.trim()) headerFooterHtml.headers.push(hHtml);
+        }
+        if (/^word\/footer\d*\.xml$/i.test(fname)) {
+            const ftrXml = await zip.file(fname)?.async('string') || '';
+            const fHtml = extractHtmlFromDocxParagraphs(ftrXml);
+            if (fHtml.trim()) headerFooterHtml.footers.push(fHtml);
+        }
+    }
+
+    // ── 5. Parse paragraph spacing from DOCX XML ──
+    // Extract spacing (before, after, line height) from each <w:p> in <w:body>.
+    // Values: before/after in twips (1/20 pt), line in 240ths with lineRule.
+    const paraSpacingFromXml = [];
+    const bodyXmlMatch = docXml.match(/<w:body>([\s\S]*)<\/w:body>/);
+    if (bodyXmlMatch) {
+        const bodyContent = bodyXmlMatch[1];
+        const wpRegex = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+        let wpMatch;
+        while ((wpMatch = wpRegex.exec(bodyContent)) !== null) {
+            const pContent = wpMatch[1];
+            const spacing = { before: 0, after: 0, line: 0, lineRule: '' };
+            const spacingTagMatch = pContent.match(/<w:spacing\s+([^/>]*)\/?>/);
+            if (spacingTagMatch) {
+                const attrs = spacingTagMatch[1];
+                const bMatch = attrs.match(/w:before="(\d+)"/);
+                const aMatch = attrs.match(/w:after="(\d+)"/);
+                const lMatch = attrs.match(/w:line="(\d+)"/);
+                const lrMatch = attrs.match(/w:lineRule="(\w+)"/);
+                if (bMatch) spacing.before = parseInt(bMatch[1]);
+                if (aMatch) spacing.after = parseInt(aMatch[1]);
+                if (lMatch) spacing.line = parseInt(lMatch[1]);
+                if (lrMatch) spacing.lineRule = lrMatch[1];
+            }
+            paraSpacingFromXml.push(spacing);
+        }
+    }
+
+    // ── 6. Collect paragraph alignment via mammoth's transformDocument ──
+    const paragraphMeta = [];
+
+    const result = await mammoth.convertToHtml({
+        buffer: Buffer.from(docxBuffer),
+        styleMap: [
+            "p[style-name='Heading 1'] => h1:fresh",
+            "p[style-name='Heading 2'] => h2:fresh",
+            "p[style-name='Heading 3'] => h3:fresh",
+            "p[style-name='Title'] => h1:fresh",
+            "p[style-name='Subtitle'] => h2:fresh",
+            "b => strong",
+            "i => em",
+            "u => u",
+            "strike => s",
+        ],
+        convertImage: mammoth.images.imgElement(function(image) {
+            return image.read("base64").then(function(imageBuffer) {
+                return {
+                    src: "data:" + image.contentType + ";base64," + imageBuffer,
+                };
+            });
+        }),
+        transformDocument: function(document) {
+            function walkElements(element) {
+                if (element.type === 'paragraph') {
+                    paragraphMeta.push({
+                        alignment: element.alignment || null,
+                        indent: element.indent || null,
+                    });
+                }
+                if (element.children) {
+                    element.children.forEach(walkElements);
+                }
+            }
+            walkElements(document);
+            return document;
+        },
+    });
+
+    let html = result.value;
+
+    // ── 7. Post-process: inject paragraph alignment, indentation & spacing ──
+    let paraIndex = 0;
+    html = html.replace(/<(p|h[1-6])((?:\s+[^>]*)?)>/gi, (match, tag, attrs) => {
+        if (paraIndex >= paragraphMeta.length) return match;
+        const meta = paragraphMeta[paraIndex];
+        const spacing = paraSpacingFromXml[paraIndex] || { before: 0, after: 0, line: 0, lineRule: '' };
+        paraIndex++;
+        const styles = [];
+
+        // Alignment
+        if (meta.alignment && meta.alignment !== 'left') {
+            const align = meta.alignment === 'both' ? 'justify' : meta.alignment;
+            styles.push(`text-align:${align}`);
+        }
+        // Indentation
+        if (meta.indent) {
+            const start = parseInt(meta.indent.start, 10) || parseInt(meta.indent.left, 10) || 0;
+            const end = parseInt(meta.indent.end, 10) || parseInt(meta.indent.right, 10) || 0;
+            const firstLine = parseInt(meta.indent.firstLine, 10) || 0;
+            if (start > 0) styles.push(`margin-left:${Math.round(start / 1440 * 25.4)}mm`);
+            if (end > 0) styles.push(`margin-right:${Math.round(end / 1440 * 25.4)}mm`);
+            if (firstLine > 0) styles.push(`text-indent:${Math.round(firstLine / 1440 * 25.4)}mm`);
+        }
+        // Spacing before/after (twips → pt: divide by 20)
+        if (spacing.before > 0) {
+            styles.push(`margin-top:${(spacing.before / 20).toFixed(1)}pt`);
+        }
+        if (spacing.after > 0) {
+            styles.push(`margin-bottom:${(spacing.after / 20).toFixed(1)}pt`);
+        }
+        // Line spacing
+        if (spacing.line > 0) {
+            if (spacing.lineRule === 'auto' || spacing.lineRule === '') {
+                // Auto: value is in 240ths of a line (240=single, 276=1.15, 360=1.5, 480=double)
+                const lineHeight = (spacing.line / 240).toFixed(2);
+                styles.push(`line-height:${lineHeight}`);
+            } else if (spacing.lineRule === 'exact' || spacing.lineRule === 'atLeast') {
+                // Exact/atLeast: value is in twips (1/20 pt)
+                styles.push(`line-height:${(spacing.line / 20).toFixed(1)}pt`);
+            }
+        }
+
+        if (styles.length === 0) return match;
+        const styleStr = styles.join(';');
+        if (attrs && attrs.includes('style="')) {
+            return match.replace(/style="/, `style="${styleStr};`);
+        }
+        return `<${tag}${attrs || ''} style="${styleStr}">`;
+    });
+
+    // ── 8. Post-process: apply image dimensions from DOCX XML ──
+    let imgIdx = 0;
+    html = html.replace(/<img\s+([^>]*)>/gi, (match, attrs) => {
+        if (imgIdx < imageSizes.length) {
+            const size = imageSizes[imgIdx++];
+            // Don't make images wider than the content area (~650px = 794 - 72*2 padding)
+            const w = Math.min(size.width, 650);
+            return `<img ${attrs} style="width:${w}px;height:auto;max-width:100%">`;
+        }
+        return match;
+    });
+
+    // ── 9. Post-process: style layout tables (no visible borders) ──
+    let tableIdx = 0;
+    html = html.replace(/<table>/gi, (match) => {
+        const isLayout = layoutTableIndices.has(tableIdx);
+        const colWidths = tableGrids[tableIdx] || [];
+        tableIdx++;
+
+        const styles = ['border-collapse:collapse', 'width:100%'];
+        if (isLayout) {
+            styles.push('border:none');
+        }
+        // Store column widths as a CSS custom property for cell width assignment
+        const colWidthData = colWidths.length > 0 ? ` data-col-widths="${colWidths.join(',')}"` : '';
+        const layoutClass = isLayout ? ' class="layout-table"' : '';
+        return `<table style="${styles.join(';')}"${layoutClass}${colWidthData}>`;
+    });
+
+    // Apply column widths to table cells and hide borders on layout tables
+    html = html.replace(/<table([^>]*)>([\s\S]*?)<\/table>/gi, (tableMatch, tableAttrs, tableBody) => {
+        const colWidthMatch = tableAttrs.match(/data-col-widths="([^"]+)"/);
+        const isLayout = tableAttrs.includes('class="layout-table"');
+        if (!colWidthMatch && !isLayout) return tableMatch;
+
+        const colWidths = colWidthMatch ? colWidthMatch[1].split(',').map(Number) : [];
+        const totalWidth = colWidths.reduce((a, b) => a + b, 0) || 1;
+
+        // Apply widths to first row's cells, hide borders on layout tables
+        let colIdx = 0;
+        let firstRow = true;
+        const processedBody = tableBody.replace(/<t([dh])([^>]*)>/gi, (cellMatch, cellTag, cellAttrs) => {
+            const cellStyles = [];
+
+            // Apply percentage width from column grid
+            if (firstRow && colIdx < colWidths.length) {
+                const pct = Math.round((colWidths[colIdx] / totalWidth) * 100);
+                cellStyles.push(`width:${pct}%`);
+            }
+
+            // Hide borders on layout tables
+            if (isLayout) {
+                cellStyles.push('border:none', 'padding:0 8px', 'vertical-align:top');
+            }
+
+            colIdx++;
+            if (cellStyles.length === 0) return cellMatch;
+            return `<t${cellTag}${cellAttrs} style="${cellStyles.join(';')}">`;
+        }).replace(/<\/tr>/gi, () => {
+            firstRow = false;
+            colIdx = 0;
+            return '</tr>';
+        });
+
+        // Clean up the data attribute
+        const cleanAttrs = tableAttrs.replace(/\s*data-col-widths="[^"]*"/, '');
+        return `<table${cleanAttrs}>${processedBody}</table>`;
+    });
+
+    // ── 10. Prepend headers, text boxes; append footers ──
+    // These were extracted directly from the DOCX XML (mammoth ignores them).
+    const extraParts = [];
+
+    // Headers (firm letterhead, contact info)
+    if (headerFooterHtml.headers.length > 0) {
+        extraParts.push(`<div class="docx-header" style="margin-bottom:12pt">${headerFooterHtml.headers.join('\n')}</div>`);
+    }
+
+    // Text boxes (floating content like addresses, reference boxes)
+    if (textBoxHtmlParts.length > 0) {
+        extraParts.push(`<div class="docx-textboxes" style="margin-bottom:6pt">${textBoxHtmlParts.join('\n')}</div>`);
+    }
+
+    // Prepend extracted content before main body
+    if (extraParts.length > 0) {
+        html = extraParts.join('\n') + '\n' + html;
+    }
+
+    // Append footers at the end
+    if (headerFooterHtml.footers.length > 0) {
+        html += `\n<div class="docx-footer" style="margin-top:12pt;border-top:1px solid #ccc;padding-top:6pt;font-size:9pt;color:#666">${headerFooterHtml.footers.join('\n')}</div>`;
+    }
+
+    // Log any mammoth warnings for debugging
+    if (result.messages && result.messages.length > 0) {
+        console.log(`[DOCX→HTML] Mammoth warnings (${result.messages.length}):`);
+        result.messages.forEach(m => console.log(`  - [${m.type}] ${m.message}`));
+    }
+
+    return html;
+}
+
+// ============================================================================
+// DOCX CONVERSION ENDPOINTS
+// ============================================================================
+
+// POST /api/templates/convert-docx - Convert DOCX to PDF for static preview
+// Accepts: multipart file upload (the DOCX file)
+// Returns: { success, originalS3Key, previewS3Key, originalUrl, pdfUrl, conversionMethod }
+app.post('/api/templates/convert-docx', upload.single('file'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ success: false, message: 'No file provided' });
+
+        console.log(`[DOCX→PDF] Converting "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)...`);
+
+        // 1. Upload original DOCX to S3
+        const originalKey = `templates/${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: originalKey,
+            Body: file.buffer,
+            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }));
+
+        // 2. Convert DOCX → PDF (LibreOffice preferred, Puppeteer fallback)
+        let pdfBuffer;
+        let conversionMethod;
+        const libreOfficePath = await findLibreOffice();
+
+        if (libreOfficePath) {
+            console.log(`[DOCX→PDF] Using LibreOffice at: ${libreOfficePath}`);
+            pdfBuffer = await convertWithLibreOffice(file.buffer, 'pdf', libreOfficePath);
+            conversionMethod = 'libreoffice';
+        } else {
+            console.log('[DOCX→PDF] LibreOffice not found, using mammoth + Puppeteer fallback');
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(file.buffer);
+            conversionMethod = 'puppeteer';
+        }
+
+        // 3. Upload PDF to S3
+        const pdfKey = originalKey.replace(/\.docx?$/i, '-preview.pdf');
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: pdfKey,
+            Body: pdfBuffer,
+            ContentType: 'application/pdf',
+        }));
+
+        // 4. Generate download URLs
+        const originalUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: originalKey }), { expiresIn: 604800 });
+        const pdfUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: pdfKey }), { expiresIn: 604800 });
+
+        console.log(`[DOCX→PDF] Conversion complete via ${conversionMethod}. PDF: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
+
+        res.json({
+            success: true,
+            originalS3Key: originalKey,
+            previewS3Key: pdfKey,
+            originalUrl,
+            pdfUrl,
+            conversionMethod,
+        });
+    } catch (err) {
+        console.error('[DOCX→PDF] Error:', err);
+        res.status(500).json({ success: false, message: 'Failed to convert DOCX to PDF: ' + err.message });
+    }
+});
+
+// POST /api/templates/convert-to-html - Convert DOCX to HTML for editable template
+// Accepts: multipart file upload (the DOCX file)
+// Returns: { success, html, originalS3Key, originalUrl, conversionMethod }
+app.post('/api/templates/convert-to-html', upload.single('file'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ success: false, message: 'No file provided' });
+
+        console.log(`[DOCX→HTML] Converting "${file.originalname}" (${(file.size / 1024).toFixed(1)} KB)...`);
+
+        // 1. Upload original DOCX to S3 (preserve source for generation)
+        const originalKey = `templates/${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: originalKey,
+            Body: file.buffer,
+            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }));
+
+        // 2. Convert DOCX → HTML (LibreOffice preferred, mammoth fallback)
+        let html;
+        let conversionMethod;
+        let docxHeaderHtml = '';
+        let docxFooterHtml = '';
+        const libreOfficePath = await findLibreOffice();
+
+        if (libreOfficePath) {
+            console.log(`[DOCX→HTML] Using LibreOffice at: ${libreOfficePath}`);
+
+            // Parse image display sizes from the DOCX XML BEFORE conversion
+            // LibreOffice outputs images at natural pixel dimensions, not the display size
+            const JSZipLib = (await import('jszip')).default;
+            const docxZip = await JSZipLib.loadAsync(file.buffer);
+            const docXml = await docxZip.file('word/document.xml')?.async('string') || '';
+            const imageSizesLO = [];
+            const drawRegex = /<(?:wp:inline|wp:anchor)\b[\s\S]*?<\/(?:wp:inline|wp:anchor)>/g;
+            let dm;
+            while ((dm = drawRegex.exec(docXml)) !== null) {
+                const block = dm[0];
+                const extMatch = block.match(/<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"/);
+                if (extMatch) {
+                    // 914400 EMU = 1 inch = 96px at screen resolution
+                    const wPx = Math.round(parseInt(extMatch[1]) / 914400 * 96);
+                    const hPx = Math.round(parseInt(extMatch[2]) / 914400 * 96);
+                    imageSizesLO.push({ width: wPx, height: hPx });
+                }
+            }
+            console.log(`[DOCX→HTML] Parsed ${imageSizesLO.length} image dimensions from DOCX XML`);
+
+            // Extract header/footer content from DOCX ZIP
+            const zipFileNames = Object.keys(docxZip.files);
+            for (const fname of zipFileNames) {
+                if (/^word\/header\d*\.xml$/i.test(fname)) {
+                    const hdrXml = await docxZip.file(fname)?.async('string') || '';
+                    // Simple extraction: get text runs from paragraphs
+                    const pRegex2 = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+                    let pm2;
+                    const hLines = [];
+                    while ((pm2 = pRegex2.exec(hdrXml)) !== null) {
+                        const pBody = pm2[1];
+                        const texts = [];
+                        const runRegex2 = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+                        let rm2;
+                        while ((rm2 = runRegex2.exec(pBody)) !== null) {
+                            const tRegex2 = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+                            let tm2;
+                            while ((tm2 = tRegex2.exec(rm2[1])) !== null) {
+                                texts.push(tm2[1]);
+                            }
+                        }
+                        if (texts.length) {
+                            const alignM = pBody.match(/<w:jc\s+w:val="(\w+)"/);
+                            const a = alignM ? alignM[1] : '';
+                            let st = '';
+                            if (a === 'right') st = ' style="text-align:right"';
+                            else if (a === 'center') st = ' style="text-align:center"';
+                            hLines.push(`<p${st}>${texts.join('')}</p>`);
+                        }
+                    }
+                    if (hLines.length && !docxHeaderHtml) docxHeaderHtml = hLines.join('');
+                }
+                if (/^word\/footer\d*\.xml$/i.test(fname)) {
+                    const ftrXml = await docxZip.file(fname)?.async('string') || '';
+                    const pRegex3 = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+                    let pm3;
+                    const fLines = [];
+                    while ((pm3 = pRegex3.exec(ftrXml)) !== null) {
+                        const pBody = pm3[1];
+                        const texts = [];
+                        const runRegex3 = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+                        let rm3;
+                        while ((rm3 = runRegex3.exec(pBody)) !== null) {
+                            const tRegex3 = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+                            let tm3;
+                            while ((tm3 = tRegex3.exec(rm3[1])) !== null) {
+                                texts.push(tm3[1]);
+                            }
+                        }
+                        if (texts.length) {
+                            const alignM = pBody.match(/<w:jc\s+w:val="(\w+)"/);
+                            const a = alignM ? alignM[1] : '';
+                            let st = '';
+                            if (a === 'right') st = ' style="text-align:right"';
+                            else if (a === 'center') st = ' style="text-align:center"';
+                            fLines.push(`<p${st}>${texts.join('')}</p>`);
+                        }
+                    }
+                    if (fLines.length && !docxFooterHtml) docxFooterHtml = fLines.join('');
+                }
+            }
+            console.log(`[DOCX→HTML] Header: ${docxHeaderHtml.length} chars, Footer: ${docxFooterHtml.length} chars`);
+
+            // Also parse paragraph spacing from DOCX XML for post-processing
+            const paraSpacings = [];
+            const paraRegex = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/g;
+            let pm;
+            while ((pm = paraRegex.exec(docXml)) !== null) {
+                const pBlock = pm[0];
+                const spacingMatch = pBlock.match(/<w:spacing\b([^/]*?)\/>/);
+                const spacing = {};
+                if (spacingMatch) {
+                    const beforeMatch = spacingMatch[1].match(/w:before="(\d+)"/);
+                    const afterMatch = spacingMatch[1].match(/w:after="(\d+)"/);
+                    const lineMatch = spacingMatch[1].match(/w:line="(\d+)"/);
+                    if (beforeMatch) spacing.before = parseInt(beforeMatch[1]); // twips
+                    if (afterMatch) spacing.after = parseInt(afterMatch[1]); // twips
+                    if (lineMatch) spacing.line = parseInt(lineMatch[1]); // 240ths of a line
+                }
+                paraSpacings.push(spacing);
+            }
+
+            // Inline conversion so we can access extracted image files before cleanup
+            const tmpDir = path.join(os.tmpdir(), `docx-html-${Date.now()}`);
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const docxPath = path.join(tmpDir, 'document.docx');
+            fs.writeFileSync(docxPath, file.buffer);
+
+            await new Promise((resolve, reject) => {
+                exec(
+                    `"${libreOfficePath}" --headless --convert-to html --outdir "${tmpDir}" "${docxPath}"`,
+                    { timeout: 60000 },
+                    (error, stdout, stderr) => {
+                        if (error) reject(new Error(`LibreOffice HTML conversion failed: ${stderr || error.message}`));
+                        else resolve(stdout);
+                    }
+                );
+            });
+
+            const htmlPath = path.join(tmpDir, 'document.html');
+            if (!fs.existsSync(htmlPath)) {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+                throw new Error('LibreOffice produced no HTML output');
+            }
+            const fullHtml = fs.readFileSync(htmlPath, 'utf-8');
+
+            // Inline CSS from <head> into element style attributes, then extract body
+            const inlinedHtml = juice(fullHtml);
+            const bodyMatch = inlinedHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+            html = bodyMatch ? bodyMatch[1] : inlinedHtml;
+
+            // FIX 1: Convert local image files to base64 inline
+            // Use DOCX-parsed dimensions (not LibreOffice's natural pixel size)
+            let imgIdx = 0;
+            html = html.replace(/<img\s+([^>]*)src="([^"]+)"([^>]*)>/gi, (fullMatch, before, src, after) => {
+                if (src.startsWith('data:') || src.startsWith('http')) return fullMatch;
+                const imgPath = path.join(tmpDir, src);
+                if (fs.existsSync(imgPath)) {
+                    const imgBuffer = fs.readFileSync(imgPath);
+                    const base64 = imgBuffer.toString('base64');
+                    const ext = path.extname(src).slice(1).toLowerCase();
+                    const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+                    // Use DOCX XML dimensions (accurate display size) if available
+                    let w, h;
+                    if (imgIdx < imageSizesLO.length) {
+                        const size = imageSizesLO[imgIdx];
+                        w = size.width;
+                        h = size.height;
+                        console.log(`[DOCX→HTML] Image ${imgIdx}: ${w}x${h}px (from DOCX XML)`);
+                    } else {
+                        // Fallback: use HTML attributes from LibreOffice
+                        const allAttrs = before + after;
+                        const wMatch = allAttrs.match(/width="(\d+)"/);
+                        const hMatch = allAttrs.match(/height="(\d+)"/);
+                        w = wMatch ? wMatch[1] : '';
+                        h = hMatch ? hMatch[1] : '';
+                    }
+                    imgIdx++;
+                    const dimStyle = w ? `width:${w}px;height:auto;max-width:100%` : 'max-width:100%';
+                    const dimAttrs = w ? ` width="${w}" height="${h}"` : '';
+                    return `<img src="data:${mimeType};base64,${base64}"${dimAttrs} style="${dimStyle}" />`;
+                }
+                imgIdx++;
+                return fullMatch;
+            });
+
+            // FIX 1b: Apply paragraph spacing from DOCX XML
+            // LibreOffice HTML doesn't always preserve Word's paragraph spacing
+            let paraIdx = 0;
+            html = html.replace(/<p(\s[^>]*)?>|<p>/gi, (match, attrs) => {
+                const spacing = paraSpacings[paraIdx] || {};
+                paraIdx++;
+                const styles = [];
+                if (spacing.before) {
+                    // Twips to px: 1 twip = 1/1440 inch = 96/1440 px ≈ 0.0667px
+                    styles.push(`margin-top:${Math.round(spacing.before * 96 / 1440)}px`);
+                }
+                if (spacing.after) {
+                    styles.push(`margin-bottom:${Math.round(spacing.after * 96 / 1440)}px`);
+                }
+                if (spacing.line && spacing.line !== 240) {
+                    // 240 = single spacing. Convert to multiplier.
+                    const multiplier = (spacing.line / 240).toFixed(2);
+                    styles.push(`line-height:${multiplier}`);
+                }
+                if (styles.length === 0) return match;
+                const styleStr = styles.join(';');
+                if (attrs && attrs.includes('style="')) {
+                    return match.replace(/style="/, `style="${styleStr};`);
+                } else if (attrs) {
+                    return `<p${attrs} style="${styleStr}">`;
+                }
+                return `<p style="${styleStr}">`;
+            });
+
+            // Clean up temp directory now that images are inlined
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+
+            // FIX 2: Convert align="right|center|justify" to style="text-align: ..."
+            // TipTap reads text-align from CSS style, NOT from the HTML align attribute
+            html = html.replace(/<p([^>]*)\balign="(left|right|center|justify)"([^>]*)>/gi,
+                (match, before, align, after) => {
+                    const cleanBefore = before.replace(/\balign="[^"]*"/gi, '');
+                    const cleanAfter = after.replace(/\balign="[^"]*"/gi, '');
+                    const combined = cleanBefore + cleanAfter;
+                    if (combined.includes('style="')) {
+                        const updated = combined.replace(/style="([^"]*)"/, `style="$1; text-align: ${align};"`);
+                        return `<p${updated}>`;
+                    }
+                    return `<p${cleanBefore}${cleanAfter} style="text-align: ${align};">`;
+                }
+            );
+
+            // FIX 3: Convert <font> tags to <span> with inline styles (TipTap ignores <font>)
+            html = html.replace(/<font\b([^>]*)>/gi, (match, attrs) => {
+                const styles = [];
+                const faceMatch = attrs.match(/face\s*=\s*"([^"]+)"/i);
+                const colorMatch = attrs.match(/color\s*=\s*"([^"]+)"/i);
+                const styleMatch = attrs.match(/style\s*=\s*"([^"]+)"/i);
+                const sizeMatch = attrs.match(/\bsize\s*=\s*"(\d+)"/i);
+
+                if (faceMatch) styles.push(`font-family: ${faceMatch[1]}`);
+                if (colorMatch) styles.push(`color: ${colorMatch[1]}`);
+                if (styleMatch) {
+                    styles.push(styleMatch[1]);
+                } else if (sizeMatch) {
+                    const sizeMap = { '1': '8pt', '2': '10pt', '3': '12pt', '4': '14pt', '5': '18pt', '6': '24pt', '7': '36pt' };
+                    styles.push(`font-size: ${sizeMap[sizeMatch[1]] || '12pt'}`);
+                }
+
+                return styles.length ? `<span style="${styles.join('; ')}">` : '<span>';
+            });
+            html = html.replace(/<\/font>/gi, '</span>');
+
+            // CLEANUP: Remove empty paragraphs with just line breaks
+            html = html.replace(/<p[^>]*>\s*<br\s*\/?>\s*<br\s*\/?>\s*<\/p>/gi, '');
+            html = html.replace(/style=";\s*/g, 'style="');
+            html = html.replace(/style="\s*"/g, '');
+
+            conversionMethod = 'libreoffice';
+        } else {
+            console.log('[DOCX→HTML] LibreOffice not found, using mammoth fallback');
+            html = await convertDocxToHtmlWithMammoth(file.buffer);
+            conversionMethod = 'mammoth';
+        }
+
+        // 3. Post-process: detect {{variable}} patterns
+        html = html.replace(/\{\{([^}]+)\}\}/g, (_, varName) => {
+            return `<span class="detected-variable" data-var="${varName.trim()}">[${varName.trim()}]</span>`;
+        });
+
+        const originalUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: originalKey }), { expiresIn: 604800 });
+
+        console.log(`[DOCX→HTML] Conversion complete via ${conversionMethod}. HTML length: ${html.length} chars`);
+
+        res.json({
+            success: true,
+            html,
+            headerHtml: docxHeaderHtml || '',
+            footerHtml: docxFooterHtml || '',
+            originalS3Key: originalKey,
+            originalUrl,
+            conversionMethod,
+        });
+    } catch (err) {
+        console.error('[DOCX→HTML] Error:', err);
+        res.status(500).json({ success: false, message: 'Failed to convert DOCX to HTML: ' + err.message });
+    }
+});
+
+// POST /api/templates/generate-from-docx - Generate document from DOCX template with variable replacement
+// Accepts: { s3Key (original DOCX), variables (key-value pairs) }
+// Returns: { success, s3Key (output PDF), downloadUrl }
+app.post('/api/templates/generate-from-docx', async (req, res) => {
+    try {
+        const { s3Key, variables } = req.body;
+        if (!s3Key) return res.status(400).json({ success: false, message: 's3Key is required' });
+
+        console.log(`[DOCX Generate] Generating from template: ${s3Key}`);
+
+        // 1. Download template DOCX from S3
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const s3Response = await s3Client.send(getCmd);
+        const chunks = [];
+        for await (const chunk of s3Response.Body) {
+            chunks.push(chunk);
+        }
+        const templateBuffer = Buffer.concat(chunks);
+
+        // 2. Replace variables in DOCX using simple text replacement
+        // For now, do a basic find-and-replace on the document XML
+        // (docx-templates can be added later for more robust replacement)
+        let docxBuffer = templateBuffer;
+
+        if (variables && Object.keys(variables).length > 0) {
+            const JSZip = (await import('jszip')).default;
+            const zip = await JSZip.loadAsync(templateBuffer);
+            const docXml = await zip.file('word/document.xml')?.async('string');
+
+            if (docXml) {
+                let modifiedXml = docXml;
+                for (const [key, value] of Object.entries(variables)) {
+                    // Replace {{key}} patterns (handle possible XML tag splits)
+                    const cleanKey = key.replace(/^\{\{/, '').replace(/\}\}$/, '');
+                    const patterns = [
+                        `{{${cleanKey}}}`,
+                        `{{ ${cleanKey} }}`,
+                    ];
+                    for (const pattern of patterns) {
+                        modifiedXml = modifiedXml.split(pattern).join(String(value || ''));
+                    }
+                }
+                zip.file('word/document.xml', modifiedXml);
+                docxBuffer = Buffer.from(await zip.generateAsync({ type: 'nodebuffer' }));
+            }
+        }
+
+        // 3. Convert filled DOCX → PDF
+        let pdfBuffer;
+        const libreOfficePath = await findLibreOffice();
+
+        if (libreOfficePath) {
+            pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+        } else {
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+        }
+
+        // 4. Upload generated PDF to S3
+        const outputKey = `documents/generated/template-${Date.now()}.pdf`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: outputKey,
+            Body: pdfBuffer,
+            ContentType: 'application/pdf',
+        }));
+
+        const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputKey }), { expiresIn: 604800 });
+
+        console.log(`[DOCX Generate] Document generated: ${outputKey} (${(pdfBuffer.length / 1024).toFixed(1)} KB)`);
+
+        res.json({
+            success: true,
+            s3Key: outputKey,
+            downloadUrl,
+            size: pdfBuffer.length,
+        });
+    } catch (err) {
+        console.error('[DOCX Generate] Error:', err);
+        res.status(500).json({ success: false, message: 'Failed to generate document: ' + err.message });
+    }
+});
+
 // --- BACKGROUND WORKER: PROCESS PENDING LOAs ---
+// Catch any unhandled errors so the server doesn't silently exit
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('⚠️ Unhandled Rejection:', reason);
+});
+
 // Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Consolidated Server running on port ${port} (listening on all interfaces)`);
+});
+server.on('error', (err) => {
+    console.error('❌ Server error:', err.message);
 });

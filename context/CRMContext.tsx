@@ -95,6 +95,7 @@ interface CRMContextType {
   // Template Methods
   addTemplate: (tpl: Partial<Template>) => { success: boolean; message: string; id?: string };
   updateTemplate: (tpl: Template) => { success: boolean; message: string };
+  deleteTemplate: (id: string) => { success: boolean; message: string };
 
   // Form Methods
   addForm: (frm: Partial<Form>) => { success: boolean; message: string; id?: string };
@@ -317,7 +318,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [templates, setTemplates] = useState<Template[]>(MOCK_TEMPLATES);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [forms, setForms] = useState<Form[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -804,6 +805,27 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Fetch templates from backend
+  const fetchTemplates = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/templates`);
+      if (response.ok) {
+        const data = await response.json();
+        // Server returns { success: true, templates: [...] }
+        const list = data.templates || data;
+        if (Array.isArray(list) && list.length > 0) {
+          setTemplates(list);
+        } else {
+          // No saved templates yet - use mock templates as defaults
+          setTemplates(MOCK_TEMPLATES);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      setTemplates(MOCK_TEMPLATES);
+    }
+  };
+
   // Refresh all data from the server - call this after any mutation
   const refreshAllData = useCallback(async () => {
     console.log('[CRMContext] Refreshing all data...');
@@ -981,6 +1003,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             fetchAllClaims()
           ]);
         }
+        // Fetch templates from backend (separate from init-data)
+        await fetchTemplates();
       } catch (error) {
         console.error('Error during init:', error);
         // Fallback to individual fetches
@@ -1844,17 +1868,41 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       category: tplData.category || 'General',
       description: tplData.description || '',
       content: tplData.content || '',
-      lastModified: new Date().toISOString().split('T')[0]
+      lastModified: new Date().toISOString().split('T')[0],
+      customVariables: tplData.customVariables || [],
     };
     setTemplates(prev => [newTpl, ...prev]);
     addNotification('success', `Template '${newTpl.name}' created`);
+    // Persist to backend
+    fetch(`${API_BASE_URL}/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newTpl),
+    }).catch(err => console.error('Error saving template:', err));
     return { success: true, message: `Created template: ${newTpl.name}`, id: newTpl.id };
   };
 
   const updateTemplate = (tpl: Template) => {
     setTemplates(prev => prev.map(t => t.id === tpl.id ? tpl : t));
     addNotification('success', 'Template updated successfully');
+    // Persist to backend
+    fetch(`${API_BASE_URL}/templates/${tpl.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tpl),
+    }).catch(err => console.error('Error updating template:', err));
     return { success: true, message: `Updated template: ${tpl.name}` };
+  };
+
+  const deleteTemplate = (id: string) => {
+    const tpl = templates.find(t => t.id === id);
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    addNotification('success', `Template deleted`);
+    // Delete from backend
+    fetch(`${API_BASE_URL}/templates/${id}`, {
+      method: 'DELETE',
+    }).catch(err => console.error('Error deleting template:', err));
+    return { success: true, message: `Deleted template: ${tpl?.name || id}` };
   };
 
   // --- Form Logic ---
@@ -2773,7 +2821,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
       addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaimStatusByIds, bulkUpdateClaims,
       addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
-      addTemplate, updateTemplate,
+      addTemplate, updateTemplate, deleteTemplate,
       addForm, updateForm, deleteForm,
       addNote, theme, toggleTheme,
       // CRM Specification Methods (Phase 3)

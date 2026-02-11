@@ -15,7 +15,27 @@
       "Bash(python3:*)",
       "Bash(scp:*)",
       "Bash(ssh-keyscan:*)",
-      "Bash(~/.ssh/known_hosts)"
+      "Bash(~/.ssh/known_hosts)",
+      "Bash(grep:*)",
+      "Bash(findstr:*)",
+      "Bash(npx vite build)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:support.pandadoc.com)",
+      "Bash(npm ls:*)",
+      "Bash(where:*)",
+      "Bash(timeout:*)",
+      "Bash(ping:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(netstat:*)",
+      "Bash(TASKKILL:*)",
+      "Bash(powershell:*)",
+      "Bash(del:*)",
+      "Bash(winget install:*)",
+      "Bash(\"C:\\\\Program Files\\\\LibreOffice\\\\program\\\\soffice.exe\" --headless --version)",
+      "Bash(npx vite:*)",
+      "Bash(echo:*)",
+      "Bash(Stop-Process -Id 892 -Force)"
     ]
   }
 }

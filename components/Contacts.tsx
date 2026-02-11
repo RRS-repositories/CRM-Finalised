@@ -100,7 +100,7 @@ const getStatusColor = (status: string) => {
 
    // Category 2: Onboarding - Purple
    if (status.includes('Onboarding') || status.includes('ID Verification') || status.includes('Questionnaire') ||
-      status === 'LOA Sent' || status === 'LOA Signed' || status.includes('Bank Statements')) {
+      status === 'LOA Sent' || status === 'LOA Uploaded' || status === 'LOA Signed' || status.includes('Bank Statements')) {
       return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800';
    }
 
@@ -2375,7 +2375,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  id: 'onboarding',
                                  label: 'Onboarding',
                                  color: '#a855f7', // purple
-                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'POA Required', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'POA Required', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Uploaded', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
                               },
                               {
                                  id: 'dsar-process',

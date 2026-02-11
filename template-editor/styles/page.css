@@ -1,0 +1,136 @@
+/* =============================================
+   PAGE CANVAS — the scrollable outer container
+   ============================================= */
+.te-page-canvas {
+  background: #e8e8e8;
+  padding: 40px 0;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  overflow-y: auto;
+}
+
+/* =============================================
+   INDIVIDUAL PAGE — fixed A4 size, white card
+   ============================================= */
+.te-page {
+  width: 794px;
+  min-height: 1123px;
+  max-height: 1123px;       /* HARD LIMIT — content must not grow beyond this */
+  background: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;          /* CRITICAL: hide overflow, don't show it */
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* =============================================
+   PAGE CONTENT — inner editing area
+   ============================================= */
+.te-page-content {
+  position: absolute;
+  top: 72px;
+  left: 80px;
+  right: 80px;
+  bottom: 72px;
+  overflow: hidden;          /* overflow triggers page split, NOT scroll */
+}
+
+/* =============================================
+   PAGE NUMBER (shown when no footer text)
+   ============================================= */
+.te-page-number {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #aaa;
+  font-family: sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* =============================================
+   DOCUMENT HEADER — repeats on every page
+   ============================================= */
+.te-page-header {
+  position: absolute;
+  top: 10px;
+  left: 80px;
+  right: 80px;
+  text-align: center;
+  font-size: 6pt;
+  line-height: 1.4;
+  color: #666;
+  font-family: Roboto, Arial, sans-serif;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  max-height: 40px;
+}
+
+/* =============================================
+   DOCUMENT FOOTER — repeats on every page
+   ============================================= */
+.te-page-footer {
+  position: absolute;
+  bottom: 8px;
+  left: 40px;
+  right: 40px;
+  text-align: center;
+  font-size: 6pt;
+  line-height: 1.4;
+  color: #666;
+  font-family: Roboto, Arial, sans-serif;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  max-height: 52px;
+  border-top: 1px solid #ddd;
+  padding-top: 4px;
+}
+
+/* =============================================
+   PAGE ADD BUTTON
+   ============================================= */
+.te-page-add-button {
+  width: 794px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #ccc;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: #888;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.te-page-add-button:hover {
+  border-color: #4a90d9;
+  color: #4a90d9;
+  background: #f0f6ff;
+}
+
+/* =============================================
+   PDF VIEWER MODE — non-editable pages
+   ============================================= */
+.te-pdf-viewer-mode .te-page {
+  cursor: default;
+  user-select: none;
+}
+
+.te-page-number-label {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-size: 10px;
+  color: #bbb;
+  font-family: sans-serif;
+}
