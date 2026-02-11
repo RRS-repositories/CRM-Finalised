@@ -56,8 +56,32 @@ const lenderEmailTransporter = nodemailer.createTransport({
     }
 });
 
+// --- CLIENT EMAIL TRANSPORTER (for overdue notifications) ---
+const clientEmailTransporter = nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false,
+    auth: {
+        user: 'info@fastactionclaims.co.uk',
+        pass: 'H!292668193906ah'
+    },
+    tls: {
+        ciphers: 'SSLv3'
+    }
+});
+
+// Verify client email transporter on startup
+clientEmailTransporter.verify((error, success) => {
+    if (error) {
+        console.error('[Worker] ❌ Client email transporter error:', error);
+    } else {
+        console.log('[Worker] ✅ Client email transporter ready for overdue notifications');
+    }
+});
+
 // --- MICROSOFT GRAPH API CONFIGURATION FOR DRAFT CREATION ---
 const DSAR_MAILBOX = 'DSAR@fastactionclaims.co.uk';
+const INFO_MAILBOX = 'info@fastactionclaims.co.uk';
 let graphClient = null;
 
 // Initialize Microsoft Graph Client
@@ -137,6 +161,12 @@ pool.on('error', (err, client) => {
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_send_after') THEN
                     ALTER TABLE cases ADD COLUMN dsar_send_after TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_sent_at') THEN
+                    ALTER TABLE cases ADD COLUMN dsar_sent_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_overdue_notified') THEN
+                    ALTER TABLE cases ADD COLUMN dsar_overdue_notified BOOLEAN DEFAULT FALSE;
                 END IF;
             END $$;
         `);
@@ -1562,7 +1592,7 @@ const processPendingDSAREmails = async () => {
                         : `DSAR email sent for Case ${record.case_id} (${record.lender})`;
 
                     await pool.query(
-                        `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true WHERE id = $1`,
+                        `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true, dsar_sent_at = NOW() WHERE id = $1`,
                         [record.case_id]
                     );
 
@@ -1579,7 +1609,7 @@ const processPendingDSAREmails = async () => {
                     if (emailResult.reason === 'no_email') {
                         // No email for this lender - mark as sent, skip
                         await pool.query(
-                            `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true WHERE id = $1`,
+                            `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true, dsar_sent_at = NOW() WHERE id = $1`,
                             [record.case_id]
                         );
                         // Log to action timeline
@@ -1626,6 +1656,176 @@ const processPendingDSAREmails = async () => {
     }
 };
 
+// --- DSAR OVERDUE: Mark cases as overdue after 30 days ---
+const markOverdueDSARs = async () => {
+    console.log('[Worker] Checking for DSAR cases to mark as overdue...');
+    try {
+        // For testing: 2 minutes. For production: change to '30 days'
+        const query = `
+            UPDATE cases
+            SET status = 'DSAR Overdue'
+            WHERE status = 'DSAR Sent to Lender'
+            AND dsar_sent_at IS NOT NULL
+            AND dsar_sent_at < NOW() - INTERVAL '2 minutes'
+            RETURNING id
+        `;
+        const { rows } = await pool.query(query);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No DSAR cases to mark as overdue.');
+        } else {
+            console.log(`[Worker] ✅ Marked ${rows.length} case(s) as DSAR Overdue: ${rows.map(r => r.id).join(', ')}`);
+
+            // Log each to action timeline
+            for (const row of rows) {
+                await pool.query(
+                    `INSERT INTO action_logs (claim_id, actor_type, actor_id, action_type, action_category, description)
+                     VALUES ($1, 'system', 'worker', 'status_change', 'claims', $2)`,
+                    [row.id, 'Status automatically changed to DSAR Overdue after 30 days with no response from lender']
+                );
+            }
+        }
+    } catch (error) {
+        console.error('[Worker] DSAR Overdue Mark Error:', error);
+    }
+};
+
+// --- DSAR OVERDUE: Send notification emails ---
+const sendOverdueNotifications = async () => {
+    console.log('[Worker] Checking for overdue DSAR notifications to send...');
+    try {
+        const query = `
+            SELECT c.id as case_id, c.lender, c.contact_id, c.reference_specified,
+                   cnt.first_name, cnt.last_name, cnt.email as client_email
+            FROM cases c
+            JOIN contacts cnt ON c.contact_id = cnt.id
+            WHERE c.status = 'DSAR Overdue'
+            AND (c.dsar_overdue_notified IS NULL OR c.dsar_overdue_notified = false)
+            LIMIT 20
+        `;
+        const { rows } = await pool.query(query);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No overdue DSAR notifications to send.');
+            return;
+        }
+
+        console.log(`[Worker] Found ${rows.length} overdue DSAR notification(s) to send.`);
+
+        for (const record of rows) {
+            try {
+                const clientName = `${record.first_name} ${record.last_name}`;
+                const lenderName = record.lender;
+                const referenceNo = record.reference_specified || `${record.first_name} ${record.last_name}`;
+                const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                console.log(`[Worker] 📧 Sending overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
+
+                // --- 1. Create Draft for Lender ---
+                const lenderData = allLendersData.find(l => l.lender?.toUpperCase() === lenderName?.toUpperCase());
+                const lenderEmail = lenderData?.email || null;
+                const lenderAddress = lenderData?.address ?
+                    `${lenderData.address.company_name || ''}\n${lenderData.address.first_line_address || ''}\n${lenderData.address.town_city || ''}\n${lenderData.address.postcode || ''}`.trim()
+                    : lenderName;
+
+                if (lenderEmail && graphClient) {
+                    const lenderHtml = `
+                        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+                            <p><strong>Date:</strong> ${currentDate}</p>
+                            <p><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
+                            <p><strong>Re: Outstanding Data Subject Access Request – ${referenceNo}</strong></p>
+                            <p>Dear Sir/Madam,</p>
+                            <p>We act on behalf of our client, <strong>${clientName}</strong>, and write further to our Data Subject Access Request submitted over 30 days ago, to which we have not yet received a response.</p>
+                            <p>As you are aware, under Article 12(3) of the UK General Data Protection Regulation (UK GDPR), you are required to respond to a DSAR without undue delay and, at the latest, within one calendar month of receipt. This statutory deadline has now passed.</p>
+                            <p>Failure to comply with the UK GDPR may result in a complaint being lodged with the Information Commissioner's Office (ICO), which has the authority to investigate and take enforcement action, including the imposition of significant fines.</p>
+                            <p>We respectfully request that you provide all personal data held on our client without further delay. If we do not receive a substantive response within <strong>14 days</strong> of the date of this letter, we will have no alternative but to escalate this matter to the ICO.</p>
+                            <p>Please find attached a copy of the original DSAR, along with identification and Letter of Authority, for your reference.</p>
+                            <p>We trust this matter will now receive your urgent attention.</p>
+                            <p>Yours faithfully,</p>
+                            <p><strong>Fast Action Claims</strong><br/>
+                            On behalf of ${clientName}</p>
+                        </div>
+                    `;
+
+                    try {
+                        const draftMessage = {
+                            subject: `Final Notice – Outstanding Data Subject Access Request (DSAR) – ${referenceNo}`,
+                            body: {
+                                contentType: 'HTML',
+                                content: lenderHtml
+                            },
+                            toRecipients: [{
+                                emailAddress: {
+                                    address: lenderEmail
+                                }
+                            }]
+                        };
+
+                        await graphClient
+                            .api(`/users/${DSAR_MAILBOX}/messages`)
+                            .post(draftMessage);
+
+                        console.log(`[Worker] ✅ Lender overdue draft created for Case ${record.case_id} to ${lenderEmail}`);
+                    } catch (draftErr) {
+                        console.error(`[Worker] ❌ Failed to create lender draft for Case ${record.case_id}:`, draftErr.message);
+                    }
+                } else {
+                    console.log(`[Worker] ⚠️ No lender email found for ${lenderName} - skipping lender draft`);
+                }
+
+                // --- 2. Send Email to Client ---
+                if (record.client_email) {
+                    const clientHtml = `
+                        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+                            <p>Hi ${record.first_name},</p>
+                            <p>We just wanted to give you a quick update on your claim against <strong>${lenderName}</strong>.</p>
+                            <p>We've sent a formal data request to the lender, but unfortunately, they haven't responded within the expected timeframe. Don't worry—this isn't unusual, and we're on it!</p>
+                            <p>Our team has now escalated the matter and sent a final reminder to ensure they provide the information we need. If we still don't hear back, we'll be taking further steps to push things forward.</p>
+                            <p>Rest assured, we're actively working on your case, and we'll keep you updated as soon as we have more news.</p>
+                            <p>If you have any questions in the meantime, feel free to reach out—we're here to help!</p>
+                            <p>Best regards,</p>
+                            <p><strong>The Fast Action Claims Team</strong></p>
+                        </div>
+                    `;
+
+                    try {
+                        await clientEmailTransporter.sendMail({
+                            from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+                            to: record.client_email,
+                            subject: `Quick Update on Your Claim – ${lenderName}`,
+                            html: clientHtml
+                        });
+
+                        console.log(`[Worker] ✅ Client overdue email sent for Case ${record.case_id} to ${record.client_email}`);
+                    } catch (sendErr) {
+                        console.error(`[Worker] ❌ Failed to send client email for Case ${record.case_id}:`, sendErr.message);
+                    }
+                } else {
+                    console.log(`[Worker] ⚠️ No client email for Case ${record.case_id} - skipping client notification`);
+                }
+
+                // --- 3. Mark as notified ---
+                await pool.query(
+                    `UPDATE cases SET dsar_overdue_notified = true WHERE id = $1`,
+                    [record.case_id]
+                );
+
+                // Log to action timeline
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                     VALUES ($1, $2, 'system', 'worker', 'overdue_notification', 'claims', $3)`,
+                    [record.contact_id, record.case_id, `DSAR Overdue notifications sent - Draft to ${lenderName}${lenderEmail ? ` (${lenderEmail})` : ''}, Email to client${record.client_email ? ` (${record.client_email})` : ''}`]
+                );
+
+            } catch (err) {
+                console.error(`[Worker] ❌ Error sending overdue notifications for Case ${record.case_id}:`, err.message);
+            }
+        }
+    } catch (error) {
+        console.error('[Worker] DSAR Overdue Notification Error:', error);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -1634,6 +1834,10 @@ const runWorkerCycle = async () => {
     await processPendingLOAs();
     // Run DSAR check immediately after LOA processing so newly generated LOAs get emails sent
     await processPendingDSAREmails();
+    // Check for DSAR cases that have been waiting 30 days and mark as overdue
+    await markOverdueDSARs();
+    // Send notifications for newly overdue cases
+    await sendOverdueNotifications();
 };
 
 // Run immediately on start (with small delay for DB migration)
