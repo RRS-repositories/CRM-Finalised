@@ -1639,8 +1639,8 @@ const runWorkerCycle = async () => {
 // Run immediately on start (with small delay for DB migration)
 setTimeout(() => {
     runWorkerCycle();
-    // Then run every 10 minutes
+    // Then run every 2 minutes
     setInterval(() => {
         runWorkerCycle();
-    }, 600000);
+    }, 120000);
 }, 5000);

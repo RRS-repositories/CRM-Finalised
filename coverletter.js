@@ -595,7 +595,7 @@ const isMainModule = process.argv[1] && (
 
 if (isMainModule) {
     const caseIdArg = process.argv[2] ? parseInt(process.argv[2]) : null;
-    const POLL_INTERVAL = 600_000; // 10 minutes
+    const POLL_INTERVAL = 120_000; // 2 minutes
 
     // Load env vars (when run standalone, dotenv hasn't been called yet)
     const dotenv = await import('dotenv');
