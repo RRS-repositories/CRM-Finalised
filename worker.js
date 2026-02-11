@@ -680,7 +680,7 @@ async function createDraftEmailWithGraph(lenderEmail, subject, htmlBody, attachm
 }
 
 // --- HELPER FUNCTION: SEND DOCUMENTS TO LENDER (or create draft) ---
-async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId) {
+async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified) {
     console.log(`[Worker] Preparing to ${EMAIL_DRAFT_MODE ? 'create draft for' : 'send documents to'} lender: ${lenderName}`);
 
     // Get contact data to generate clientId
@@ -765,8 +765,9 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         });
     }
 
-    // Email subject and body
-    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: FAC-${clientId}/${caseId}`;
+    // Email subject and body - use reference_specified if available, fallback to contactId+caseId
+    const ourReference = referenceSpecified || `${contactId}${caseId}`;
+    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: FAC-${ourReference}`;
     const htmlBody = `
         <!DOCTYPE html>
         <html>
@@ -779,7 +780,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
             <p>Email: <a href="mailto:dsar@fastactionclaims.co.uk">Dsar@fastactionclaims.co.uk</a><br>
             Contact no: 0161 533 1706<br>
             Address: 1.03, Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br>
-            Client id: FAC-${clientId}/${caseId}</p>
+            Client id: FAC-${ourReference}</p>
 
             <p>Dear Sirs,</p>
 
@@ -1521,7 +1522,7 @@ const processPendingDSAREmails = async () => {
     console.log(`[Worker] Checking for pending DSAR ${EMAIL_DRAFT_MODE ? 'drafts to create' : 'emails to send'}...`);
     try {
         const query = `
-            SELECT c.id as case_id, c.lender, c.contact_id,
+            SELECT c.id as case_id, c.lender, c.contact_id, c.reference_specified,
                    cnt.first_name, cnt.last_name
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
@@ -1550,7 +1551,8 @@ const processPendingDSAREmails = async () => {
                     clientName,
                     record.contact_id,
                     folderName,
-                    record.case_id
+                    record.case_id,
+                    record.reference_specified
                 );
 
                 console.log(`[Worker] 📧 DSAR result for Case ${record.case_id}:`, JSON.stringify(emailResult));
