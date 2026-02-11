@@ -765,9 +765,8 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         });
     }
 
-    // Email subject and body - use reference_specified if available, fallback to contactId+caseId
-    const ourReference = referenceSpecified || `${contactId}${caseId}`;
-    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: FAC-${ourReference}`;
+    // Email subject and body - use reference_specified from cases table
+    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: FAC-${referenceSpecified}`;
     const htmlBody = `
         <!DOCTYPE html>
         <html>
@@ -780,7 +779,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
             <p>Email: <a href="mailto:dsar@fastactionclaims.co.uk">Dsar@fastactionclaims.co.uk</a><br>
             Contact no: 0161 533 1706<br>
             Address: 1.03, Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br>
-            Client id: FAC-${ourReference}</p>
+            Client id: FAC-${referenceSpecified}</p>
 
             <p>Dear Sirs,</p>
 
