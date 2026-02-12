@@ -2244,9 +2244,16 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
             totalCount += listedObjects.Contents.length;
 
             for (const obj of listedObjects.Contents) {
-                const fileName = obj.Key.split('/').pop();
-                if (!fileName || existingNames.has(fileName)) continue;
-                if (obj.Key.endsWith('/')) continue;
+                if (obj.Key.endsWith('/')) continue; // Skip folder markers
+
+                // Get relative path from folder prefix (preserves nested folder structure)
+                // e.g., "First_Last_123/Documents/subfolder/file.pdf" → "subfolder/file.pdf"
+                const relativePath = obj.Key.substring(folder.prefix.length);
+                if (!relativePath) continue;
+
+                // Use relative path as filename (includes subfolders)
+                const fileName = relativePath;
+                if (existingNames.has(fileName)) continue;
 
                 // Generate signed URL
                 const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
@@ -2255,7 +2262,7 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
                 }), { expiresIn: 604800 });
 
                 // Determine file type from extension
-                const ext = fileName.split('.').pop()?.toLowerCase() || 'unknown';
+                const ext = relativePath.split('.').pop()?.toLowerCase() || 'unknown';
                 const typeMap = {
                     'pdf': 'pdf', 'doc': 'docx', 'docx': 'docx',
                     'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image',
