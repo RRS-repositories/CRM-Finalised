@@ -1656,17 +1656,17 @@ const processPendingDSAREmails = async () => {
     }
 };
 
-// --- DSAR OVERDUE: Mark cases as overdue after 30 days ---
+// --- DSAR OVERDUE: Mark cases as overdue after 33 days ---
 const markOverdueDSARs = async () => {
     console.log('[Worker] Checking for DSAR cases to mark as overdue...');
     try {
-        // For testing: 2 minutes. For production: change to '30 days'
+        // Production: 33 days
         const query = `
             UPDATE cases
             SET status = 'DSAR Overdue'
             WHERE status = 'DSAR Sent to Lender'
             AND dsar_sent_at IS NOT NULL
-            AND dsar_sent_at < NOW() - INTERVAL '2 minutes'
+            AND dsar_sent_at < NOW() - INTERVAL '33 days'
             RETURNING id
         `;
         const { rows } = await pool.query(query);
@@ -1676,12 +1676,16 @@ const markOverdueDSARs = async () => {
         } else {
             console.log(`[Worker] ✅ Marked ${rows.length} case(s) as DSAR Overdue: ${rows.map(r => r.id).join(', ')}`);
 
-            // Log each to action timeline
+            // Log each to action timeline with timestamp
+            const timestamp = new Date().toLocaleString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
             for (const row of rows) {
                 await pool.query(
                     `INSERT INTO action_logs (claim_id, actor_type, actor_id, action_type, action_category, description)
                      VALUES ($1, 'system', 'worker', 'status_change', 'claims', $2)`,
-                    [row.id, 'Status automatically changed to DSAR Overdue after 30 days with no response from lender']
+                    [row.id, `[${timestamp}] Status automatically changed to DSAR Overdue after 33 days with no response from lender`]
                 );
             }
         }
@@ -1730,21 +1734,65 @@ const sendOverdueNotifications = async () => {
 
                 if (lenderEmail && graphClient) {
                     const lenderHtml = `
-                        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
-                            <p><strong>Date:</strong> ${currentDate}</p>
-                            <p><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
-                            <p><strong>Re: Outstanding Data Subject Access Request – ${referenceNo}</strong></p>
-                            <p>Dear Sir/Madam,</p>
-                            <p>We act on behalf of our client, <strong>${clientName}</strong>, and write further to our Data Subject Access Request submitted over 30 days ago, to which we have not yet received a response.</p>
-                            <p>As you are aware, under Article 12(3) of the UK General Data Protection Regulation (UK GDPR), you are required to respond to a DSAR without undue delay and, at the latest, within one calendar month of receipt. This statutory deadline has now passed.</p>
-                            <p>Failure to comply with the UK GDPR may result in a complaint being lodged with the Information Commissioner's Office (ICO), which has the authority to investigate and take enforcement action, including the imposition of significant fines.</p>
-                            <p>We respectfully request that you provide all personal data held on our client without further delay. If we do not receive a substantive response within <strong>14 days</strong> of the date of this letter, we will have no alternative but to escalate this matter to the ICO.</p>
-                            <p>Please find attached a copy of the original DSAR, along with identification and Letter of Authority, for your reference.</p>
-                            <p>We trust this matter will now receive your urgent attention.</p>
-                            <p>Yours faithfully,</p>
-                            <p><strong>Fast Action Claims</strong><br/>
-                            On behalf of ${clientName}</p>
-                        </div>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); padding: 30px 40px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">Fast Action Claims</h1>
+                            <p style="color: #a8c5e2; margin: 5px 0 0 0; font-size: 14px;">Legal Representatives</p>
+                        </td>
+                    </tr>
+                    <!-- Alert Banner -->
+                    <tr>
+                        <td style="background-color: #dc3545; padding: 15px 40px;">
+                            <p style="color: #ffffff; margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">⚠️ Final Notice – Urgent Response Required</p>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="color: #666; font-size: 14px; margin: 0 0 20px 0;"><strong>Date:</strong> ${currentDate}</p>
+                            <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #1e3a5f;">
+                                <p style="color: #333; font-size: 14px; margin: 0;"><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
+                            </div>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0 0 20px 0;">Re: Outstanding Data Subject Access Request – ${referenceNo}</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Dear Sir/Madam,</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We act on behalf of our client, <strong>${clientName}</strong>, and write further to our Data Subject Access Request submitted over 33 days ago, to which we have not yet received a response.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">As you are aware, under <strong>Article 12(3) of the UK General Data Protection Regulation (UK GDPR)</strong>, you are required to respond to a DSAR without undue delay and, at the latest, within one calendar month of receipt. This statutory deadline has now passed.</p>
+                            <div style="background-color: #fff3cd; padding: 15px 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
+                                <p style="color: #856404; font-size: 14px; margin: 0;">⚠️ Failure to comply with the UK GDPR may result in a complaint being lodged with the <strong>Information Commissioner's Office (ICO)</strong>, which has the authority to investigate and take enforcement action, including the imposition of significant fines.</p>
+                            </div>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We respectfully request that you provide all personal data held on our client without further delay. If we do not receive a substantive response within <strong style="color: #dc3545;">14 days</strong> of the date of this letter, we will have no alternative but to escalate this matter to the ICO.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Please find attached a copy of the original DSAR, along with identification and Letter of Authority, for your reference.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 25px 0;">We trust this matter will now receive your urgent attention.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 5px 0;">Yours faithfully,</p>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0;"><strong>Fast Action Claims</strong></p>
+                            <p style="color: #666; font-size: 14px; margin: 5px 0 0 0;">On behalf of ${clientName}</p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8f9fa; padding: 25px 40px; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;">
+                            <p style="color: #666; font-size: 12px; margin: 0 0 10px 0; text-align: center;"><strong>Fast Action Claims</strong> | Consumer Rights Specialists</p>
+                            <p style="color: #999; font-size: 11px; margin: 0; text-align: center;">This email and any attachments are confidential and intended solely for the addressee.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
                     `;
 
                     try {
@@ -1768,6 +1816,16 @@ const sendOverdueNotifications = async () => {
                         console.log(`[Worker] ✅ Lender overdue draft created for Case ${record.case_id} to ${lenderEmail}`);
                     } catch (draftErr) {
                         console.error(`[Worker] ❌ Failed to create lender draft for Case ${record.case_id}:`, draftErr.message);
+                        // Log failure to action timeline
+                        const failTimestamp = new Date().toLocaleString('en-GB', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit', hour12: false
+                        });
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'overdue_draft_failed', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `[${failTimestamp}] Failed to create overdue lender draft for ${lenderName}: ${draftErr.message}`]
+                        );
                     }
                 } else {
                     console.log(`[Worker] ⚠️ No lender email found for ${lenderName} - skipping lender draft`);
@@ -1776,16 +1834,72 @@ const sendOverdueNotifications = async () => {
                 // --- 2. Send Email to Client ---
                 if (record.client_email) {
                     const clientHtml = `
-                        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
-                            <p>Hi ${record.first_name},</p>
-                            <p>We just wanted to give you a quick update on your claim against <strong>${lenderName}</strong>.</p>
-                            <p>We've sent a formal data request to the lender, but unfortunately, they haven't responded within the expected timeframe. Don't worry—this isn't unusual, and we're on it!</p>
-                            <p>Our team has now escalated the matter and sent a final reminder to ensure they provide the information we need. If we still don't hear back, we'll be taking further steps to push things forward.</p>
-                            <p>Rest assured, we're actively working on your case, and we'll keep you updated as soon as we have more news.</p>
-                            <p>If you have any questions in the meantime, feel free to reach out—we're here to help!</p>
-                            <p>Best regards,</p>
-                            <p><strong>The Fast Action Claims Team</strong></p>
-                        </div>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); padding: 30px 40px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">Fast Action Claims</h1>
+                            <p style="color: #a8c5e2; margin: 5px 0 0 0; font-size: 14px;">Your Claim Update</p>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="color: #333; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">Hi ${record.first_name},</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We just wanted to give you a quick update on your claim against <strong style="color: #1e3a5f;">${lenderName}</strong>.</p>
+
+                            <div style="background-color: #e7f3ff; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #2d5a87;">
+                                <p style="color: #1e3a5f; font-size: 15px; line-height: 1.7; margin: 0;">📋 We've sent a formal data request to the lender, but unfortunately, they haven't responded within the expected timeframe. <strong>Don't worry</strong>—this isn't unusual, and we're on it!</p>
+                            </div>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Our team has now <strong>escalated the matter</strong> and sent a final reminder to ensure they provide the information we need. If we still don't hear back, we'll be taking further steps to push things forward.</p>
+
+                            <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #28a745;">
+                                <p style="color: #155724; font-size: 15px; line-height: 1.7; margin: 0;">✅ Rest assured, we're actively working on your case, and we'll keep you updated as soon as we have more news.</p>
+                            </div>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 25px 0;">If you have any questions in the meantime, feel free to reach out—we're here to help!</p>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 5px 0;">Best regards,</p>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0;"><strong>The Fast Action Claims Team</strong></p>
+                        </td>
+                    </tr>
+                    <!-- Contact Section -->
+                    <tr>
+                        <td style="padding: 0 40px 30px 40px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8f9fa; border-radius: 8px;">
+                                <tr>
+                                    <td style="padding: 20px; text-align: center;">
+                                        <p style="color: #666; font-size: 14px; margin: 0 0 10px 0;"><strong>Need to get in touch?</strong></p>
+                                        <p style="color: #1e3a5f; font-size: 14px; margin: 0;">📧 info@fastactionclaims.co.uk</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #1e3a5f; padding: 25px 40px; border-radius: 0 0 8px 8px;">
+                            <p style="color: #a8c5e2; font-size: 12px; margin: 0 0 10px 0; text-align: center;"><strong style="color: #ffffff;">Fast Action Claims</strong> | Consumer Rights Specialists</p>
+                            <p style="color: #7a9cc6; font-size: 11px; margin: 0; text-align: center;">Helping you get the compensation you deserve</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
                     `;
 
                     try {
@@ -1799,6 +1913,16 @@ const sendOverdueNotifications = async () => {
                         console.log(`[Worker] ✅ Client overdue email sent for Case ${record.case_id} to ${record.client_email}`);
                     } catch (sendErr) {
                         console.error(`[Worker] ❌ Failed to send client email for Case ${record.case_id}:`, sendErr.message);
+                        // Log failure to action timeline
+                        const failTimestamp = new Date().toLocaleString('en-GB', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit', hour12: false
+                        });
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'overdue_email_failed', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `[${failTimestamp}] Failed to send overdue client email to ${record.client_email}: ${sendErr.message}`]
+                        );
                     }
                 } else {
                     console.log(`[Worker] ⚠️ No client email for Case ${record.case_id} - skipping client notification`);
@@ -1810,11 +1934,15 @@ const sendOverdueNotifications = async () => {
                     [record.case_id]
                 );
 
-                // Log to action timeline
+                // Log to action timeline with timestamp
+                const successTimestamp = new Date().toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                });
                 await pool.query(
                     `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
                      VALUES ($1, $2, 'system', 'worker', 'overdue_notification', 'claims', $3)`,
-                    [record.contact_id, record.case_id, `DSAR Overdue notifications sent - Draft to ${lenderName}${lenderEmail ? ` (${lenderEmail})` : ''}, Email to client${record.client_email ? ` (${record.client_email})` : ''}`]
+                    [record.contact_id, record.case_id, `[${successTimestamp}] DSAR Overdue notifications sent - Draft to ${lenderName}${lenderEmail ? ` (${lenderEmail})` : ''}, Email to client${record.client_email ? ` (${record.client_email})` : ''}`]
                 );
 
             } catch (err) {
@@ -1834,7 +1962,7 @@ const runWorkerCycle = async () => {
     await processPendingLOAs();
     // Run DSAR check immediately after LOA processing so newly generated LOAs get emails sent
     await processPendingDSAREmails();
-    // Check for DSAR cases that have been waiting 30 days and mark as overdue
+    // Check for DSAR cases that have been waiting 33 days and mark as overdue
     await markOverdueDSARs();
     // Send notifications for newly overdue cases
     await sendOverdueNotifications();

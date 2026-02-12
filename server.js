@@ -3875,13 +3875,17 @@ app.patch('/api/cases/:id', async (req, res) => {
         }
 
         // Update case with status (and token if Sale)
+        // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
+        const isDSARSent = status === 'DSAR Sent to Lender';
         const result = await pool.query(
             `UPDATE cases
              SET status = $1,
-                 sales_signature_token = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE sales_signature_token END
+                 sales_signature_token = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE sales_signature_token END,
+                 dsar_sent_at = CASE WHEN $4::boolean THEN NOW() ELSE dsar_sent_at END,
+                 dsar_overdue_notified = CASE WHEN $4::boolean THEN false ELSE dsar_overdue_notified END
              WHERE id = $3
              RETURNING *`,
-            [status, salesSignatureToken, id]
+            [status, salesSignatureToken, id, isDSARSent]
         );
 
         if (result.rows.length === 0) {
@@ -3968,10 +3972,19 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
 
     try {
         // Use a single query with ANY to update all claims at once
-        const result = await pool.query(
-            `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
-            [status, claimIds]
-        );
+        // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
+        let result;
+        if (status === 'DSAR Sent to Lender') {
+            result = await pool.query(
+                `UPDATE cases SET status = $1, dsar_sent_at = NOW(), dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
+                [status, claimIds]
+            );
+        } else {
+            result = await pool.query(
+                `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
+                [status, claimIds]
+            );
+        }
 
         // If status = "LOA Uploaded", generate cover letters for each case asynchronously
         if (status === 'LOA Uploaded') {
