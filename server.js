@@ -2034,7 +2034,15 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             [contact_id, s3FileName, file.mimetype.split('/')[1] || 'unknown', 'Client', s3Url, `${(file.size / 1024).toFixed(1)} KB`, ['Uploaded', `Original: ${originalName}`]]
         );
 
-        console.log(`[Upload] Renamed "${originalName}" → "${s3FileName}" for contact ${contact_id}`);
+        // Update document_checklist to set identification = true
+        await pool.query(
+            `UPDATE contacts
+             SET document_checklist = COALESCE(document_checklist, '{}')::jsonb || '{"identification": true}'::jsonb
+             WHERE id = $1`,
+            [contact_id]
+        );
+
+        console.log(`[Upload] Renamed "${originalName}" → "${s3FileName}" for contact ${contact_id}, identification set to true`);
         res.json({ success: true, url: s3Url, document: rows[0] });
     } catch (error) {
         console.error('Upload Error:', error);
