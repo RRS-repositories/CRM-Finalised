@@ -734,6 +734,7 @@ export const DOCUMENT_CATEGORIES = [
   'Bank Statement',
   'DSAR',
   'Letter of Authority',
+  'Cover Letter',
   'Complaint Letter',
   'Final Response Letter (FRL)',
   'Counter Response',
@@ -1105,6 +1106,24 @@ export const LENDER_CATEGORIES: LenderCategory[] = [
 
 // Flatten all lenders for easy access
 export const ALL_LENDERS = LENDER_CATEGORIES.flatMap(category => category.lenders);
+
+// Category 3: Confirmation Required Lenders
+// These lenders require client confirmation before creating a claim
+// because they have common misspellings or similar names
+export const CATEGORY_3_CONFIRMATION_LENDERS = new Set([
+  'ANICO FINANCE',
+  'LOANS BY MAL',
+  'PAYDAY UK',
+  'QUICK LOANS',
+  'THE ONE STOP MONEY SHOP',
+  'TICK TOCK LOANS'
+]);
+
+// Helper function to check if a lender requires confirmation
+export const isCategory3Lender = (lenderName: string): boolean => {
+  const normalized = lenderName.toUpperCase().trim();
+  return CATEGORY_3_CONFIRMATION_LENDERS.has(normalized);
+};
 
 // ============================================
 // Email Module Mock Data (Outlook-style interface)

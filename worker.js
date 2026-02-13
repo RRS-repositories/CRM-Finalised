@@ -79,6 +79,29 @@ clientEmailTransporter.verify((error, success) => {
     }
 });
 
+// --- IRL EMAIL TRANSPORTER (for Category 3 confirmation emails) ---
+const irlEmailTransporter = nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false,
+    auth: {
+        user: 'irl@rowanrose.co.uk',
+        pass: 'Farm54595459!!!'
+    },
+    tls: {
+        ciphers: 'SSLv3'
+    }
+});
+
+// Verify IRL email transporter on startup
+irlEmailTransporter.verify((error, success) => {
+    if (error) {
+        console.error('[Worker] ❌ IRL email transporter error:', error);
+    } else {
+        console.log('[Worker] ✅ IRL email transporter ready for Category 3 confirmations');
+    }
+});
+
 // --- MICROSOFT GRAPH API CONFIGURATION FOR DRAFT CREATION ---
 const DSAR_MAILBOX = 'DSAR@fastactionclaims.co.uk';
 const INFO_MAILBOX = 'info@fastactionclaims.co.uk';
@@ -147,6 +170,86 @@ pool.on('error', (err, client) => {
     console.error('Unexpected error on idle client', err);
 });
 
+// ============================================================================
+// LENDER CATEGORIES FOR DSAR PROCESSING
+// ============================================================================
+
+// Category 1: Standard lenders - NO ID required (only LOA, Cover Letter, Previous Address if available)
+const CATEGORY_1_NO_ID_LENDERS = new Set([
+    '118 LOANS', '118 MONEY', '1PLUS 1 LOANS', 'ADMIRAL LOAN', 'AMERICAN EXPRESS', 'AQUA', 'ARGOS', 'ASDA',
+    'AVANT', 'BANK OF SCOTLAND', 'BARCLAYS / MONUMENT', 'BARCLAYS CREDIT CARD', 'BARCLAYS OVERDRAFT',
+    'BETTER BORROW', 'BIP CREDIT CARD', 'CABOT', 'CAPITAL ONE', 'CAPQUEST/ ARROW', 'CAR CASH POINT',
+    'CASH ASAP', 'CASH CONVERTERS', 'CASH PLUS', 'CASTLE COMMUNITY BANK', 'CITI BANK', 'CLC FINANCE',
+    'CO-OP BANK OVERDRAFT', 'CO-OPERATIVE BANK', 'CONSOLADATION LOAN', 'CREATION FINANCE', 'CREDIT SPRING',
+    'DANSKE BANK', 'DEBENHAMS', 'DOROTHY PERKINS', 'EVANS CATALOGUE', 'EVERDAY LENDING', 'EVOLUTION LENDING',
+    'FAIR FINANCE', 'FERNOVO', 'FINIO LOANS', 'FINIO/LIKELY LOANS', 'FINTERN/ABOUND', 'FLUID',
+    'FREEMANS CATALOUGE', 'FUND OURSELVES', 'G.L.M. FINANCE', 'GE CAPITAL', 'GRATTAN', 'GUARANTOR MY LOAN',
+    'GURRANTOR MY LOAN', 'H&T PAWNBROKERS', 'HALIFAX', 'HERO LOANS', 'HSBC', 'HSBC BANK', 'ICO', 'INTRUM',
+    'JUO LOANS', 'KAYS', 'KLARNA', 'KOYO LOANS', 'LANTERN', 'LENDABLE', 'LENDING WORKS', 'LIFE STYLE LOANS',
+    'LINK FINANCIAL', 'LITTLE LOANS', 'LITTLEWOODS / GREAT UNIVERSAL', 'LIVE LEND',
+    'LLOYDS BANK / BANK OF SCOTLAND / MBNA', 'LLOYDS OVERDRAFT', 'LOAN4YOU / NA', 'LOANS 2 GO',
+    'LOGBOOK LENDING', 'LOGBOOK MONEY', 'LOWELL', 'LUMA', 'MARKS & SPENCERS', 'MBNA',
+    'METRO BANK/RATE SETTER', 'MONEY BARN', 'MONEY BOAT', 'MONEY WAY', 'MONTHLY ADVANCE LOANS', 'MONZO',
+    'MUIRHEAD FINANCE', 'MUTUAL FINANCE', 'MY COMMUNITY BANK', 'MY COMMUNITY FINANCE', 'MY FINANCE CLUB',
+    'MY KREDIT', 'NATIONWIDE', 'NATWEST / RBS OVERDRAFT', 'NATWEST BANK / ROYAL BANK OF SCOTLAND',
+    'NEWDAY / OPUS / MARBLES / FLUID / BURTONS', 'NEXT', 'NORWICH TRUST', 'NOVUNA', 'OCEAN FINANCE',
+    'ONDAL', 'ONE PLUS ONE LOANS', 'ONMO', 'OPLO', 'OPOLO', 'PAYPAL', 'PEACHY LOANS', 'PERCH GROUP',
+    'PLATA FINANCE', 'PLEND', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE', 'PRA', 'PROGRESSIVE MONEY',
+    'PROVIDENT', 'PSA FINANCE', 'REEVO', "SAINSBURY'S BANK / POST", 'SALAD MONEY', 'SALARY FINANCE',
+    'SAVVY LOANS', 'SHAWBROOK BANK', 'SHORT TERM FINANCE', 'SKYLINE DIRECT', 'SNAP FINANCE', 'STUDIO',
+    'SUCO', 'SWIFT LOANS', 'TANDEM', 'TAPPILY', 'TESCO BANK', 'THINKMONEY', 'TM ADVANCES', 'TRANSUNION',
+    'TSB', 'ULSTER BANK', 'UPDRAFT', 'VERY / SHOP DIRECT / G UNIVERSAL', 'VERY CATALOGUE',
+    'VIRGIN/ CLYDESDALE/ YORKSHIRE BANK', 'WAGE DAY ADVANCES', 'WAGE STREAM', 'WAVE', 'ZABLE',
+    'ZEMPLER BANK / CASHPLUS', 'ZOPA'
+]);
+
+// Category 2: ID Required lenders - Must have ID document or log error
+const CATEGORY_2_ID_REQUIRED_LENDERS = new Set([
+    'ADVANTAGE FINANCE', 'AUDI', 'VOLKSWAGEN FINANCE', 'SKODA', 'BLACKHORSE', 'BLUE MOTOR FINANCE',
+    'BMW', 'MINI', 'ALPHERA FINANCE', 'CASH FLOAT', 'CLOSE BROTHERS', 'FLURO', 'MOTONOVO', 'OODLE',
+    'RCI FINANCIAL', 'REVOLUT', 'SANTANDER', 'VANQUIS', 'VAUXHALL FINANCE', 'ZILCH', 'MONEY LINE', 'MR LENDER'
+]);
+
+// Category 3: Confirmation required lenders - Map of correct name to alternative (possibly misspelled)
+const CATEGORY_3_CONFIRMATION_LENDERS = {
+    'ANICO FINANCE': ['THE ANICO FINANCE'],
+    'LOANS BY MAL': ['LOANS BY MAL'],
+    'PAYDAY UK': ['PAYNIGHT UK'],
+    'QUICK LOANS': ['QUICK LOANZ'],
+    'THE ONE STOP MONEY SHOP': ['MONEY SHOP'],
+    'TICK TOCK LOANS': ['TIK TOK LOANZ']
+};
+// Create a Set of all Category 3 lenders for quick lookup
+const CATEGORY_3_ALL_LENDERS = new Set([
+    ...Object.keys(CATEGORY_3_CONFIRMATION_LENDERS),
+    ...Object.values(CATEGORY_3_CONFIRMATION_LENDERS).flat()
+]);
+
+// Category 4: Special email lenders - Create claim but send verification email to client instead of DSAR
+const CATEGORY_4_SPECIAL_EMAIL_LENDERS = new Set([
+    'DRAFTY', 'LENDING STREAM', 'QUID MARKET'
+]);
+
+// Helper function to normalize lender name for comparison
+function normalizeLenderName(name) {
+    if (!name) return '';
+    return name.toUpperCase().trim();
+}
+
+// Helper function to get lender category
+function getLenderCategory(lenderName) {
+    const normalized = normalizeLenderName(lenderName);
+
+    if (CATEGORY_1_NO_ID_LENDERS.has(normalized)) return 1;
+    if (CATEGORY_2_ID_REQUIRED_LENDERS.has(normalized)) return 2;
+    if (CATEGORY_3_ALL_LENDERS.has(normalized)) return 3;
+    if (CATEGORY_4_SPECIAL_EMAIL_LENDERS.has(normalized)) return 4;
+
+    return 5; // Default: DSAR not allowed
+}
+
+// ============================================================================
+
 // --- ENSURE DSAR COLUMNS EXIST (same migration as server.js) ---
 (async () => {
     try {
@@ -168,9 +271,13 @@ pool.on('error', (err, client) => {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_overdue_notified') THEN
                     ALTER TABLE cases ADD COLUMN dsar_overdue_notified BOOLEAN DEFAULT FALSE;
                 END IF;
+                -- Add email_sent column to pending_lender_confirmations if it doesn't exist
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pending_lender_confirmations' AND column_name='email_sent') THEN
+                    ALTER TABLE pending_lender_confirmations ADD COLUMN email_sent BOOLEAN DEFAULT FALSE;
+                END IF;
             END $$;
         `);
-        console.log('[Worker] ✅ DSAR columns verified/created in cases table');
+        console.log('[Worker] ✅ DSAR columns and pending_lender_confirmations.email_sent verified/created');
     } catch (err) {
         console.error('[Worker] ❌ Failed to ensure DSAR columns:', err.message);
     }
@@ -402,7 +509,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         loa: null,
         coverLetter: null,
         previousAddress: null,
-        idDocument: null
+        idDocuments: [] // Array of ID documents from Documents/ID_Document/ and Lenders/{lender}/ID_Document/
     };
 
     const refSpec = `${contactId}${caseId}`;
@@ -595,58 +702,101 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         console.warn('[Worker] Could not fetch previous address document:', err.message);
     }
 
-    // 4. ID Document (3rd page document) - check documents table for uploaded ID
+    // 4. ID Documents - gather ALL from Documents/ID_Document/ AND Lenders/{lender}/ID_Document/
     try {
-        // First try to find documents matching ID-related keywords
-        const idDocQuery = await pool.query(
-            `SELECT name FROM documents
+        // 4a. Get ID documents from Documents/ID_Document/ folder (category = 'ID Document')
+        const generalIdDocsQuery = await pool.query(
+            `SELECT name, type FROM documents
              WHERE contact_id = $1
-             AND category = 'Client'
-             AND (
-                 LOWER(name) LIKE '%passport%' OR
-                 LOWER(name) LIKE '%license%' OR
-                 LOWER(name) LIKE '%licence%' OR
-                 LOWER(name) LIKE '%driving%' OR
-                 LOWER(name) LIKE '%identity%'
-             )
-             AND type IN ('pdf', 'image', 'png', 'jpg', 'jpeg')
-             ORDER BY created_at DESC
-             LIMIT 1`,
+             AND category = 'ID Document'
+             ORDER BY created_at DESC`,
             [contactId]
         );
 
-        if (idDocQuery.rows.length > 0) {
-            const idDocFileName = idDocQuery.rows[0].name;
-            const idDocKey = `${folderName}/Documents/${idDocFileName}`;
-            documents.idDocument = await fetchPdfFromS3(idDocKey);
-            if (documents.idDocument) {
-                console.log(`[Worker] ✅ Found ID Document: ${idDocFileName}`);
+        for (const row of generalIdDocsQuery.rows) {
+            const idDocKey = `${folderName}/Documents/ID_Document/${row.name}`;
+            const docBuffer = await fetchPdfFromS3(idDocKey);
+            if (docBuffer) {
+                const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                documents.idDocuments.push({
+                    filename: row.name,
+                    content: docBuffer,
+                    contentType: contentType
+                });
+                console.log(`[Worker] ✅ Found ID Document (general): ${row.name}`);
             }
         }
 
-        // If no ID document found by name, look for document_{contactId}.* files (renamed uploads)
-        if (!documents.idDocument) {
-            const renamedDocQuery = await pool.query(
-                `SELECT name FROM documents
-                 WHERE contact_id = $1
-                 AND category = 'Client'
-                 AND LOWER(name) LIKE $2
-                 ORDER BY created_at DESC
-                 LIMIT 1`,
-                [contactId, `document_${contactId}%`]
-            );
+        // 4b. Get ID documents from Lenders/{lender}/ID_Document/ folder
+        const lenderIdDocsQuery = await pool.query(
+            `SELECT name, type FROM documents
+             WHERE contact_id = $1
+             AND category = 'ID Document'
+             AND tags @> ARRAY[$2]::text[]
+             ORDER BY created_at DESC`,
+            [contactId, lenderName]
+        );
 
-            if (renamedDocQuery.rows.length > 0) {
-                const docFileName = renamedDocQuery.rows[0].name;
-                const docKey = `${folderName}/Documents/${docFileName}`;
-                documents.idDocument = await fetchPdfFromS3(docKey);
-                if (documents.idDocument) {
-                    console.log(`[Worker] ✅ Found uploaded document: ${docFileName}`);
+        for (const row of lenderIdDocsQuery.rows) {
+            const idDocKey = `${folderName}/Lenders/${sanitizedLenderName}/ID_Document/${row.name}`;
+            const docBuffer = await fetchPdfFromS3(idDocKey);
+            if (docBuffer) {
+                const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                // Avoid duplicates
+                const exists = documents.idDocuments.some(d => d.filename === row.name);
+                if (!exists) {
+                    documents.idDocuments.push({
+                        filename: row.name,
+                        content: docBuffer,
+                        contentType: contentType
+                    });
+                    console.log(`[Worker] ✅ Found ID Document (lender): ${row.name}`);
                 }
             }
         }
+
+        // 4c. Fallback: check for legacy ID documents (keywords in name)
+        if (documents.idDocuments.length === 0) {
+            const legacyIdQuery = await pool.query(
+                `SELECT name, type FROM documents
+                 WHERE contact_id = $1
+                 AND (
+                     LOWER(name) LIKE '%passport%' OR
+                     LOWER(name) LIKE '%license%' OR
+                     LOWER(name) LIKE '%licence%' OR
+                     LOWER(name) LIKE '%driving%' OR
+                     LOWER(name) LIKE '%identity%'
+                 )
+                 ORDER BY created_at DESC
+                 LIMIT 5`,
+                [contactId]
+            );
+
+            for (const row of legacyIdQuery.rows) {
+                // Try multiple paths
+                const pathsToTry = [
+                    `${folderName}/Documents/${row.name}`,
+                    `${folderName}/Documents/ID_Document/${row.name}`
+                ];
+                for (const path of pathsToTry) {
+                    const docBuffer = await fetchPdfFromS3(path);
+                    if (docBuffer) {
+                        const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                        documents.idDocuments.push({
+                            filename: row.name,
+                            content: docBuffer,
+                            contentType: contentType
+                        });
+                        console.log(`[Worker] ✅ Found legacy ID Document: ${row.name}`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        console.log(`[Worker] Total ID Documents found: ${documents.idDocuments.length}`);
     } catch (err) {
-        console.warn('[Worker] Could not fetch ID document:', err.message);
+        console.warn('[Worker] Could not fetch ID documents:', err.message);
     }
 
     return documents;
@@ -709,9 +859,94 @@ async function createDraftEmailWithGraph(lenderEmail, subject, htmlBody, attachm
     }
 }
 
+// --- HELPER FUNCTION: SEND EMAIL TO CLIENT FOR CATEGORY 4 LENDERS ---
+// For DRAFTY, LENDING STREAM, QUID MARKET - send verification notice to client
+async function sendCategory4ClientEmail(lenderName, clientName, firstName, clientEmail, contactId, caseId) {
+    console.log(`[Worker] Sending Category 4 verification email to client for lender: ${lenderName}`);
+
+    if (!clientEmail) {
+        console.log(`[Worker] ⚠️ No client email found for contact ${contactId}`);
+        return { success: false, error: 'No client email address' };
+    }
+
+    const htmlBody = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; }
+            </style>
+        </head>
+        <body>
+            <p>Dear ${firstName},</p>
+
+            <p>We've submitted a request to <strong>${lenderName}</strong> to review your lending history and assess whether you may be eligible for a potential refund of interest or charges.</p>
+
+            <p>Within the next three working days, you'll receive an email asking you to verify your details and authorise Fast Action Claims to continue the review on your behalf.</p>
+
+            <p><strong>Please complete that authorisation so we can proceed.</strong></p>
+
+            <p>If you have any questions, please don't hesitate to contact us.</p>
+
+            <p>Customer Care Team<br>
+            0161 533 1706</p>
+
+            <p style="font-size: 11px; color: #666; margin-top: 20px;">
+            Fast Action Claims | 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+            </p>
+        </body>
+        </html>
+    `;
+
+    const subject = `Your ${lenderName} Claim - Action Required`;
+
+    try {
+        if (EMAIL_DRAFT_MODE && graphClient) {
+            // Create draft in Outlook
+            const draft = {
+                subject: subject,
+                body: {
+                    contentType: 'HTML',
+                    content: htmlBody
+                },
+                toRecipients: [{
+                    emailAddress: { address: clientEmail }
+                }],
+                from: {
+                    emailAddress: { address: INFO_MAILBOX }
+                }
+            };
+
+            const createdDraft = await graphClient
+                .api(`/users/${INFO_MAILBOX}/messages`)
+                .post(draft);
+
+            console.log(`[Worker] ✅ Category 4 draft created for ${clientEmail}, Draft ID: ${createdDraft.id}`);
+            return { success: true, draft: true, draftId: createdDraft.id, email: clientEmail };
+        } else {
+            // Send via nodemailer
+            const mailOptions = {
+                from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+                to: LENDER_EMAIL_TEST_MODE ? TEST_EMAIL_ADDRESS : clientEmail,
+                subject: subject,
+                html: htmlBody
+            };
+
+            const info = await clientEmailTransporter.sendMail(mailOptions);
+            console.log(`[Worker] ✅ Category 4 email sent to ${clientEmail}, Message ID: ${info.messageId}`);
+            return { success: true, messageId: info.messageId, email: clientEmail };
+        }
+    } catch (error) {
+        console.error(`[Worker] ❌ Failed to send Category 4 email:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
 // --- HELPER FUNCTION: SEND DOCUMENTS TO LENDER (or create draft) ---
-async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified) {
-    console.log(`[Worker] Preparing to ${EMAIL_DRAFT_MODE ? 'create draft for' : 'send documents to'} lender: ${lenderName}`);
+// includeIdDocuments: whether to include ID documents in attachments
+// requireIdDocuments: if true, will fail if no ID documents found
+async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified, includeIdDocuments = false, requireIdDocuments = false) {
+    console.log(`[Worker] Preparing to ${EMAIL_DRAFT_MODE ? 'create draft for' : 'send documents to'} lender: ${lenderName} (Include ID: ${includeIdDocuments}, Require ID: ${requireIdDocuments})`);
 
     // Get contact data to generate clientId
     let clientId = null;
@@ -786,13 +1021,25 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         });
     }
 
-    // Add ID Document if available
-    if (documents.idDocument) {
-        attachments.push({
-            filename: `ID_Document.pdf`,
-            content: documents.idDocument,
-            contentType: 'application/pdf'
-        });
+    // Add ID Documents based on flags
+    if (includeIdDocuments) {
+        if (documents.idDocuments && documents.idDocuments.length > 0) {
+            for (let i = 0; i < documents.idDocuments.length; i++) {
+                const idDoc = documents.idDocuments[i];
+                attachments.push({
+                    filename: idDoc.filename,
+                    content: idDoc.content,
+                    contentType: idDoc.contentType
+                });
+            }
+            console.log(`[Worker] Added ${documents.idDocuments.length} ID document(s) to attachments`);
+        } else if (requireIdDocuments) {
+            // Category 2 lenders require ID - fail if not found
+            console.log(`[Worker] ⚠️ ID documents required but not found for ${lenderName}. Cannot send DSAR.`);
+            return { success: false, reason: 'missing_id_documents' };
+        }
+    } else {
+        console.log(`[Worker] ID documents not included for this lender category`);
     }
 
     // Email subject and body - use reference_specified from cases table
@@ -1552,7 +1799,7 @@ const processPendingDSAREmails = async () => {
     try {
         const query = `
             SELECT c.id as case_id, c.lender, c.contact_id, c.reference_specified,
-                   cnt.first_name, cnt.last_name
+                   cnt.first_name, cnt.last_name, cnt.email as client_email
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
             WHERE c.status = 'DSAR Prepared'
@@ -1572,8 +1819,74 @@ const processPendingDSAREmails = async () => {
             try {
                 const clientName = `${record.first_name} ${record.last_name}`;
                 const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
+                const lenderCategory = getLenderCategory(record.lender);
 
-                console.log(`[Worker] 📧 Processing DSAR for Case ${record.case_id}, Lender: ${record.lender}, Client: ${clientName}`);
+                console.log(`[Worker] 📧 Processing DSAR for Case ${record.case_id}, Lender: ${record.lender} (Category ${lenderCategory}), Client: ${clientName}`);
+
+                // Handle Category 3: Confirmation Required - Should not reach here (handled at claim creation)
+                if (lenderCategory === 3) {
+                    console.log(`[Worker] ⚠️ Category 3 lender ${record.lender} should be handled at claim creation. Skipping.`);
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                         VALUES ($1, $2, 'system', 'worker', 'dsar_skipped', 'claims', $3)`,
+                        [record.contact_id, record.case_id, `DSAR skipped for ${record.lender} - requires confirmation email to client first`]
+                    );
+                    await pool.query(`UPDATE cases SET status = 'LOA Signed' WHERE id = $1`, [record.case_id]);
+                    continue;
+                }
+
+                // Handle Category 4: Special Email Lenders (send verification email to client, not DSAR to lender)
+                if (lenderCategory === 4) {
+                    console.log(`[Worker] 📬 Category 4 lender: Sending verification email to client for ${record.lender}`);
+                    const specialEmailResult = await sendCategory4ClientEmail(
+                        record.lender,
+                        clientName,
+                        record.first_name,
+                        record.client_email,
+                        record.contact_id,
+                        record.case_id
+                    );
+
+                    if (specialEmailResult.success) {
+                        await pool.query(
+                            `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true, dsar_sent_at = NOW() WHERE id = $1`,
+                            [record.case_id]
+                        );
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'client_email_sent', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `Verification email sent to client for ${record.lender} - client will receive lender authorization request`]
+                        );
+                        console.log(`[Worker] ✅ Category 4 email sent for ${record.lender}`);
+                    } else {
+                        await pool.query(`UPDATE cases SET status = 'LOA Signed' WHERE id = $1`, [record.case_id]);
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `Failed to send verification email to client for ${record.lender}: ${specialEmailResult.error}`]
+                        );
+                    }
+                    continue;
+                }
+
+                // Handle Category 5: DSAR Not Allowed
+                if (lenderCategory === 5) {
+                    console.log(`[Worker] ❌ Category 5 lender: DSAR not allowed for ${record.lender}`);
+                    await pool.query(
+                        `UPDATE cases SET status = 'LOA Signed' WHERE id = $1`,
+                        [record.case_id]
+                    );
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                         VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
+                        [record.contact_id, record.case_id, `DSAR not allowed for ${record.lender} - please contact support for manual processing`]
+                    );
+                    continue;
+                }
+
+                // Category 1 & 2: Send DSAR with appropriate documents
+                const includeIdDocuments = (lenderCategory === 2); // Only include ID for Category 2
+                const requireIdDocuments = (lenderCategory === 2); // Category 2 requires ID
 
                 const emailResult = await sendDocumentsToLender(
                     record.lender,
@@ -1581,7 +1894,9 @@ const processPendingDSAREmails = async () => {
                     record.contact_id,
                     folderName,
                     record.case_id,
-                    record.reference_specified
+                    record.reference_specified,
+                    includeIdDocuments,
+                    requireIdDocuments
                 );
 
                 console.log(`[Worker] 📧 DSAR result for Case ${record.case_id}:`, JSON.stringify(emailResult));
@@ -1645,6 +1960,19 @@ const processPendingDSAREmails = async () => {
                             [record.contact_id, record.case_id, `DSAR failed for ${record.lender} - missing LOA document. Status reverted to LOA Signed.`]
                         );
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing LOA`);
+                    } else if (emailResult.reason === 'missing_id_documents') {
+                        // Category 2 lenders require ID - fail and log
+                        await pool.query(
+                            `UPDATE cases SET status = 'LOA Signed' WHERE id = $1`,
+                            [record.case_id]
+                        );
+                        // Log to action timeline with clear message
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `⚠️ No ID document available - cannot send DSAR for ${record.lender}. Please upload ID document in Documents or Claim Documents section.`]
+                        );
+                        console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing ID documents (required for ${record.lender})`);
                     }
                 }
             } catch (err) {
@@ -1954,6 +2282,199 @@ const sendOverdueNotifications = async () => {
     }
 };
 
+// --- CATEGORY 3 CONFIRMATION EMAIL PROCESSING ---
+// Get misspelled alternatives for a Category 3 lender
+function getCategory3Alternatives(lenderName) {
+    const normalized = lenderName.toUpperCase().trim();
+    return CATEGORY_3_CONFIRMATION_LENDERS[normalized] || [];
+}
+
+// Process pending Category 3 confirmation emails
+const processPendingCategory3Confirmations = async () => {
+    console.log('[Worker] Checking for pending Category 3 confirmation emails...');
+    try {
+        // Get pending confirmations where email hasn't been sent yet
+        // Only get 'confirm' action records - we'll find the matching reject token for each
+        const query = `
+            SELECT p.id, p.contact_id, p.lender, p.token as confirm_token,
+                   c.first_name, c.last_name, c.email
+            FROM pending_lender_confirmations p
+            JOIN contacts c ON p.contact_id = c.id
+            WHERE p.email_sent = false
+            AND p.action = 'confirm'
+            AND p.used = false
+            LIMIT 10
+        `;
+        const { rows } = await pool.query(query);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No pending Category 3 confirmation emails to send.');
+            return;
+        }
+
+        console.log(`[Worker] Found ${rows.length} pending Category 3 confirmation email(s) to send.`);
+
+        for (const record of rows) {
+            try {
+                if (!record.email) {
+                    console.log(`[Worker] ⚠️ No email for contact ${record.contact_id} - skipping Category 3 confirmation`);
+                    // Mark as sent to avoid retrying
+                    await pool.query(
+                        `UPDATE pending_lender_confirmations SET email_sent = true WHERE id = $1`,
+                        [record.id]
+                    );
+                    continue;
+                }
+
+                // Get the matching reject token for this contact and lender
+                const rejectResult = await pool.query(
+                    `SELECT token FROM pending_lender_confirmations
+                     WHERE contact_id = $1 AND lender = $2 AND action = 'reject' AND used = false
+                     ORDER BY created_at DESC LIMIT 1`,
+                    [record.contact_id, record.lender]
+                );
+
+                if (rejectResult.rows.length === 0) {
+                    console.error(`[Worker] ❌ No reject token found for contact ${record.contact_id}, lender ${record.lender}`);
+                    continue;
+                }
+
+                const rejectToken = rejectResult.rows[0].token;
+                const lenderName = record.lender;
+                const alternatives = getCategory3Alternatives(lenderName);
+                const alternativeName = alternatives[0] || lenderName;
+                const clientName = `${record.first_name} ${record.last_name}`;
+
+                // Auto-detect environment: PM2 = production, otherwise local
+                const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+                const FRONTEND_URL = isProduction
+                    ? 'http://rowanroseclaims.co.uk'
+                    : 'http://localhost:3000';
+                const confirmUrl = `${FRONTEND_URL}/confirm-lender/${record.confirm_token}`;
+                const rejectUrl = `${FRONTEND_URL}/confirm-lender/${rejectToken}`;
+
+                console.log(`[Worker] 📧 Sending Category 3 confirmation email to ${record.email} for ${lenderName}`);
+
+                const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 40px 45px; text-align: center;">
+                            <h1 style="font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: 1px; margin: 0;">ROWAN ROSE SOLICITORS</h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 45px;">
+                            <h2 style="color: #0f172a; font-size: 22px; margin: 0 0 8px; font-weight: 700; text-align: center;">Confirm Your Lender</h2>
+                            <p style="color: #64748b; font-size: 16px; margin: 0 0 30px; text-align: center;">Hi ${record.first_name}, we need a quick confirmation</p>
+
+                            <!-- Lender Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: #f1f5f9; border-radius: 12px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 25px; text-align: center;">
+                                        <p style="color: #64748b; font-size: 14px; margin: 0 0 8px;">You selected:</p>
+                                        <p style="color: #0f172a; font-size: 26px; font-weight: 700; margin: 0;">${lenderName}</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="color: #475569; font-size: 15px; line-height: 1.6; text-align: center; margin: 0 0 30px;">
+                                Please click the button below to confirm if this is the correct lender for your claim.
+                            </p>
+
+                            <!-- Single Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td align="center">
+                                        <a href="${confirmUrl}" style="display: inline-block; background: #1e3a5f; color: #ffffff; padding: 16px 40px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 16px;">
+                                            Confirm Your Selection
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 25px 0 0;">
+                                This link will expire in 7 days
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background: #f8fafc; padding: 25px 45px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <p style="color: #64748b; font-size: 13px; margin: 0;">Rowan Rose Solicitors Ltd | 0161 533 0444</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+                `;
+
+                // Send the email using irlEmailTransporter (irl@rowanrose.co.uk)
+                await irlEmailTransporter.sendMail({
+                    from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+                    to: record.email,
+                    subject: `Confirm Your Lender Selection - ${lenderName}`,
+                    html: emailHtml
+                });
+
+                console.log(`[Worker] ✅ Category 3 confirmation email sent to ${record.email} for ${lenderName}`);
+
+                // Mark email as sent for both confirm and reject tokens
+                await pool.query(
+                    `UPDATE pending_lender_confirmations SET email_sent = true
+                     WHERE contact_id = $1 AND lender = $2 AND used = false`,
+                    [record.contact_id, record.lender]
+                );
+
+                // Log to action timeline
+                const timestamp = new Date().toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                });
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                     VALUES ($1, 'system', 'worker', 'category3_email_sent', 'claims', $2, $3)`,
+                    [
+                        record.contact_id,
+                        `[${timestamp}] ${lenderName} confirmation email sent to ${record.email}`,
+                        JSON.stringify({ lender: lenderName, email: record.email })
+                    ]
+                );
+
+            } catch (err) {
+                console.error(`[Worker] ❌ Error sending Category 3 confirmation for contact ${record.contact_id}:`, err.message);
+
+                // Log failure to action timeline
+                const failTimestamp = new Date().toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                });
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description)
+                     VALUES ($1, 'system', 'worker', 'category3_email_failed', 'claims', $2)`,
+                    [record.contact_id, `[${failTimestamp}] Failed to send ${record.lender} confirmation email to ${record.email}: ${err.message}`]
+                );
+            }
+        }
+    } catch (error) {
+        console.error('[Worker] Category 3 Confirmation Email Error:', error);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -1966,6 +2487,8 @@ const runWorkerCycle = async () => {
     await markOverdueDSARs();
     // Send notifications for newly overdue cases
     await sendOverdueNotifications();
+    // Send pending Category 3 confirmation emails
+    await processPendingCategory3Confirmations();
 };
 
 // Run immediately on start (with small delay for DB migration)

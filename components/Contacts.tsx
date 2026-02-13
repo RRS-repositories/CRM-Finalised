@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
    Search, Filter, Upload, Download, MoreHorizontal,
    Trash2, X, UserPlus, ArrowLeft, Clock as ClockIcon,
@@ -232,6 +232,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [uploadFile, setUploadFile] = useState<File | null>(null);
    const [uploadCategory, setUploadCategory] = useState<string>('Other');
    const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+   const [docUploadProgress, setDocUploadProgress] = useState(0);
 
    // Multi-Lender Selection State for Add Claim
    const [selectedLenders, setSelectedLenders] = useState<string[]>([]);
@@ -428,6 +429,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [showClaimDocUpload, setShowClaimDocUpload] = useState(false);
    const [claimDocFile, setClaimDocFile] = useState<File | null>(null);
    const [claimDocCategory, setClaimDocCategory] = useState('Other');
+   const [isUploadingClaimDoc, setIsUploadingClaimDoc] = useState(false);
+   const [claimDocUploadProgress, setClaimDocUploadProgress] = useState(0);
 
    // Set Context for AI on Mount
    useEffect(() => {
@@ -571,6 +574,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [localContactDocs, setLocalContactDocs] = useState<Document[]>([]);
    const [docsLoading, setDocsLoading] = useState(false);
 
+   // Document pagination - show 10 at a time for faster loading
+   const [docsPage, setDocsPage] = useState(1);
+   const docsPerPage = 10;
+
    const fetchContactDocuments = useCallback(async () => {
       if (!contactId) return;
       setDocsLoading(true);
@@ -588,9 +595,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             version: d.version,
             tags: d.tags || [],
             associatedContactId: d.contact_id?.toString(),
-            dateModified: d.created_at?.split('T')[0]
+            dateModified: d.created_at?.split('T')[0],
+            createdAt: d.created_at
          }));
          setLocalContactDocs(mapped);
+         setDocsPage(1); // Reset pagination when documents are refreshed
       } catch (err) {
          console.error('Error fetching contact documents:', err);
       } finally {
@@ -614,6 +623,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (lowerName === 'signature.png' || lowerName === 'signature_2.png') return false;
       return true;
    });
+
+   // Paginated documents for Documents tab - show 10 at a time for faster loading
+   const totalDocsPages = Math.ceil(contactDocs.length / docsPerPage);
+   const paginatedDocs = contactDocs.slice((docsPage - 1) * docsPerPage, docsPage * docsPerPage);
 
    // Helper to extract lender from document tags or name
    const getLenderFromDoc = (doc: Document) => {
@@ -756,25 +769,49 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setIsCreatingClaim(true);
       setClaimProgress(0);
       setClaimProgressTotal(selectedLenders.length);
+      let createdCount = 0;
+      let confirmationSentCount = 0;
+      const confirmationLenders: string[] = [];
+
       try {
          for (let i = 0; i < selectedLenders.length; i++) {
             // Show partial progress before API call (smooth fill)
             setClaimProgress(i + 0.3);
             await delay(400);
-            await addClaim({
+            const result = await addClaim({
                contactId: contact.id,
                lender: selectedLenders[i],
                claimValue: Number(newClaimData.claimValue),
                status: newClaimData.status,
                productType: newClaimData.productType || 'Credit Card'
             });
+            // Track Category 3 vs normal claims
+            if (result.category3) {
+               confirmationSentCount++;
+               confirmationLenders.push(result.lender || selectedLenders[i]);
+            } else if (result.success) {
+               createdCount++;
+            }
             // Complete this step
             setClaimProgress(i + 1);
             await delay(300);
          }
          // Brief pause at 100% so user sees completion
          await delay(600);
-         addNotification('success', `${selectedLenders.length} claim${selectedLenders.length > 1 ? 's' : ''} created successfully`);
+
+         // Build appropriate notification message
+         const messages: string[] = [];
+         if (createdCount > 0) {
+            messages.push(`${createdCount} claim${createdCount > 1 ? 's' : ''} created`);
+         }
+         if (confirmationSentCount > 0) {
+            messages.push(`${confirmationSentCount} lender${confirmationSentCount > 1 ? 's' : ''} require${confirmationSentCount === 1 ? 's' : ''} client confirmation (${confirmationLenders.join(', ')})`);
+         }
+
+         if (messages.length > 0) {
+            addNotification(confirmationSentCount > 0 && createdCount === 0 ? 'info' : 'success', messages.join('. '));
+         }
+
          setShowAddClaim(false);
          setNewClaimData({ claimValue: 0, status: ClaimStatus.NEW_LEAD });
          setSelectedLenders([]);
@@ -808,14 +845,37 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (isUploadingDocument) return; // Prevent double-click
 
       setIsUploadingDocument(true);
+      setDocUploadProgress(0);
+
       try {
-         await addDocument({
-            name: uploadFile.name,
-            type: uploadFile.name.split('.').pop()?.toLowerCase() as any || 'pdf',
-            category: uploadCategory,
-            associatedContactId: contact.id,
-            size: `${(uploadFile.size / 1024 / 1024).toFixed(2)} MB`,
-         }, uploadFile);
+         const formData = new FormData();
+         formData.append('document', uploadFile);
+         formData.append('contact_id', contact.id);
+         formData.append('category', uploadCategory);
+
+         // Use XMLHttpRequest for progress tracking
+         await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${API_BASE_URL}/api/upload-document`);
+
+            xhr.upload.onprogress = (event) => {
+               if (event.lengthComputable) {
+                  const percent = Math.round((event.loaded / event.total) * 100);
+                  setDocUploadProgress(percent);
+               }
+            };
+
+            xhr.onload = () => {
+               if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve();
+               } else {
+                  reject(new Error('Upload failed'));
+               }
+            };
+
+            xhr.onerror = () => reject(new Error('Upload failed'));
+            xhr.send(formData);
+         });
 
          setShowUploadModal(false);
          setUploadFile(null);
@@ -824,6 +884,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          await fetchContactDocuments();
       } finally {
          setIsUploadingDocument(false);
+         setDocUploadProgress(0);
       }
    };
 
@@ -1133,6 +1194,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const handleOpenClaimFile = async (claimId: string) => {
       setViewingClaimId(claimId);
 
+      // Fetch documents so they show in claim file view
+      fetchContactDocuments();
+
       // Check for autosaved data first
       const autosaveKey = `claim_autosave_${claimId}`;
       const autosaveData = localStorage.getItem(autosaveKey);
@@ -1412,32 +1476,57 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
-   // Upload document for claim
+   // Upload document for claim - stores in Lenders/{Lender}/{Category}/ folder
    const handleClaimDocUpload = async () => {
-      if (!claimDocFile || !viewingClaimId || !contact) return;
+      if (!claimDocFile || !viewingClaimId || !contact || !claimFileForm.lender) return;
+      if (isUploadingClaimDoc) return;
+
+      setIsUploadingClaimDoc(true);
+      setClaimDocUploadProgress(0);
 
       try {
          const formData = new FormData();
-         formData.append('file', claimDocFile);
-         formData.append('contactId', contact.id);
+         formData.append('document', claimDocFile);
+         formData.append('contact_id', contact.id);
+         formData.append('claim_id', viewingClaimId);
+         formData.append('lender', claimFileForm.lender);
          formData.append('category', claimDocCategory);
-         formData.append('claimId', viewingClaimId);
 
-         // Use existing addDocument method
-         await addDocument({
-            name: claimDocFile.name,
-            type: claimDocFile.type,
-            category: claimDocCategory,
-            url: URL.createObjectURL(claimDocFile), // Temporary URL
-            size: `${(claimDocFile.size / 1024).toFixed(1)} KB`,
-            associatedContactId: contact.id
+         // Use XMLHttpRequest for progress tracking
+         await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${API_BASE_URL}/api/upload-claim-document`);
+
+            xhr.upload.onprogress = (event) => {
+               if (event.lengthComputable) {
+                  const percent = Math.round((event.loaded / event.total) * 100);
+                  setClaimDocUploadProgress(percent);
+               }
+            };
+
+            xhr.onload = () => {
+               if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve();
+               } else {
+                  reject(new Error('Upload failed'));
+               }
+            };
+
+            xhr.onerror = () => reject(new Error('Upload failed'));
+            xhr.send(formData);
          });
+
+         // Refresh documents list
+         await fetchContactDocuments();
 
          setShowClaimDocUpload(false);
          setClaimDocFile(null);
          setClaimDocCategory('Other');
       } catch (error) {
-         console.error('Error uploading document:', error);
+         console.error('Error uploading claim document:', error);
+      } finally {
+         setIsUploadingClaimDoc(false);
+         setClaimDocUploadProgress(0);
       }
    };
 
@@ -3218,14 +3307,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  {(() => {
                                     const currentLender = claimFileForm.lender;
                                     const filteredClaimsDocs = contactDocs.filter(doc => {
-                                       // Filter for PDF documents related to this specific lender
-                                       if (doc.type !== 'pdf') return false;
-
+                                       // Filter for documents related to this specific lender (all file types)
                                        const tags = doc.tags || [];
-                                       const matchesTag = tags.some(t => t.toLowerCase() === currentLender.toLowerCase());
-                                       const matchesName = doc.name.toLowerCase().includes(currentLender.toLowerCase());
+                                       const lenderLower = currentLender?.toLowerCase() || '';
 
-                                       return matchesTag || matchesName;
+                                       // Match if: lender in tags, or lender in name, or claim-document tag with lender
+                                       const matchesTag = tags.some(t => t.toLowerCase() === lenderLower);
+                                       const matchesName = doc.name.toLowerCase().includes(lenderLower);
+                                       const isClaimDoc = tags.some(t => t === 'claim-document') && matchesTag;
+
+                                       return matchesTag || matchesName || isClaimDoc;
                                     });
 
                                     return filteredClaimsDocs.length > 0 ? (
@@ -3319,10 +3410,32 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         {/* Claim Document Upload Modal */}
                         {showClaimDocUpload && (
                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+                              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 relative">
+                                 {/* Upload Progress Overlay */}
+                                 {isUploadingClaimDoc && (
+                                    <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                                       <div className="relative w-24 h-24">
+                                          <svg className="w-full h-full transform -rotate-90">
+                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
+                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
+                                                strokeDasharray={251.2}
+                                                strokeDashoffset={251.2 - (251.2 * claimDocUploadProgress) / 100}
+                                                className="text-blue-500 transition-all duration-300 ease-out"
+                                                strokeLinecap="round"
+                                             />
+                                          </svg>
+                                          <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-blue-600 dark:text-blue-400">
+                                             {Math.round(claimDocUploadProgress)}%
+                                          </div>
+                                       </div>
+                                       <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
+                                          {claimDocUploadProgress < 100 ? 'Uploading document...' : 'Processing...'}
+                                       </p>
+                                    </div>
+                                 )}
                                  <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Upload Document</h3>
-                                    <button onClick={() => setShowClaimDocUpload(false)} className="text-gray-400 hover:text-gray-600">
+                                    <button onClick={() => !isUploadingClaimDoc && setShowClaimDocUpload(false)} className="text-gray-400 hover:text-gray-600" disabled={isUploadingClaimDoc}>
                                        <X size={20} />
                                     </button>
                                  </div>
@@ -3333,6 +3446,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           value={claimDocCategory}
                                           onChange={(e) => setClaimDocCategory(e.target.value)}
                                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                          disabled={isUploadingClaimDoc}
                                        >
                                           {DOCUMENT_CATEGORIES.map(cat => (
                                              <option key={cat} value={cat}>{cat}</option>
@@ -3345,6 +3459,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           type="file"
                                           onChange={(e) => setClaimDocFile(e.target.files?.[0] || null)}
                                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                          disabled={isUploadingClaimDoc}
                                        />
                                     </div>
                                     {claimDocFile && (
@@ -3355,15 +3470,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     <button
                                        onClick={() => setShowClaimDocUpload(false)}
                                        className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+                                       disabled={isUploadingClaimDoc}
                                     >
                                        Cancel
                                     </button>
                                     <button
                                        onClick={handleClaimDocUpload}
-                                       disabled={!claimDocFile}
+                                       disabled={!claimDocFile || isUploadingClaimDoc}
                                        className="px-4 py-2 text-sm font-medium text-white bg-navy-700 hover:bg-navy-800 rounded-lg disabled:opacity-50"
                                     >
-                                       Upload
+                                       {isUploadingClaimDoc ? 'Uploading...' : 'Upload'}
                                     </button>
                                  </div>
                               </div>
@@ -3602,6 +3718,33 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                      </div>
                   ) : contactDocs.length > 0 ? (
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+                        {/* Pagination Info Header */}
+                        <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 flex items-center justify-between">
+                           <span className="text-sm text-gray-600 dark:text-gray-400">
+                              Showing {((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, contactDocs.length)} of {contactDocs.length} documents
+                           </span>
+                           {totalDocsPages > 1 && (
+                              <div className="flex items-center gap-2">
+                                 <button
+                                    onClick={() => setDocsPage(p => Math.max(1, p - 1))}
+                                    disabled={docsPage === 1}
+                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    Previous
+                                 </button>
+                                 <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    Page {docsPage} of {totalDocsPages}
+                                 </span>
+                                 <button
+                                    onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
+                                    disabled={docsPage === totalDocsPages}
+                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    Next
+                                 </button>
+                              </div>
+                           )}
+                        </div>
                         <table className="w-full text-left">
                            <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-700 dark:to-purple-700">
                               <tr className="text-xs text-white uppercase tracking-wider font-bold">
@@ -3614,7 +3757,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               </tr>
                            </thead>
                            <tbody>
-                              {contactDocs.map((doc, index) => (
+                              {paginatedDocs.map((doc, index) => (
                                  <tr
                                     key={doc.id}
                                     className={`
@@ -3701,6 +3844,47 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               ))}
                            </tbody>
                         </table>
+                        {/* Pagination Footer */}
+                        {totalDocsPages > 1 && (
+                           <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600 flex items-center justify-between">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                 Showing {((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, contactDocs.length)} of {contactDocs.length}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                 <button
+                                    onClick={() => setDocsPage(1)}
+                                    disabled={docsPage === 1}
+                                    className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    First
+                                 </button>
+                                 <button
+                                    onClick={() => setDocsPage(p => Math.max(1, p - 1))}
+                                    disabled={docsPage === 1}
+                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    ← Prev
+                                 </button>
+                                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {docsPage} / {totalDocsPages}
+                                 </span>
+                                 <button
+                                    onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
+                                    disabled={docsPage === totalDocsPages}
+                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    Next →
+                                 </button>
+                                 <button
+                                    onClick={() => setDocsPage(totalDocsPages)}
+                                    disabled={docsPage === totalDocsPages}
+                                    className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    Last
+                                 </button>
+                              </div>
+                           </div>
+                        )}
                      </div>
                   ) : (
                      <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800">
@@ -3798,7 +3982,29 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          {/* Upload Modal with Category Selection */}
          {showUploadModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-md p-6 border border-gray-200 dark:border-slate-700">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-md p-6 border border-gray-200 dark:border-slate-700 relative">
+                  {/* Upload Progress Overlay */}
+                  {isUploadingDocument && (
+                     <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                        <div className="relative w-24 h-24">
+                           <svg className="w-full h-full transform -rotate-90">
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
+                                 strokeDasharray={251.2}
+                                 strokeDashoffset={251.2 - (251.2 * docUploadProgress) / 100}
+                                 className="text-blue-500 transition-all duration-300 ease-out"
+                                 strokeLinecap="round"
+                              />
+                           </svg>
+                           <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-blue-600 dark:text-blue-400">
+                              {Math.round(docUploadProgress)}%
+                           </div>
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
+                           {docUploadProgress < 100 ? 'Uploading document...' : 'Processing...'}
+                        </p>
+                     </div>
+                  )}
                   <h3 className="font-bold text-lg mb-4 text-navy-900 dark:text-white">Upload Document</h3>
                   <div className="space-y-4">
                      <div className="border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl p-8 flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-700/50 text-center">
@@ -3807,8 +4013,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            id="file-upload"
                            className="hidden"
                            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                           disabled={isUploadingDocument}
                         />
-                        <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
+                        <label htmlFor="file-upload" className={`cursor-pointer flex flex-col items-center ${isUploadingDocument ? 'pointer-events-none opacity-50' : ''}`}>
                            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-3">
                               <Upload size={24} />
                            </div>
@@ -3828,6 +4035,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            value={uploadCategory}
                            onChange={(e) => setUploadCategory(e.target.value)}
                            className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                           disabled={isUploadingDocument}
                         >
                            {DOCUMENT_CATEGORIES.map(cat => (
                               <option key={cat} value={cat}>{cat}</option>
@@ -3848,7 +4056,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         disabled={!uploadFile || isUploadingDocument}
                         className="px-4 py-2 bg-navy-700 text-white rounded-lg hover:bg-navy-800 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                      >
-                        {isUploadingDocument && <Loader2 size={14} className="animate-spin" />}
                         {isUploadingDocument ? 'Uploading...' : 'Upload'}
                      </button>
                   </div>
@@ -4525,11 +4732,20 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 const Contacts: React.FC = () => {
    const { contacts, addContact, deleteContacts, addNotification, actionLogs, fetchAllActionLogs, addCommunication, pendingContactNavigation, clearContactNavigation, contactsPagination, fetchContactsPage } = useCRM();
    const navigate = useNavigate();
+   const { contactId: urlContactId } = useParams<{ contactId: string }>();
 
    // Fetch all action logs for the Last Activity column
    useEffect(() => {
       fetchAllActionLogs();
    }, [fetchAllActionLogs]);
+
+   // Sync URL param with selectedContactId state
+   useEffect(() => {
+      if (urlContactId) {
+         setSelectedContactId(urlContactId);
+         setViewMode('detail');
+      }
+   }, [urlContactId]);
 
    // Callback to navigate back to Pipeline/Cases module
    const handleBackToPipeline = useCallback(() => {
@@ -4601,9 +4817,10 @@ const Contacts: React.FC = () => {
          setInitialTab(pendingContactNavigation.tab as ContactTab);
          setInitialClaimId(pendingContactNavigation.claimId);
          setViewMode('detail');
+         navigate(`/contacts/${pendingContactNavigation.contactId}`); // Update URL
          clearContactNavigation();
       }
-   }, [pendingContactNavigation, clearContactNavigation]);
+   }, [pendingContactNavigation, clearContactNavigation, navigate]);
 
    // Individual search fields
    const [searchFullName, setSearchFullName] = useState('');
@@ -4655,6 +4872,7 @@ const Contacts: React.FC = () => {
       setInitialTab('personal'); // Reset to default tab when clicking from list
       setInitialClaimId(undefined); // Reset claim when clicking from list
       setViewMode('detail');
+      navigate(`/contacts/${id}`); // Update URL
    };
 
    const handleBack = () => {
@@ -4662,6 +4880,7 @@ const Contacts: React.FC = () => {
       setInitialTab('personal'); // Reset tab when going back
       setInitialClaimId(undefined); // Reset claim when going back
       setViewMode('list');
+      navigate('/contacts'); // Go back to contacts list
    };
 
    // Close menu when clicking outside

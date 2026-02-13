@@ -1536,6 +1536,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       const cs = await response.json();
 
+      // Handle Category 3 lender confirmation flow
+      if (cs.category3) {
+        addNotification('info', cs.message || `Confirmation email sent to client for ${cs.lender}`);
+        logActivity(claimData.contactId, 'Category 3 Confirmation Sent', `Awaiting client confirmation for ${cs.lender}`, 'email');
+        return { success: true, category3: true, message: cs.message, lender: cs.lender };
+      }
+
       const newClaim: Claim = {
         id: cs.id.toString(),
         contactId: cs.contact_id.toString(),
@@ -1815,6 +1822,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         formData.append('document', file);
         if (docData.associatedContactId) {
           formData.append('contact_id', docData.associatedContactId);
+          // Pass category for category-based folder structure
+          if (docData.category) {
+            formData.append('category', docData.category);
+          }
 
           const response = await fetch(`${API_BASE_URL}/upload-document`, {
             method: 'POST',

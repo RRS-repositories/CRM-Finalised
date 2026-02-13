@@ -18,6 +18,7 @@ import Settings from './components/Settings';
 import ClientIntake from './components/IntakeForm/ClientIntake';
 import LenderIntake from './components/IntakeForm/LenderIntake';
 import LoaSelectionForm from './components/LoaSelectionForm';
+import LenderConfirmation from './components/LenderConfirmation';
 import Login from './components/Login';
 import MattermostPanel from './components/MattermostPanel';
 import { ViewState } from './types';
@@ -114,6 +115,7 @@ const AppContent = () => {
         <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
         <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
         <Route path="/loa-form/*" element={<LoaSelectionForm />} />
+        <Route path="/confirm-lender/*" element={<LenderConfirmation />} />
         {/* Default to login for all other routes when not authenticated */}
         <Route path="*" element={<Login />} />
       </Routes>
@@ -132,6 +134,7 @@ const AppContent = () => {
       <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
       <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
       <Route path="/loa-form/*" element={<LoaSelectionForm />} />
+      <Route path="/confirm-lender/*" element={<LenderConfirmation />} />
 
       {/* All other routes wrapped in Layout with sidebar */}
       <Route path="*" element={
@@ -148,6 +151,7 @@ const AppContent = () => {
 
               {/* Contacts */}
               <Route path="/contacts" element={<Contacts />} />
+              <Route path="/contacts/:contactId" element={<Contacts />} />
 
               {/* Cases/Pipeline */}
               <Route path="/cases" element={<Pipeline />} />

@@ -318,6 +318,22 @@ pool.on('error', (err, client) => {
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
 
+                    -- Create pending_lender_confirmations table for Category 3 lenders
+                    CREATE TABLE IF NOT EXISTS pending_lender_confirmations (
+                        id SERIAL PRIMARY KEY,
+                        contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+                        lender VARCHAR(255) NOT NULL,
+                        action VARCHAR(20) NOT NULL, -- 'confirm' or 'reject'
+                        token VARCHAR(64) UNIQUE NOT NULL,
+                        email_sent BOOLEAN DEFAULT FALSE,
+                        used BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        used_at TIMESTAMP
+                    );
+
+                    -- Add email_sent column if it doesn't exist (for existing tables)
+                    ALTER TABLE pending_lender_confirmations ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
+
                     -- Create indexes for better performance
                     CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date);
                     CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
@@ -325,6 +341,8 @@ pool.on('error', (err, client) => {
                     CREATE INDEX IF NOT EXISTS idx_task_reminders_time ON task_reminders(reminder_time);
                     CREATE INDEX IF NOT EXISTS idx_notifications_user ON persistent_notifications(user_id);
                     CREATE INDEX IF NOT EXISTS idx_notifications_unread ON persistent_notifications(user_id, is_read);
+                    CREATE INDEX IF NOT EXISTS idx_pending_confirmations_token ON pending_lender_confirmations(token);
+                    CREATE INDEX IF NOT EXISTS idx_pending_confirmations_contact ON pending_lender_confirmations(contact_id);
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
@@ -942,7 +960,7 @@ async function generateLenderLOA(lenderName, clientData, signatureBuffer) {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
@@ -1103,7 +1121,7 @@ async function generatePreviousAddressPDF(clientData, addresses, logoBase64) {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
@@ -1587,6 +1605,41 @@ function standardizeLender(lenderName) {
     return match || lenderName;
 }
 
+// ============================================================================
+// CATEGORY 3: CONFIRMATION REQUIRED LENDERS
+// ============================================================================
+// These lenders require client confirmation before creating a claim
+// Maps correct lender name to intentionally misspelled alternative
+// LEFT = correct name (create claim), RIGHT = misspelled (reject)
+const CATEGORY_3_CONFIRMATION_LENDERS = {
+    'ANICO FINANCE': ['THE ANICO FINANCE'],
+    'LOANS BY MAL': ['LOANS BY MAL'],
+    'PAYDAY UK': ['PAYNIGHT UK'],
+    'QUICK LOANS': ['QUICK LOANZ'],
+    'THE ONE STOP MONEY SHOP': ['MONEY SHOP'],
+    'TICK TOCK LOANS': ['TIK TOK LOANZ']
+};
+
+// Helper function to check if a lender is Category 3
+function isCategory3Lender(lenderName) {
+    if (!lenderName) return false;
+    const normalized = lenderName.toUpperCase().trim();
+    return Object.keys(CATEGORY_3_CONFIRMATION_LENDERS).includes(normalized);
+}
+
+// Generate confirmation token
+function generateConfirmationToken() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let token = '';
+    for (let i = 0; i < 32; i++) {
+        token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return token;
+}
+
+// NOTE: Category 3 confirmation emails are now sent by worker.js (processPendingCategory3Confirmations)
+// ============================================================================
+
 // Helper function to set reference_specified on a case and add to contact's reference column
 async function setReferenceSpecified(pool, contactId, caseId) {
     const refSpec = `${contactId}${caseId}`;
@@ -1818,7 +1871,7 @@ app.post('/api/submit-page1', async (req, res) => {
                 });
 
                 const page = await browser.newPage();
-                await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+                await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
                 const pdfBuffer = await page.pdf({
                     format: 'A4',
@@ -1971,12 +2024,15 @@ app.get('/api/verify-loa-token/:token', async (req, res) => {
 });
 
 app.post('/api/upload-document', upload.single('document'), async (req, res) => {
-    const { contact_id } = req.body;
+    const { contact_id, category } = req.body;
     const file = req.file;
 
     if (!file || !contact_id) {
         return res.status(400).json({ success: false, message: 'Missing file or contact ID' });
     }
+
+    // Default category to 'Other' if not provided
+    const docCategory = category || 'Other';
 
     try {
         // Fetch contact name for folder
@@ -1986,24 +2042,26 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
         }
         const { first_name, last_name } = contactRes.rows[0];
 
-        // Rename file to document_contactid.ext for S3 storage
         const originalName = file.originalname;
         const ext = path.extname(originalName);
-        const s3BaseName = `document_${contact_id}`;
+        const baseName = path.basename(originalName, ext);
 
-        // Versioning Logic - check if document_contactid.ext already exists
-        let s3FileName = `${s3BaseName}${ext}`;
-        let displayName = originalName; // Keep original name for display in CRM
+        // Sanitize category for S3 path
+        const sanitizedCategory = docCategory.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+        // Check for existing file with same name in this category
+        let s3FileName = `${baseName}${ext}`;
+        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
 
         const nameCheck = await pool.query(
-            `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2`,
-            [contact_id, `${s3BaseName}%${ext}`]
+            `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
+            [contact_id, `${baseName}%${ext}`, docCategory]
         );
 
         if (nameCheck.rows.length > 0) {
             // File exists, append version number
             let maxVersion = 0;
-            const regex = new RegExp(`^document_${contact_id}(?: \\((\\d+)\\))?\\${ext}$`);
+            const regex = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?\\${ext}$`);
 
             nameCheck.rows.forEach(row => {
                 const match = row.name.match(regex);
@@ -2013,10 +2071,10 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
                 }
             });
 
-            s3FileName = `${s3BaseName} (${maxVersion + 1})${ext}`;
+            s3FileName = `${baseName} (${maxVersion + 1})${ext}`;
         }
 
-        const key = `${first_name}_${last_name}_${contact_id}/Documents/${s3FileName}`;
+        const key = `${folderPath}/${s3FileName}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -2027,25 +2085,144 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
 
         const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
 
-        // Store with s3FileName as the name (so S3 key and DB name match for sync/retrieval)
+        // Determine document type from extension
+        const extLower = ext.toLowerCase().replace('.', '');
+        let docType = 'unknown';
+        if (['pdf'].includes(extLower)) docType = 'pdf';
+        else if (['doc', 'docx'].includes(extLower)) docType = 'docx';
+        else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(extLower)) docType = 'image';
+        else if (['xls', 'xlsx', 'csv'].includes(extLower)) docType = 'spreadsheet';
+        else if (['txt'].includes(extLower)) docType = 'txt';
+
+        // Store with original filename and category
         const { rows } = await pool.query(
             `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-            [contact_id, s3FileName, file.mimetype.split('/')[1] || 'unknown', 'Client', s3Url, `${(file.size / 1024).toFixed(1)} KB`, ['Uploaded', `Original: ${originalName}`]]
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [contact_id, s3FileName, docType, docCategory, s3Url, `${(file.size / 1024).toFixed(1)} KB`, [docCategory, 'Uploaded', `Original: ${originalName}`]]
         );
 
-        // Update document_checklist to set identification = true
-        await pool.query(
-            `UPDATE contacts
-             SET document_checklist = COALESCE(document_checklist, '{}')::jsonb || '{"identification": true}'::jsonb
-             WHERE id = $1`,
-            [contact_id]
-        );
+        // Update document_checklist to set identification = true if ID Document category
+        if (docCategory === 'ID Document') {
+            await pool.query(
+                `UPDATE contacts
+                 SET document_checklist = COALESCE(document_checklist, '{}')::jsonb || '{"identification": true}'::jsonb
+                 WHERE id = $1`,
+                [contact_id]
+            );
+            console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}, identification set to true`);
+        } else {
+            console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}`);
+        }
 
-        console.log(`[Upload] Renamed "${originalName}" → "${s3FileName}" for contact ${contact_id}, identification set to true`);
         res.json({ success: true, url: s3Url, document: rows[0] });
     } catch (error) {
         console.error('Upload Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// --- CLAIM DOCUMENT UPLOAD ---
+// Uploads document to Lenders/{LenderName}/{Category}/ folder
+// Special handling for LOA and Cover Letter - stored directly in lender folder with standard naming
+app.post('/api/upload-claim-document', upload.single('document'), async (req, res) => {
+    const { contact_id, claim_id, lender, category } = req.body;
+    const file = req.file;
+
+    if (!file || !contact_id || !lender || !category) {
+        return res.status(400).json({ success: false, message: 'Missing file, contact_id, lender, or category' });
+    }
+
+    try {
+        // Fetch contact name for folder
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contact_id]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+        const { first_name, last_name } = contactRes.rows[0];
+
+        const originalName = file.originalname;
+        const ext = path.extname(originalName);
+        const baseName = path.basename(originalName, ext);
+
+        // Sanitize lender and category names for S3 path
+        const sanitizedLender = lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+        const sanitizedCategory = category.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+        // Reference spec for standard naming
+        const refSpec = `${contact_id}${claim_id || ''}`;
+        const clientName = `${first_name} ${last_name}`;
+
+        let s3FileName;
+        let folderPath;
+        let key;
+
+        // Special handling for LOA and Cover Letter - store directly in lender folder with DSAR-compatible naming
+        if (category === 'Letter of Authority') {
+            s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - LOA${ext}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            key = `${folderPath}/${s3FileName}`;
+        } else if (category === 'Cover Letter') {
+            s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - COVER LETTER${ext}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            key = `${folderPath}/${s3FileName}`;
+        } else {
+            // Standard category - store in subfolder
+            s3FileName = `${baseName}${ext}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
+
+            // Check for existing file with same name to handle versioning
+            const nameCheck = await pool.query(
+                `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND tags @> ARRAY[$3]::text[]`,
+                [contact_id, `${baseName}%${ext}`, lender]
+            );
+
+            if (nameCheck.rows.length > 0) {
+                // File exists, append version number
+                let maxVersion = 0;
+                const regex = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?\\${ext}$`);
+
+                nameCheck.rows.forEach(row => {
+                    const match = row.name.match(regex);
+                    if (match) {
+                        const ver = match[1] ? parseInt(match[1]) : 0;
+                        if (ver >= maxVersion) maxVersion = ver;
+                    }
+                });
+
+                s3FileName = `${baseName} (${maxVersion + 1})${ext}`;
+            }
+            key = `${folderPath}/${s3FileName}`;
+        }
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
+
+        // Determine document type from extension
+        const extLower = ext.toLowerCase().replace('.', '');
+        let docType = 'unknown';
+        if (['pdf'].includes(extLower)) docType = 'pdf';
+        else if (['doc', 'docx'].includes(extLower)) docType = 'docx';
+        else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(extLower)) docType = 'image';
+        else if (['xls', 'xlsx', 'csv'].includes(extLower)) docType = 'spreadsheet';
+        else if (['txt'].includes(extLower)) docType = 'txt';
+
+        // Store with original filename, category, and tags including lender + 'claim-document'
+        const { rows } = await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [contact_id, s3FileName, docType, category, s3Url, `${(file.size / 1024).toFixed(1)} KB`, [lender, category, 'claim-document', `Original: ${originalName}`]]
+        );
+
+        console.log(`[Claim Doc Upload] "${originalName}" → "${key}" for contact ${contact_id}, lender ${lender}, category ${category}`);
+        res.json({ success: true, url: s3Url, document: rows[0] });
+    } catch (error) {
+        console.error('Claim Document Upload Error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2222,12 +2399,37 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
             [contactId]
         );
 
-        // 3. Get existing documents from DB
+        // 2b. Clean up documents that have folder paths in name (e.g., "VANQUIS/file.pdf")
+        // if the base filename already exists without the path
+        const pathDocs = await pool.query(
+            `SELECT id, name FROM documents WHERE contact_id = $1 AND name LIKE '%/%'`,
+            [contactId]
+        );
+        for (const doc of pathDocs.rows) {
+            const baseName = doc.name.split('/').pop();
+            // Check if clean version exists
+            const cleanExists = await pool.query(
+                `SELECT id FROM documents WHERE contact_id = $1 AND name = $2 AND id != $3`,
+                [contactId, baseName, doc.id]
+            );
+            if (cleanExists.rows.length > 0) {
+                // Delete the one with folder path in name
+                await pool.query(`DELETE FROM documents WHERE id = $1`, [doc.id]);
+                console.log(`[Sync] Removed duplicate with path: ${doc.name}`);
+            }
+        }
+
+        // 3. Get existing documents from DB - check both full paths and base filenames
         const existingDocs = await pool.query(
             'SELECT name FROM documents WHERE contact_id = $1',
             [contactId]
         );
         const existingNames = new Set(existingDocs.rows.map(d => d.name));
+        // Also track base filenames (without folder paths) to prevent duplicates
+        const existingBaseNames = new Set(existingDocs.rows.map(d => {
+            const parts = d.name.split('/');
+            return parts[parts.length - 1]; // Get just the filename
+        }));
 
         let syncedCount = 0;
         let totalCount = 0;
@@ -2251,9 +2453,15 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
                 const relativePath = obj.Key.substring(folder.prefix.length);
                 if (!relativePath) continue;
 
-                // Use relative path as filename (includes subfolders)
-                const fileName = relativePath;
-                if (existingNames.has(fileName)) continue;
+                // Get just the base filename (without folder path) for cleaner display
+                const pathParts = relativePath.split('/');
+                const baseName = pathParts[pathParts.length - 1];
+
+                // Skip if this base filename already exists (prevent duplicates)
+                if (existingNames.has(baseName) || existingBaseNames.has(baseName)) continue;
+
+                // Use base filename for DB (cleaner display), but extract lender from path
+                const fileName = baseName;
 
                 // Generate signed URL
                 const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
@@ -2274,20 +2482,27 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
                 // Auto-detect category from filename
                 let category = folder.defaultCategory;
                 if (fileName.includes('Cover_Letter') || fileName.includes('COVER LETTER')) category = 'Cover Letter';
-                else if (fileName.includes('_LOA') || fileName.includes(' - LOA.pdf')) category = 'LOA';
+                else if (fileName.includes('_LOA') || fileName.includes(' - LOA.pdf') || fileName.includes(' - LOA ')) category = 'LOA';
+                // Detect category from folder path (e.g., Lenders/VANQUIS/ID_Document/)
+                if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
 
-                // Extract info from LOA/Cover Letter filenames for tags
+                // Extract lender name from folder path (e.g., "Lenders/VANQUIS/..." → "VANQUIS")
                 const tags = ['Synced from S3'];
+                if (folder.prefix.includes('/Lenders/') && pathParts.length > 1) {
+                    // First part of relativePath is the lender name
+                    const lenderName = pathParts[0].replace(/_/g, ' ');
+                    if (lenderName && lenderName !== baseName) {
+                        tags.push(lenderName);
+                    }
+                }
+
+                // Also extract lender from filename patterns
                 if (category === 'LOA' || category === 'Cover Letter') {
-                    // Handle both old format (LENDER_LOA.pdf) and new format (x123456 - First - Last - LOA.pdf)
-                    if (fileName.startsWith('x') && fileName.includes(' - ')) {
-                        // New format: extract reference
-                        const refMatch = fileName.match(/^(x\d+)/);
-                        if (refMatch) tags.push(refMatch[1]);
-                    } else {
-                        // Old format: extract lender name
-                        const lenderMatch = fileName.replace('_LOA.pdf', '').replace('_Cover_Letter.pdf', '').replace(/_/g, ' ');
-                        if (lenderMatch) tags.push(lenderMatch);
+                    // New format: "123456 - Name - LENDER - LOA.pdf"
+                    const lenderMatch = fileName.match(/ - ([A-Z0-9_ ]+) - (LOA|COVER LETTER)/i);
+                    if (lenderMatch && lenderMatch[1]) {
+                        const lenderFromFile = lenderMatch[1].trim();
+                        if (!tags.includes(lenderFromFile)) tags.push(lenderFromFile);
                     }
                 }
 
@@ -2301,6 +2516,7 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
                 syncedCount++;
                 existingNames.add(fileName);
+                existingBaseNames.add(baseName);
                 console.log(`[Sync] Added: ${fileName} (${category})`);
             }
         }
@@ -2629,15 +2845,71 @@ app.get('/api/contacts/:id/cases', async (req, res) => {
 
 app.post('/api/contacts/:id/cases', async (req, res) => {
     const { case_number, lender, status, claim_value, product_type, account_number, start_date } = req.body;
+    const contactId = req.params.id;
+
     try {
+        const standardizedLender = standardizeLender(lender);
+
+        // Check if this is a Category 3 lender requiring confirmation
+        if (isCategory3Lender(standardizedLender)) {
+            console.log(`[CRM] Category 3 lender detected: ${lender}. Sending confirmation email to client.`);
+
+            // Get contact info for email
+            const contactRes = await pool.query(
+                `SELECT first_name, last_name, email FROM contacts WHERE id = $1`,
+                [contactId]
+            );
+
+            if (contactRes.rows.length === 0) {
+                return res.status(404).json({ error: 'Contact not found' });
+            }
+
+            const contact = contactRes.rows[0];
+
+            // Generate tokens for confirm/reject actions
+            const confirmToken = generateConfirmationToken();
+            const rejectToken = generateConfirmationToken();
+
+            // Store pending confirmations (email will be sent by worker)
+            await pool.query(
+                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                 VALUES ($1, $2, 'confirm', $3, false)`,
+                [contactId, standardizedLender, confirmToken]
+            );
+            await pool.query(
+                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                 VALUES ($1, $2, 'reject', $3, true)`,  // reject token doesn't need separate email
+                [contactId, standardizedLender, rejectToken]
+            );
+
+            // Log the action - email will be sent by worker
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, 'staff', 'crm', 'category3_pending', 'claims', $2, $3)`,
+                [
+                    contactId,
+                    `${standardizedLender} confirmation queued. Email will be sent shortly.`,
+                    JSON.stringify({ lender: standardizedLender })
+                ]
+            );
+
+            return res.json({
+                success: true,
+                category3: true,
+                message: `${standardizedLender} is a Category 3 lender. A confirmation email will be sent to ${contact.email}. The claim will be created when the client confirms.`,
+                lender: standardizedLender
+            });
+        }
+
+        // Normal case creation for non-Category 3 lenders
         // Set dsar_send_after to now (no delay for CRM-created claims; skip for GAMBLING)
         const dsarSendAfter = lender && lender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
         const { rows } = await pool.query(
             `INSERT INTO cases (contact_id, case_number, lender, status, claim_value, product_type, account_number, start_date, loa_generated, dsar_send_after)
                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9) RETURNING *`,
-            [req.params.id, case_number, lender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
+            [contactId, case_number, standardizedLender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
         );
-        await setReferenceSpecified(pool, req.params.id, rows[0].id);
+        await setReferenceSpecified(pool, contactId, rows[0].id);
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -4140,9 +4412,10 @@ app.post('/api/contacts/:id/generate-loa-link', async (req, res) => {
         const { randomUUID } = await import('crypto');
         const uniqueId = randomUUID();
 
-        // Use BASE_URL from env if set, otherwise auto-detect from request
-        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-        const uniqueLink = `${baseUrl}/loa-form/${uniqueId}`;
+        // Use FRONTEND_URL - auto-detect local vs production
+        const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+        const frontendUrl = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
+        const uniqueLink = `${frontendUrl}/loa-form/${uniqueId}`;
 
         // Update contact with unique link
         await pool.query('UPDATE contacts SET unique_form_link = $1 WHERE id = $2', [uniqueId, id]);
@@ -4171,9 +4444,16 @@ app.post('/api/contacts/:id/generate-loa-link', async (req, res) => {
 });
 
 // Serve LOA (Letter of Authority) form page (GET endpoint)
+// Redirect to React frontend for the new layout
 app.get('/loa-form/:uniqueId', async (req, res) => {
     const { uniqueId } = req.params;
 
+    // Redirect to frontend URL (React app handles the form now)
+    const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+    const frontendUrl = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
+    return res.redirect(`${frontendUrl}/loa-form/${uniqueId}`);
+
+    // OLD CODE BELOW - kept for reference but not executed due to redirect above
     try {
         // Find contact by unique link
         const contactRes = await pool.query(
@@ -5074,9 +5354,44 @@ app.post('/api/submit-loa-form', async (req, res) => {
 
 
                 // 5. Create Claims for each selected lender (PDF Generation Deferred)
+                // Category 3 lenders get confirmation emails instead of immediate claim creation
                 const caseCreationPromises = selectedLenders.map(async (lender) => {
                     try {
                         const standardizedLenderName = standardizeLender(lender);
+
+                        // Check if this is a Category 3 lender requiring confirmation
+                        if (isCategory3Lender(standardizedLenderName)) {
+                            console.log(`[Background LOA] Category 3 lender detected: ${lender}. Sending confirmation email.`);
+
+                            // Generate tokens for confirm/reject actions
+                            const confirmToken = generateConfirmationToken();
+                            const rejectToken = generateConfirmationToken();
+
+                            // Store pending confirmations
+                            await pool.query(
+                                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                                 VALUES ($1, $2, 'confirm', $3, false)`,
+                                [contactId, standardizedLenderName, confirmToken]
+                            );
+                            await pool.query(
+                                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                                 VALUES ($1, $2, 'reject', $3, true)`,  // reject token doesn't need separate email
+                                [contactId, standardizedLenderName, rejectToken]
+                            );
+
+                            // Email will be sent by worker - log the action
+                            await pool.query(
+                                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                                 VALUES ($1, 'system', 'loa_form', 'category3_pending', 'claims', $2, $3)`,
+                                [
+                                    contactId,
+                                    `${standardizedLenderName} confirmation queued. Email will be sent shortly.`,
+                                    JSON.stringify({ lender: standardizedLenderName })
+                                ]
+                            );
+
+                            return { lender, success: true, status: 'confirmation_queued' };
+                        }
 
                         // Condition: Only the Intake Lender gets 'Lender Selection Form Completed' initially
                         // Others get 'New Lead'
@@ -5129,26 +5444,32 @@ app.post('/api/submit-loa-form', async (req, res) => {
                 await Promise.all(caseCreationPromises);
 
                 // 6. Handle Intake Lender Claim (Ensure it exists and has correct status if not selected above)
+                // Skip if it's a Category 3 lender (already handled via confirmation email)
                 if (contact.intake_lender) {
                     console.log(`[Background LOA] Ensuring Intake Lender Case: ${contact.intake_lender}`);
                     const stdIntakeLender = standardizeLender(contact.intake_lender);
 
-                    // Update existing case if it exists (e.g. created created above or previously)
-                    const intakeDsarSendAfter = stdIntakeLender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
-                    const updateResult = await pool.query(
-                        `UPDATE cases SET status = 'Lender Selection Form Completed', dsar_send_after = COALESCE(dsar_send_after, $3)
-                         WHERE contact_id = $1 AND lower(lender) = lower($2)`,
-                        [contactId, stdIntakeLender, intakeDsarSendAfter]
-                    );
-
-                    if (updateResult.rowCount === 0) {
-                        // If not exists (meaning user didn't select it? or it wasn't in list?), create it
-                        const intakeCaseRes = await pool.query(
-                            `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
-                             VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3) RETURNING id`,
+                    // Skip Category 3 lenders - they need email confirmation
+                    if (isCategory3Lender(stdIntakeLender)) {
+                        console.log(`[Background LOA] Intake lender ${stdIntakeLender} is Category 3. Confirmation email already sent.`);
+                    } else {
+                        // Update existing case if it exists (e.g. created created above or previously)
+                        const intakeDsarSendAfter = stdIntakeLender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+                        const updateResult = await pool.query(
+                            `UPDATE cases SET status = 'Lender Selection Form Completed', dsar_send_after = COALESCE(dsar_send_after, $3)
+                             WHERE contact_id = $1 AND lower(lender) = lower($2)`,
                             [contactId, stdIntakeLender, intakeDsarSendAfter]
                         );
-                        await setReferenceSpecified(pool, contactId, intakeCaseRes.rows[0].id);
+
+                        if (updateResult.rowCount === 0) {
+                            // If not exists (meaning user didn't select it? or it wasn't in list?), create it
+                            const intakeCaseRes = await pool.query(
+                                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
+                                 VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3) RETURNING id`,
+                                [contactId, stdIntakeLender, intakeDsarSendAfter]
+                            );
+                            await setReferenceSpecified(pool, contactId, intakeCaseRes.rows[0].id);
+                        }
                     }
                 }
 
@@ -7549,7 +7870,7 @@ async function convertDocxToPdfWithPuppeteer(docxBuffer) {
 <body>${htmlBody}</body>
 </html>`;
 
-    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+    await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
@@ -8363,6 +8684,325 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
     console.error('⚠️ Unhandled Rejection:', reason);
 });
+
+// ============================================================================
+// CATEGORY 3 LENDER CONFIRMATION ENDPOINTS
+// ============================================================================
+
+// Verify token and return details (for React confirmation page)
+app.get('/api/verify-lender-token/:token', async (req, res) => {
+    const { token } = req.params;
+
+    try {
+        // Look up the pending confirmation
+        const confirmRes = await pool.query(
+            `SELECT p.*, c.first_name, c.last_name, c.email
+             FROM pending_lender_confirmations p
+             JOIN contacts c ON p.contact_id = c.id
+             WHERE p.token = $1`,
+            [token]
+        );
+
+        if (confirmRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid confirmation link' });
+        }
+
+        const confirmation = confirmRes.rows[0];
+
+        if (confirmation.used) {
+            return res.status(400).json({
+                success: false,
+                used: true,
+                message: 'This confirmation has already been processed'
+            });
+        }
+
+        // Get alternative name for Category 3 lender
+        const alternatives = CATEGORY_3_CONFIRMATION_LENDERS[confirmation.lender.toUpperCase()] || [];
+        const alternativeName = alternatives[0] || confirmation.lender;
+
+        return res.json({
+            success: true,
+            lender: confirmation.lender,
+            alternative: alternativeName,
+            clientName: `${confirmation.first_name} ${confirmation.last_name}`,
+            action: confirmation.action
+        });
+    } catch (error) {
+        console.error('[Category 3] Error verifying token:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Process confirmation from React page
+app.post('/api/process-lender-confirmation/:token', async (req, res) => {
+    const { token } = req.params;
+    const { userAction } = req.body; // 'yes' or 'no'
+
+    try {
+        // Look up the pending confirmation
+        const confirmRes = await pool.query(
+            `SELECT * FROM pending_lender_confirmations WHERE token = $1`,
+            [token]
+        );
+
+        if (confirmRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid confirmation link' });
+        }
+
+        const confirmation = confirmRes.rows[0];
+
+        if (confirmation.used) {
+            return res.status(400).json({
+                success: false,
+                message: 'This confirmation has already been processed'
+            });
+        }
+
+        // Mark token as used
+        await pool.query(
+            `UPDATE pending_lender_confirmations SET used = true, used_at = NOW() WHERE token = $1`,
+            [token]
+        );
+
+        // Also mark the corresponding confirm/reject token as used
+        await pool.query(
+            `UPDATE pending_lender_confirmations
+             SET used = true, used_at = NOW()
+             WHERE contact_id = $1 AND lender = $2 AND used = false`,
+            [confirmation.contact_id, confirmation.lender]
+        );
+
+        if (userAction === 'yes') {
+            // Create the claim for the lender with 'New Lead' status
+            const newCaseRes = await pool.query(
+                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
+                 VALUES ($1, $2, 'New Lead', 0, CURRENT_TIMESTAMP, false, NOW()) RETURNING id`,
+                [confirmation.contact_id, confirmation.lender]
+            );
+
+            // Set reference_specified
+            await setReferenceSpecified(pool, confirmation.contact_id, newCaseRes.rows[0].id);
+
+            // Log the action
+            const timestamp = new Date().toLocaleString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
+            await pool.query(
+                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, 'client', $3, 'lender_confirmed', 'claims', $4, $5)`,
+                [
+                    confirmation.contact_id,
+                    newCaseRes.rows[0].id,
+                    confirmation.contact_id.toString(),
+                    `[${timestamp}] Client confirmed lender selection: ${confirmation.lender} - Claim created`,
+                    JSON.stringify({ lender: confirmation.lender, caseId: newCaseRes.rows[0].id })
+                ]
+            );
+
+            console.log(`[Category 3] ✅ Client confirmed ${confirmation.lender}, case ${newCaseRes.rows[0].id} created`);
+
+            return res.json({
+                success: true,
+                action: 'confirmed',
+                message: `Claim created for ${confirmation.lender}`
+            });
+        } else {
+            // Log the rejection
+            const timestamp = new Date().toLocaleString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, 'client', $2, 'lender_rejected', 'claims', $3, $4)`,
+                [
+                    confirmation.contact_id,
+                    confirmation.contact_id.toString(),
+                    `[${timestamp}] Client rejected lender selection: ${confirmation.lender} - No claim created`,
+                    JSON.stringify({ lender: confirmation.lender })
+                ]
+            );
+
+            console.log(`[Category 3] ❌ Client rejected ${confirmation.lender}, no claim created`);
+
+            return res.json({
+                success: true,
+                action: 'rejected',
+                message: 'No claim created'
+            });
+        }
+    } catch (error) {
+        console.error('[Category 3] Error processing confirmation:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Legacy endpoint (keeping for backward compatibility)
+// Handle client's confirmation response for Category 3 lenders
+app.get('/api/confirm-lender/:token', async (req, res) => {
+    const { token } = req.params;
+
+    try {
+        // Look up the pending confirmation
+        const confirmRes = await pool.query(
+            `SELECT * FROM pending_lender_confirmations WHERE token = $1 AND used = false`,
+            [token]
+        );
+
+        if (confirmRes.rows.length === 0) {
+            return res.send(renderConfirmationPage({
+                status: 'error',
+                title: 'Link Expired or Invalid',
+                message: 'This confirmation link has already been used or is no longer valid.',
+                showRedirect: true
+            }));
+        }
+
+        const confirmation = confirmRes.rows[0];
+        const isConfirm = confirmation.action === 'confirm';
+
+        // Mark token as used
+        await pool.query(
+            `UPDATE pending_lender_confirmations SET used = true, used_at = NOW() WHERE token = $1`,
+            [token]
+        );
+
+        if (isConfirm) {
+            // Create the claim for the lender
+            const newCaseRes = await pool.query(
+                `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
+                 VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, NOW()) RETURNING id`,
+                [confirmation.contact_id, confirmation.lender]
+            );
+
+            // Set reference_specified
+            await setReferenceSpecified(pool, confirmation.contact_id, newCaseRes.rows[0].id);
+
+            // Log the action
+            await pool.query(
+                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, 'client', $3, 'lender_confirmed', 'claims', $4, $5)`,
+                [
+                    confirmation.contact_id,
+                    newCaseRes.rows[0].id,
+                    confirmation.contact_id.toString(),
+                    `Client confirmed lender selection: ${confirmation.lender}`,
+                    JSON.stringify({ lender: confirmation.lender })
+                ]
+            );
+
+            console.log(`[Category 3] ✅ Client confirmed ${confirmation.lender}, case ${newCaseRes.rows[0].id} created`);
+
+            return res.send(renderConfirmationPage({
+                status: 'success',
+                title: 'Thank You!',
+                message: `Your claim for ${confirmation.lender} has been created. We will process it shortly.`,
+                showRedirect: true
+            }));
+        } else {
+            // Log the rejection
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, 'client', $2, 'lender_rejected', 'claims', $3, $4)`,
+                [
+                    confirmation.contact_id,
+                    confirmation.contact_id.toString(),
+                    `Client rejected lender selection: ${confirmation.lender}`,
+                    JSON.stringify({ lender: confirmation.lender })
+                ]
+            );
+
+            console.log(`[Category 3] ❌ Client rejected ${confirmation.lender}, no claim created`);
+
+            return res.send(renderConfirmationPage({
+                status: 'info',
+                title: 'Thank You!',
+                message: 'We appreciate your response. No claim has been created for this lender.',
+                showRedirect: true
+            }));
+        }
+    } catch (error) {
+        console.error('[Category 3] Error processing confirmation:', error);
+        return res.send(renderConfirmationPage({
+            status: 'error',
+            title: 'Something Went Wrong',
+            message: 'Please contact us if you continue to experience issues.',
+            showRedirect: true
+        }));
+    }
+});
+
+// Helper function to render confirmation result page with redirect
+function renderConfirmationPage({ status, title, message, showRedirect }) {
+    const iconColors = {
+        success: '#16a34a',
+        info: '#0ea5e9',
+        error: '#dc2626'
+    };
+    const iconColor = iconColors[status] || iconColors.info;
+
+    const iconSvg = status === 'success'
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+        : status === 'error'
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${title} - Rowan Rose Solicitors</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+            .container { background: #ffffff; border-radius: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.1); max-width: 480px; width: 100%; padding: 50px 40px; text-align: center; }
+            .icon { color: ${iconColor}; margin-bottom: 24px; }
+            h1 { color: #0f172a; font-size: 32px; margin-bottom: 16px; font-weight: 700; }
+            p { color: #475569; font-size: 16px; line-height: 1.6; margin-bottom: 30px; }
+            .countdown { background: #f1f5f9; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+            .countdown-text { color: #64748b; font-size: 14px; margin-bottom: 10px; }
+            .countdown-number { color: #0f172a; font-size: 36px; font-weight: 700; }
+            .btn { display: inline-block; background: linear-gradient(145deg, #0f172a 0%, #1e3a5f 100%); color: #ffffff; padding: 16px 32px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 16px; transition: transform 0.2s, box-shadow 0.2s; }
+            .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(15,23,42,0.2); }
+            .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 13px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="icon">${iconSvg}</div>
+            <h1>${title}</h1>
+            <p>${message}</p>
+            ${showRedirect ? `
+            <div class="countdown">
+                <div class="countdown-text">Redirecting to our website in</div>
+                <div class="countdown-number" id="countdown">30</div>
+            </div>
+            ` : ''}
+            <a href="https://www.rowanrose.co.uk" class="btn">Go to Website</a>
+            <div class="footer">Rowan Rose Solicitors Ltd</div>
+        </div>
+        ${showRedirect ? `
+        <script>
+            let seconds = 30;
+            const countdownEl = document.getElementById('countdown');
+            const timer = setInterval(() => {
+                seconds--;
+                countdownEl.textContent = seconds;
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    window.location.href = 'https://www.rowanrose.co.uk';
+                }
+            }, 1000);
+        </script>
+        ` : ''}
+    </body>
+    </html>
+    `;
+}
 
 // Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)
 const server = app.listen(port, '0.0.0.0', () => {
