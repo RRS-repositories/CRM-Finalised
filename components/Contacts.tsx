@@ -681,6 +681,43 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
+   // Force download file (fetch blob and trigger save dialog)
+   const handleDownload = async (doc: Document) => {
+      if (!doc.url) return;
+
+      try {
+         // Get fresh signed URL
+         const res = await fetch(`${API_BASE_URL}/api/documents/secure-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: doc.url })
+         });
+
+         const data = await res.json();
+         if (!data.success || !data.signedUrl) {
+            addNotification('error', 'Failed to get download link');
+            return;
+         }
+
+         // Fetch the file as blob
+         const fileRes = await fetch(data.signedUrl);
+         const blob = await fileRes.blob();
+
+         // Create object URL and trigger download
+         const blobUrl = window.URL.createObjectURL(blob);
+         const link = document.createElement('a');
+         link.href = blobUrl;
+         link.download = doc.name || 'download';
+         document.body.appendChild(link);
+         link.click();
+         document.body.removeChild(link);
+         window.URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+         console.error('Download error:', err);
+         addNotification('error', 'Failed to download file');
+      }
+   };
+
    // Handle S3 document sync - discovers and imports files from S3 that aren't in the database
    const handleSyncDocuments = async () => {
       setSyncingDocs(true);
@@ -3829,14 +3866,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              <Eye size={16} />
                                           </button>
                                           {doc.url && (
-                                             <a
-                                                href={doc.url}
-                                                download={doc.name}
+                                             <button
+                                                onClick={() => handleDownload(doc)}
                                                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-800/50 transition-colors"
                                              >
                                                 <Download size={12} />
                                                 Download
-                                             </a>
+                                             </button>
                                           )}
                                        </div>
                                     </td>
@@ -4100,13 +4136,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               >
                                  <Eye size={14} /> Open in New Tab
                               </a>
-                              <a
-                                 href={previewDoc.url}
-                                 download={previewDoc.name}
+                              <button
+                                 onClick={() => handleDownload(previewDoc)}
                                  className="px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors flex items-center gap-1"
                               >
                                  <Download size={14} /> Download
-                              </a>
+                              </button>
                            </>
                         )}
                         <button onClick={() => setPreviewDoc(null)} className="p-2 hover:bg-gray-200 dark:hover:bg-slate-600 rounded-full text-gray-500 dark:text-gray-400 transition-colors">
@@ -4171,13 +4206,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           Office documents require download to view properly.
                                        </p>
                                        <div className="flex flex-col gap-3">
-                                          <a
-                                             href={previewDoc.url}
-                                             download={previewDoc.name}
+                                          <button
+                                             onClick={() => handleDownload(previewDoc)}
                                              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                                           >
                                              <Download size={16} /> Download File
-                                          </a>
+                                          </button>
                                           <a
                                              href={previewDoc.url}
                                              target="_blank"
@@ -4206,13 +4240,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                    This file type cannot be previewed directly in the browser.
                                                 </p>
                                                 <div className="flex flex-col gap-3">
-                                                   <a
-                                                      href={previewDoc.url}
-                                                      download={previewDoc.name}
+                                                   <button
+                                                      onClick={() => handleDownload(previewDoc)}
                                                       className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                                                    >
                                                       <Download size={16} /> Download File
-                                                   </a>
+                                                   </button>
                                                    <a
                                                       href={previewDoc.url}
                                                       target="_blank"
