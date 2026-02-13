@@ -681,29 +681,25 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
-   // Force download file (fetch blob and trigger save dialog)
+   // Force download file via server proxy (avoids CORS issues with S3)
    const handleDownload = async (doc: Document) => {
       if (!doc.url) return;
 
       try {
-         // Get fresh signed URL
-         const res = await fetch(`${API_BASE_URL}/api/documents/secure-url`, {
+         // Use server-side download proxy to stream file
+         const res = await fetch(`${API_BASE_URL}/api/documents/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: doc.url })
+            body: JSON.stringify({ url: doc.url, filename: doc.name })
          });
 
-         const data = await res.json();
-         if (!data.success || !data.signedUrl) {
-            addNotification('error', 'Failed to get download link');
+         if (!res.ok) {
+            addNotification('error', 'Failed to download file');
             return;
          }
 
-         // Fetch the file as blob
-         const fileRes = await fetch(data.signedUrl);
-         const blob = await fileRes.blob();
-
-         // Create object URL and trigger download
+         // Get blob from response and trigger download
+         const blob = await res.blob();
          const blobUrl = window.URL.createObjectURL(blob);
          const link = document.createElement('a');
          link.href = blobUrl;

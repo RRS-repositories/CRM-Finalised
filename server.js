@@ -1567,6 +1567,56 @@ app.post('/api/documents/secure-url', async (req, res) => {
     }
 });
 
+// Download file proxy - streams file from S3 to client with download headers
+app.post('/api/documents/download', async (req, res) => {
+    const { url, filename } = req.body;
+    try {
+        if (!url) return res.status(400).json({ success: false, message: 'URL is required' });
+
+        // Extract Key from full URL
+        let key = url;
+        const bucketName = process.env.S3_BUCKET_NAME;
+
+        if (url.startsWith('http')) {
+            try {
+                const urlObj = new URL(url);
+                key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+                key = decodeURIComponent(key);
+
+                // Handle path-style URLs: strip bucket name if present
+                if (key.startsWith(bucketName + '/')) {
+                    key = key.substring(bucketName.length + 1);
+                }
+            } catch (e) {
+                console.warn('URL parsing failed, using raw string');
+            }
+        }
+
+        console.log(`[download] Key: ${key}`);
+
+        const command = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: key,
+        });
+
+        const s3Response = await s3Client.send(command);
+
+        // Set headers for download
+        const downloadFilename = filename || key.split('/').pop() || 'download';
+        res.setHeader('Content-Type', s3Response.ContentType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+        if (s3Response.ContentLength) {
+            res.setHeader('Content-Length', s3Response.ContentLength);
+        }
+
+        // Stream the file to client
+        s3Response.Body.pipe(res);
+    } catch (err) {
+        console.error('Error downloading file:', err);
+        res.status(500).json({ success: false, message: 'Could not download file' });
+    }
+});
+
 // --- LEGAL INTAKE ENDPOINTS ---
 
 // Helper function to generate lender-specific LOA PDF
