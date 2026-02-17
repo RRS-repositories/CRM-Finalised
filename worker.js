@@ -1634,6 +1634,8 @@ const processPendingLOAs = async () => {
         for (const record of rows) {
             try {
                 let signatureBase64 = null;
+                const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
+
                 // Try signature_2_url first (from LOA form), then fallback to signature_url (from sales form)
                 const signatureUrlToUse = record.signature_2_url || record.signature_url;
                 if (signatureUrlToUse) {
@@ -1644,12 +1646,34 @@ const processPendingLOAs = async () => {
                             const arrayBuffer = await response.arrayBuffer();
                             const buffer = Buffer.from(arrayBuffer);
                             signatureBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
-                            console.log(`[Worker] Using ${record.signature_2_url ? 'signature_2_url' : 'signature_url (fallback)'} for contact ${record.contact_id}`);
+                            console.log(`[Worker] ✅ Using stored signature URL for contact ${record.contact_id}`);
                         } else {
-                            console.warn(`Failed to fetch signature for contact ${record.contact_id}: ${response.statusText}`);
+                            console.warn(`[Worker] Stored signature URL failed for contact ${record.contact_id}: ${response.statusText}`);
                         }
                     } catch (e) {
-                        console.warn(`Could not fetch signature for contact ${record.contact_id}`, e);
+                        console.warn(`[Worker] Could not fetch stored signature URL for contact ${record.contact_id}:`, e.message);
+                    }
+                }
+
+                // Fallback: Try to fetch signature directly from S3 using folder pattern
+                if (!signatureBase64) {
+                    const signatureKey = `${folderName}/Signatures/signature.png`;
+                    console.log(`[Worker] 🔍 Trying direct S3 fetch: ${signatureKey}`);
+                    try {
+                        const command = new GetObjectCommand({
+                            Bucket: BUCKET_NAME,
+                            Key: signatureKey
+                        });
+                        const s3Response = await s3Client.send(command);
+                        const chunks = [];
+                        for await (const chunk of s3Response.Body) {
+                            chunks.push(chunk);
+                        }
+                        const buffer = Buffer.concat(chunks);
+                        signatureBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
+                        console.log(`[Worker] ✅ Fetched signature directly from S3 for contact ${record.contact_id}`);
+                    } catch (s3Err) {
+                        console.warn(`[Worker] ❌ No signature found in S3 for contact ${record.contact_id}: ${s3Err.message}`);
                     }
                 }
 
@@ -1684,7 +1708,6 @@ const processPendingLOAs = async () => {
                 await browser.close();
 
                 // Upload S3
-                const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
                 const refSpec = `${record.contact_id}${record.case_id}`;
                 const sanitizedLenderName = record.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
                 const pdfFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - LOA.pdf`;
