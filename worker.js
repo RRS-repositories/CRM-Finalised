@@ -303,7 +303,12 @@ function getLenderAddress(lenderName) {
     if (!lenderName) return null;
 
     // Normalize the lender name for comparison
-    const normalizedInput = lenderName.toUpperCase().trim();
+    let normalizedInput = lenderName.toUpperCase().trim();
+
+    // Normalize LOANS2GO variants to standard name
+    if (normalizedInput === 'LOANS2GO') {
+        normalizedInput = 'LOANS 2 GO';
+    }
 
     // Try exact match first
     let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
@@ -334,7 +339,12 @@ function getLenderEmail(lenderName) {
     if (!lenderName) return null;
 
     // Normalize the lender name for comparison
-    const normalizedInput = lenderName.toUpperCase().trim();
+    let normalizedInput = lenderName.toUpperCase().trim();
+
+    // Normalize LOANS2GO variants to standard name
+    if (normalizedInput === 'LOANS2GO') {
+        normalizedInput = 'LOANS 2 GO';
+    }
 
     // Try exact match first
     let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
@@ -363,8 +373,19 @@ function getLenderEmail(lenderName) {
 }
 
 // --- HELPER FUNCTION: GENERATE PREVIOUS ADDRESS PDF FOR DSAR ATTACHMENT ---
+// Helper to escape HTML special characters
+function escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 async function generatePreviousAddressPDFForDSAR(contact, addresses) {
-    const fullName = `${contact.first_name} ${contact.last_name}`;
+    const fullName = escapeHtml(`${contact.first_name} ${contact.last_name}`);
     const today = new Date().toLocaleDateString('en-GB');
 
     let logoBase64 = null;
@@ -378,13 +399,14 @@ async function generatePreviousAddressPDFForDSAR(contact, addresses) {
 
     let addressBlocksHtml = '';
     addresses.forEach((addr, index) => {
+        const streetAddr = [addr.address_line_1, addr.address_line_2].filter(Boolean).map(escapeHtml).join(', ');
         addressBlocksHtml += `
         <div style="margin-bottom: 20px;">
             <div style="font-weight: bold; margin-bottom: 10px;">PREVIOUS ADDRESS ${index + 1}</div>
-            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">Street Address:</span> ${[addr.address_line_1, addr.address_line_2].filter(Boolean).join(', ')}</div>
-            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">City / Town:</span> ${addr.city || ''}</div>
-            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">County / State:</span> ${addr.county || ''}</div>
-            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">Postal Code:</span> ${addr.postal_code || ''}</div>
+            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">Street Address:</span> ${streetAddr}</div>
+            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">City / Town:</span> ${escapeHtml(addr.city)}</div>
+            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">County / State:</span> ${escapeHtml(addr.county)}</div>
+            <div style="margin-bottom: 10px;"><span style="font-weight: bold; display: inline-block; width: 120px;">Postal Code:</span> ${escapeHtml(addr.postal_code)}</div>
         </div>
         <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
         `;
@@ -841,6 +863,19 @@ async function createDraftEmailWithGraph(lenderEmail, subject, htmlBody, attachm
 
         console.log(`[Worker] 📧 Creating draft email in ${DSAR_MAILBOX} for ${lenderName}...`);
 
+        // Debug: Log attachment info
+        console.log(`[Worker] 📎 Attachments count: ${graphAttachments.length}`);
+        graphAttachments.forEach((att, i) => {
+            console.log(`[Worker] 📎 Attachment ${i + 1}: ${att.name} (${att.contentType}, ${att.contentBytes?.length || 0} base64 chars)`);
+        });
+
+        // Validate attachments before sending
+        for (const att of graphAttachments) {
+            if (!att.contentBytes || att.contentBytes.length === 0) {
+                throw new Error(`Empty attachment content for: ${att.name}`);
+            }
+        }
+
         // Create the draft message
         const createdDraft = await graphClient
             .api(`/users/${DSAR_MAILBOX}/messages`)
@@ -945,7 +980,7 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
 // --- HELPER FUNCTION: SEND DOCUMENTS TO LENDER (or create draft) ---
 // includeIdDocuments: whether to include ID documents in attachments
 // requireIdDocuments: if true, will fail if no ID documents found
-async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified, includeIdDocuments = false, requireIdDocuments = false) {
+async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified, includeIdDocuments = false, requireIdDocuments = false, includePreviousAddress = true) {
     console.log(`[Worker] Preparing to ${EMAIL_DRAFT_MODE ? 'create draft for' : 'send documents to'} lender: ${lenderName} (Include ID: ${includeIdDocuments}, Require ID: ${requireIdDocuments})`);
 
     // Get contact data to generate clientId
@@ -1012,13 +1047,15 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         });
     }
 
-    // Add Previous Address if available
-    if (documents.previousAddress) {
+    // Add Previous Address if available and requested
+    if (includePreviousAddress && documents.previousAddress) {
         attachments.push({
             filename: `Previous_Addresses.pdf`,
             content: documents.previousAddress,
             contentType: 'application/pdf'
         });
+    } else if (!includePreviousAddress) {
+        console.log(`[Worker] Previous Address skipped for this lender category`);
     }
 
     // Add ID Documents based on flags
@@ -1910,6 +1947,7 @@ const processPendingDSAREmails = async () => {
                 // Category 1 & 2: Send DSAR with appropriate documents
                 const includeIdDocuments = (lenderCategory === 2); // Only include ID for Category 2
                 const requireIdDocuments = (lenderCategory === 2); // Category 2 requires ID
+                const includePreviousAddress = false; // Previous Address is optional for all - skip to avoid Graph API issues
 
                 const emailResult = await sendDocumentsToLender(
                     record.lender,
@@ -1919,7 +1957,8 @@ const processPendingDSAREmails = async () => {
                     record.case_id,
                     record.reference_specified,
                     includeIdDocuments,
-                    requireIdDocuments
+                    requireIdDocuments,
+                    includePreviousAddress
                 );
 
                 console.log(`[Worker] 📧 DSAR result for Case ${record.case_id}:`, JSON.stringify(emailResult));
@@ -1945,17 +1984,18 @@ const processPendingDSAREmails = async () => {
                 } else {
                     console.log(`[Worker] ⚠️ DSAR not ${EMAIL_DRAFT_MODE ? 'drafted' : 'sent'} for Case ${record.case_id}: ${emailResult.reason}${emailResult.error ? ' - ' + emailResult.error : ''}`);
                     if (emailResult.reason === 'no_email') {
-                        // No email for this lender - mark as sent, skip
+                        // No email for this lender - revert to LOA Signed so user knows action is needed
                         await pool.query(
-                            `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true, dsar_sent_at = NOW() WHERE id = $1`,
+                            `UPDATE cases SET status = 'LOA Signed' WHERE id = $1`,
                             [record.case_id]
                         );
                         // Log to action timeline
                         await pool.query(
                             `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
-                             VALUES ($1, $2, 'system', 'worker', 'dsar_skipped', 'claims', $3)`,
-                            [record.contact_id, record.case_id, `DSAR skipped for ${record.lender} - no email address available`]
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `DSAR failed for ${record.lender} - no email address available. Status reverted to LOA Signed.`]
                         );
+                        console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - no lender email`);
                     } else if (emailResult.reason === 'send_failed' || emailResult.reason === 'draft_failed') {
                         console.error(`[Worker] ❌ ${EMAIL_DRAFT_MODE ? 'Draft creation' : 'Email send'} FAILED for Case ${record.case_id}. Error: ${emailResult.error}`);
                         // Revert to LOA Signed so it doesn't loop forever
