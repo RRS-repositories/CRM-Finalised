@@ -3901,6 +3901,7 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
     const { id } = req.params;
     const {
         bank_name, account_name, sort_code, bank_account_number,
+        address_line_1, address_line_2, city, state_county, postal_code,
         previous_address_line_1, previous_address_line_2, previous_city,
         previous_county, previous_postal_code, previous_addresses,
         document_checklist, checklist_change, actor_id, actor_name,
@@ -3916,6 +3917,13 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
         if (account_name !== undefined) { updates.push(`account_name = $${paramCount++}`); values.push(account_name); }
         if (sort_code !== undefined) { updates.push(`sort_code = $${paramCount++}`); values.push(sort_code); }
         if (bank_account_number !== undefined) { updates.push(`bank_account_number = $${paramCount++}`); values.push(bank_account_number); }
+        // Current address fields
+        if (address_line_1 !== undefined) { updates.push(`address_line_1 = $${paramCount++}`); values.push(address_line_1); }
+        if (address_line_2 !== undefined) { updates.push(`address_line_2 = $${paramCount++}`); values.push(address_line_2); }
+        if (city !== undefined) { updates.push(`city = $${paramCount++}`); values.push(city); }
+        if (state_county !== undefined) { updates.push(`state_county = $${paramCount++}`); values.push(state_county); }
+        if (postal_code !== undefined) { updates.push(`postal_code = $${paramCount++}`); values.push(postal_code); }
+        // Previous address fields
         if (previous_address_line_1 !== undefined) { updates.push(`previous_address_line_1 = $${paramCount++}`); values.push(previous_address_line_1); }
         if (previous_address_line_2 !== undefined) { updates.push(`previous_address_line_2 = $${paramCount++}`); values.push(previous_address_line_2); }
         if (previous_city !== undefined) { updates.push(`previous_city = $${paramCount++}`); values.push(previous_city); }
