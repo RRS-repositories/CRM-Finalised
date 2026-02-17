@@ -683,7 +683,24 @@ export interface Task {
   completedBy?: string;
 }
 
-export type NotificationType = 'task_assigned' | 'meeting_scheduled' | 'follow_up_due' | 'task_completed';
+export type NotificationType = 'task_assigned' | 'meeting_scheduled' | 'follow_up_due' | 'task_completed' | 'ticket_raised' | 'ticket_resolved';
+
+export type TicketStatus = 'open' | 'resolved';
+
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  userName: string;
+  title: string;
+  description: string;
+  screenshotUrl?: string;
+  screenshotKey?: string;
+  status: TicketStatus;
+  resolvedBy?: string;
+  resolvedByName?: string;
+  resolvedAt?: string;
+  createdAt: string;
+}
 
 export interface PersistentNotification {
   id: string;

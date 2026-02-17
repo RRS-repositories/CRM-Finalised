@@ -1,28 +1,41 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
-import Contacts from './components/Contacts';
-import Pipeline from './components/Pipeline';
-import Calendar from './components/Calendar';
-import Conversations from './components/Conversations';
-import { EmailConversations } from './components/Email';
-import Documents from './components/Documents';
-import Forms from './components/Forms';
-import Workflows from './components/Workflows';
-import Marketing from './components/Marketing';
-import AIAssistant from './components/AIAssistant';
-import AdminPanel from './components/AdminPanel';
-import Settings from './components/Settings';
-import ClientIntake from './components/IntakeForm/ClientIntake';
-import LenderIntake from './components/IntakeForm/LenderIntake';
-import LoaSelectionForm from './components/LoaSelectionForm';
-import LenderConfirmation from './components/LenderConfirmation';
 import Login from './components/Login';
-import MattermostPanel from './components/MattermostPanel';
 import { ViewState } from './types';
 import { CRMProvider, useCRM } from './context/CRMContext';
+
+// === PERFORMANCE: Lazy-load heavy modules so they only load when navigated to ===
+// This prevents the browser from parsing/executing ~25,000 lines of JS upfront
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Contacts = lazy(() => import('./components/Contacts'));
+const Pipeline = lazy(() => import('./components/Pipeline'));
+const Calendar = lazy(() => import('./components/Calendar'));
+const Conversations = lazy(() => import('./components/Conversations'));
+const EmailConversations = lazy(() => import('./components/Email').then(m => ({ default: m.EmailConversations })));
+const Documents = lazy(() => import('./components/Documents'));
+const Forms = lazy(() => import('./components/Forms'));
+const Workflows = lazy(() => import('./components/Workflows'));
+const Marketing = lazy(() => import('./components/Marketing'));
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
+const AdminPanel = lazy(() => import('./components/AdminPanel'));
+const Settings = lazy(() => import('./components/Settings'));
+const ClientIntake = lazy(() => import('./components/IntakeForm/ClientIntake'));
+const LenderIntake = lazy(() => import('./components/IntakeForm/LenderIntake'));
+const LoaSelectionForm = lazy(() => import('./components/LoaSelectionForm'));
+const LenderConfirmation = lazy(() => import('./components/LenderConfirmation'));
+const MattermostPanel = lazy(() => import('./components/MattermostPanel'));
+
+// Lightweight loading fallback for lazy-loaded modules
+const ModuleLoader = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-8 h-8 border-3 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+      <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+    </div>
+  </div>
+);
 
 // Route to ViewState mapping
 const routeToViewState: Record<string, ViewState> = {
@@ -109,16 +122,18 @@ const AppContent = () => {
   // If not logged in, show Login Screen
   if (!currentUser) {
     return (
-      <Routes>
-        {/* Public standalone routes */}
-        <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
-        <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
-        <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
-        <Route path="/loa-form/*" element={<LoaSelectionForm />} />
-        <Route path="/confirm-lender/*" element={<LenderConfirmation />} />
-        {/* Default to login for all other routes when not authenticated */}
-        <Route path="*" element={<Login />} />
-      </Routes>
+      <Suspense fallback={<ModuleLoader />}>
+        <Routes>
+          {/* Public standalone routes */}
+          <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
+          <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
+          <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
+          <Route path="/loa-form/*" element={<LoaSelectionForm />} />
+          <Route path="/confirm-lender/*" element={<LenderConfirmation />} />
+          {/* Default to login for all other routes when not authenticated */}
+          <Route path="*" element={<Login />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -128,6 +143,7 @@ const AppContent = () => {
   }
 
   return (
+    <Suspense fallback={<ModuleLoader />}>
     <Routes>
       {/* Public standalone routes - NO sidebar/layout (must be first to take priority) */}
       <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
@@ -144,72 +160,77 @@ const AppContent = () => {
             onChangeView={handleChangeView}
             onToggleAI={() => setIsAIOpen(true)}
           >
-            <Routes>
-              {/* Dashboard */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
+            <Suspense fallback={<ModuleLoader />}>
+              <Routes>
+                {/* Dashboard */}
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<Dashboard />} />
 
-              {/* Contacts */}
-              <Route path="/contacts" element={<Contacts />} />
-              <Route path="/contacts/:contactId" element={<Contacts />} />
+                {/* Contacts */}
+                <Route path="/contacts" element={<Contacts />} />
+                <Route path="/contacts/:contactId" element={<Contacts />} />
 
-              {/* Cases/Pipeline */}
-              <Route path="/cases" element={<Pipeline />} />
+                {/* Cases/Pipeline */}
+                <Route path="/cases" element={<Pipeline />} />
 
-              {/* Calendar */}
-              <Route path="/calendar" element={<Calendar />} />
+                {/* Calendar */}
+                <Route path="/calendar" element={<Calendar />} />
 
-              {/* Conversations */}
-              <Route path="/conversations" element={<Conversations platformFilter="all" />} />
-              <Route path="/conversations/facebook" element={<Conversations platformFilter="facebook" />} />
-              <Route path="/conversations/whatsapp" element={<Conversations platformFilter="whatsapp" />} />
-              <Route path="/conversations/sms" element={<Conversations platformFilter="sms" />} />
-              <Route path="/conversations/email" element={<EmailConversations />} />
+                {/* Conversations */}
+                <Route path="/conversations" element={<Conversations platformFilter="all" />} />
+                <Route path="/conversations/facebook" element={<Conversations platformFilter="facebook" />} />
+                <Route path="/conversations/whatsapp" element={<Conversations platformFilter="whatsapp" />} />
+                <Route path="/conversations/sms" element={<Conversations platformFilter="sms" />} />
+                <Route path="/conversations/email" element={<EmailConversations />} />
 
-              {/* Marketing */}
-              <Route path="/marketing" element={<Marketing />} />
+                {/* Marketing */}
+                <Route path="/marketing" element={<Marketing />} />
 
-              {/* Documents */}
-              <Route path="/documents" element={<Documents />} />
+                {/* Documents */}
+                <Route path="/documents" element={<Documents />} />
 
-              {/* Forms */}
-              <Route path="/forms" element={<Forms />} />
+                {/* Forms */}
+                <Route path="/forms" element={<Forms />} />
 
-              {/* Automation/Workflow */}
-              <Route path="/automation" element={<Workflows />} />
+                {/* Automation/Workflow */}
+                <Route path="/automation" element={<Workflows />} />
 
-              {/* Settings */}
-              <Route path="/settings" element={<Settings />} />
+                {/* Settings */}
+                <Route path="/settings" element={<Settings />} />
 
-              {/* Management (Admin Panel) */}
-              <Route path="/management" element={<AdminPanel />} />
+                {/* Management (Admin Panel) */}
+                <Route path="/management" element={<AdminPanel />} />
 
-              {/* Accounts/Lenders */}
-              <Route path="/accounts" element={
-                <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
-                  <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
-                  <p>The Accounts module is under development.</p>
-                </div>
-              } />
+                {/* Accounts/Lenders */}
+                <Route path="/accounts" element={
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                    <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                    <p>The Accounts module is under development.</p>
+                  </div>
+                } />
 
-              {/* Mattermost Team Chat */}
-              <Route path="/mattermost" element={<MattermostPanel />} />
+                {/* Mattermost Team Chat */}
+                <Route path="/mattermost" element={<MattermostPanel />} />
 
-              {/* Client Intake (internal) */}
-              <Route path="/client-intake" element={<ClientIntake />} />
+                {/* Client Intake (internal) */}
+                <Route path="/client-intake" element={<ClientIntake />} />
 
-              {/* Fallback - redirect unknown routes to dashboard */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
+                {/* Fallback - redirect unknown routes to dashboard */}
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
           </Layout>
 
-          <AIAssistant
-            isOpen={isAIOpen}
-            onClose={() => setIsAIOpen(false)}
-          />
+          <Suspense fallback={null}>
+            <AIAssistant
+              isOpen={isAIOpen}
+              onClose={() => setIsAIOpen(false)}
+            />
+          </Suspense>
         </>
       } />
     </Routes>
+    </Suspense>
   );
 };
 

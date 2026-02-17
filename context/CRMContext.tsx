@@ -1,6 +1,6 @@
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem } from '../types';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
+import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem, SupportTicket } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
@@ -218,6 +218,12 @@ interface CRMContextType {
   // Fetch all claims (for Pipeline view)
   fetchAllClaims: () => Promise<void>;
 
+  // Support Tickets
+  tickets: SupportTicket[];
+  fetchTickets: () => Promise<void>;
+  createTicket: (title: string, description: string, screenshot?: File) => Promise<{ success: boolean; message: string }>;
+  resolveTicket: (ticketId: string) => Promise<{ success: boolean; message: string }>;
+
   // Loading state for initial data fetch
   isLoading: boolean;
 
@@ -334,6 +340,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [persistentNotifications, setPersistentNotifications] = useState<PersistentNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  // Support Tickets State
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
 
   // Loading State for initial data fetch
   const [isLoading, setIsLoading] = useState(true);
@@ -782,7 +791,15 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Fetch all claims at once (for Pipeline view)
-  const fetchAllClaims = async () => {
+  // === PERFORMANCE: Track last fetch time to avoid re-fetching on every mount ===
+  const claimsFetchedAtRef = React.useRef<number>(0);
+
+  const fetchAllClaims = useCallback(async () => {
+    // Skip re-fetch if data was fetched less than 30 seconds ago
+    const now = Date.now();
+    if (now - claimsFetchedAtRef.current < 30000 && claims.length > 0) {
+      return;
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/cases`);
       if (!response.ok) return;
@@ -800,10 +817,11 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         daysInStage: 0
       }));
       setClaims(allClaims);
+      claimsFetchedAtRef.current = now;
     } catch (e) {
       console.error('Error fetching all claims:', e);
     }
-  };
+  }, [claims.length]);
 
   // Fetch templates from backend
   const fetchTemplates = async () => {
@@ -2780,6 +2798,89 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // ============================================
+  // SUPPORT TICKETS
+  // ============================================
+
+  const fetchTickets = async (): Promise<void> => {
+    if (!currentUser?.id) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/tickets?userId=${currentUser.id}&role=${currentUser.role}`);
+      if (!response.ok) throw new Error('Failed to fetch tickets');
+      const data = await response.json();
+      setTickets(data.map((t: any) => ({
+        id: t.id.toString(),
+        userId: t.user_id.toString(),
+        userName: t.user_name,
+        title: t.title,
+        description: t.description,
+        screenshotUrl: t.screenshot_url || undefined,
+        screenshotKey: t.screenshot_key || undefined,
+        status: t.status,
+        resolvedBy: t.resolved_by?.toString(),
+        resolvedByName: t.resolved_by_name,
+        resolvedAt: t.resolved_at,
+        createdAt: t.created_at,
+      })));
+    } catch (error) {
+      console.error('Error fetching tickets:', error);
+    }
+  };
+
+  const createTicket = async (title: string, description: string, screenshot?: File): Promise<{ success: boolean; message: string }> => {
+    if (!currentUser?.id) return { success: false, message: 'Not logged in' };
+    try {
+      const formData = new FormData();
+      formData.append('userId', currentUser.id);
+      formData.append('userName', currentUser.fullName);
+      formData.append('title', title);
+      formData.append('description', description);
+      if (screenshot) {
+        formData.append('screenshot', screenshot);
+      }
+
+      const response = await fetch(`${API_BASE_URL}/tickets`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) throw new Error('Failed to create ticket');
+      const data = await response.json();
+
+      // Refresh tickets list
+      await fetchTickets();
+      // Refresh notifications (Management users will see the new notification)
+      await fetchPersistentNotifications();
+
+      return { success: true, message: 'Ticket created successfully' };
+    } catch (error) {
+      console.error('Error creating ticket:', error);
+      return { success: false, message: 'Failed to create ticket' };
+    }
+  };
+
+  const resolveTicket = async (ticketId: string): Promise<{ success: boolean; message: string }> => {
+    if (!currentUser?.id) return { success: false, message: 'Not logged in' };
+    try {
+      const response = await fetch(`${API_BASE_URL}/tickets/${ticketId}/resolve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resolvedBy: parseInt(currentUser.id),
+          resolvedByName: currentUser.fullName,
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to resolve ticket');
+
+      // Refresh tickets
+      await fetchTickets();
+
+      return { success: true, message: 'Ticket resolved successfully' };
+    } catch (error) {
+      console.error('Error resolving ticket:', error);
+      return { success: false, message: 'Failed to resolve ticket' };
+    }
+  };
+
   const fetchCombinedTimeline = async (contactId: string): Promise<TimelineItem[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/contacts/${contactId}/combined-timeline`);
@@ -2819,40 +2920,61 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [currentUser, fetchTasks, fetchPersistentNotifications]);
 
+  // === PERFORMANCE: Memoize Provider value to prevent cascade re-renders ===
+  // Without this, every state change creates a new object reference, causing ALL
+  // context consumers to re-render even if they don't use the changed state.
+  const contextValue = useMemo(() => ({
+    currentUser, users, login, logout,
+    initiateRegistration, verifyRegistration, updateUserRole, updateUserStatus, deleteUser,
+    requestPasswordReset, resetPassword,
+    contacts, documents, templates, forms, claims, appointments, activityLogs,
+    notifications, addNotification, removeNotification,
+    activeContext, setActiveContext,
+    currentView, setCurrentView,
+    pendingContactNavigation, navigateToContact, clearContactNavigation,
+    updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
+    addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaimStatusByIds, bulkUpdateClaims,
+    addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
+    addTemplate, updateTemplate, deleteTemplate,
+    addForm, updateForm, deleteForm,
+    addNote, theme, toggleTheme,
+    communications, fetchCommunications, addCommunication,
+    workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
+    crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
+    actionLogs, fetchActionLogs, fetchAllActionLogs,
+    updateContactExtended, updateClaimExtended, fetchFullClaim,
+    refreshAllData,
+    tasks, fetchTasks, addTask, updateTask, deleteTask, completeTask, rescheduleTask,
+    persistentNotifications, unreadNotificationCount, fetchPersistentNotifications,
+    markNotificationRead, markAllNotificationsRead, fetchCombinedTimeline, fetchCasesForContact, fetchAllClaims,
+    tickets, fetchTickets, createTicket, resolveTicket,
+    isLoading,
+    contactsPagination, loadMoreContacts, fetchContactsPage
+  }), [
+    currentUser, users, contacts, documents, templates, forms, claims, appointments,
+    activityLogs, notifications, activeContext, currentView, pendingContactNavigation,
+    communications, workflowTriggers, crmNotes, actionLogs, theme,
+    tasks, persistentNotifications, unreadNotificationCount, tickets, isLoading, contactsPagination,
+    // Stable callbacks (useCallback) won't trigger re-renders
+    login, logout, initiateRegistration, verifyRegistration, updateUserRole, updateUserStatus,
+    deleteUser, requestPasswordReset, resetPassword, addNotification, removeNotification,
+    setActiveContext, setCurrentView, navigateToContact, clearContactNavigation,
+    updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails,
+    getPipelineStats, addClaim, updateClaim, deleteClaim, updateClaimStatus,
+    bulkUpdateClaimStatusByIds, bulkUpdateClaims, addAppointment, updateAppointment,
+    deleteAppointment, addDocument, updateDocument, addTemplate, updateTemplate, deleteTemplate,
+    addForm, updateForm, deleteForm, addNote, toggleTheme, fetchCommunications,
+    addCommunication, fetchWorkflows, triggerWorkflow, cancelWorkflow, fetchNotes,
+    addCRMNote, updateCRMNote, deleteCRMNote, fetchActionLogs, fetchAllActionLogs,
+    updateContactExtended, updateClaimExtended, fetchFullClaim, refreshAllData,
+    fetchTasks, addTask, updateTask, deleteTask, completeTask, rescheduleTask,
+    fetchPersistentNotifications, markNotificationRead, markAllNotificationsRead,
+    fetchCombinedTimeline, fetchCasesForContact, fetchAllClaims, loadMoreContacts, fetchContactsPage,
+    fetchTickets, createTicket, resolveTicket
+  ]);
+
   return (
-    <CRMContext.Provider value={{
-      currentUser, users, login, logout,
-      initiateRegistration, verifyRegistration, updateUserRole, updateUserStatus, deleteUser,
-      requestPasswordReset, resetPassword,
-      contacts, documents, templates, forms, claims, appointments, activityLogs,
-      notifications, addNotification, removeNotification,
-      activeContext, setActiveContext,
-      currentView, setCurrentView,
-      pendingContactNavigation, navigateToContact, clearContactNavigation,
-      updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
-      addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaimStatusByIds, bulkUpdateClaims,
-      addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
-      addTemplate, updateTemplate, deleteTemplate,
-      addForm, updateForm, deleteForm,
-      addNote, theme, toggleTheme,
-      // CRM Specification Methods (Phase 3)
-      communications, fetchCommunications, addCommunication,
-      workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
-      crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
-      actionLogs, fetchActionLogs, fetchAllActionLogs,
-      updateContactExtended, updateClaimExtended, fetchFullClaim,
-      // Data Refresh
-      refreshAllData,
-      // Tasks & Calendar
-      tasks, fetchTasks, addTask, updateTask, deleteTask, completeTask, rescheduleTask,
-      // Persistent Notifications
-      persistentNotifications, unreadNotificationCount, fetchPersistentNotifications,
-      markNotificationRead, markAllNotificationsRead, fetchCombinedTimeline, fetchCasesForContact, fetchAllClaims,
-      // Loading state
-      isLoading,
-      // Pagination
-      contactsPagination, loadMoreContacts, fetchContactsPage
-    }}>
+    <CRMContext.Provider value={contextValue}>
       {children}
     </CRMContext.Provider>
   );

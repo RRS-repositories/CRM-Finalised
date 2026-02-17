@@ -1,10 +1,20 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PIPELINE_CATEGORIES, SPEC_LENDERS } from '../constants';
-import { ClaimStatus, Claim } from '../types';
+import { ClaimStatus, Claim, Contact } from '../types';
 import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
+
+// === PERFORMANCE: Debounce hook to prevent re-render on every keystroke ===
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 // View type for toggle
 type ViewType = 'kanban' | 'list';
@@ -177,6 +187,224 @@ const isWithinDateRange = (dateStr: string | undefined, range: string): boolean 
   }
 };
 
+// Enriched claim type for display
+interface EnrichedClaim extends Claim {
+  contactName: string;
+}
+
+// Enriched claim type for list view
+interface ListEnrichedClaim extends EnrichedClaim {
+  clientId: string;
+  workflowStage: string;
+  createdAt: string;
+}
+
+// === Memoized Kanban Card Component ===
+const KanbanCard = memo<{
+  claim: EnrichedClaim;
+  index: number;
+  isSelected: boolean;
+  isDragging: boolean;
+  onDragStart: (e: React.DragEvent, claimId: string) => void;
+  onToggleSelection: (claimId: string) => void;
+  onNavigateToContact: (contactId: string, claimId: string) => void;
+}>(({ claim, index, isSelected, isDragging, onDragStart, onToggleSelection, onNavigateToContact }) => {
+  const priority = getPriorityFromClaimValue(claim.claimValue || 0);
+  const priorityStyle = priorityConfig[priority];
+  const aiRecommendation = getAIRecommendation(claim.status, claim.daysInStage || 0);
+  // Only animate first 3 cards per column for performance
+  const animateClass = index < 3 ? 'pipeline-card-animate' : '';
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, claim.id)}
+      onClick={() => onToggleSelection(claim.id)}
+      onDoubleClick={() => {
+        if (claim.contactId) {
+          onNavigateToContact(claim.contactId, claim.id);
+        }
+      }}
+      className={`
+        ${animateClass}
+        bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:shadow-md
+        transition-shadow duration-100 cursor-pointer active:cursor-grabbing
+        border-l-4 ${priorityStyle.borderColor} border border-gray-200 dark:border-slate-600
+        ${isDragging ? 'opacity-50' : ''}
+        ${isSelected ? 'ring-2 ring-indigo-500 ring-offset-1' : ''}
+      `}
+    >
+      {/* Compact Card Header */}
+      <div className="p-2.5 pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <h4 className="font-semibold text-gray-900 dark:text-white text-xs line-clamp-1">{claim.lender}</h4>
+            <div className="flex items-center mt-1 flex-wrap gap-1">
+              <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded ${priorityStyle.bgColor} ${priorityStyle.color}`}>
+                <span className={`w-1 h-1 rounded-full mr-1 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
+                {claim.status}
+              </span>
+            </div>
+          </div>
+          {/* Checkbox for selection */}
+          <div className="flex-shrink-0">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleSelection(claim.id);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-5 h-5 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Compact AI Recommendation */}
+      {aiRecommendation && (
+        <div className="mx-2.5 mb-2 p-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded border border-indigo-100 dark:border-indigo-800/30">
+          <div className="flex items-center gap-1 mb-0.5">
+            <Sparkles size={10} className="text-indigo-500" />
+            <span className="text-[8px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase">AI recommendation</span>
+          </div>
+          <p className="text-[10px] text-gray-700 dark:text-gray-300 leading-tight">{aiRecommendation}</p>
+        </div>
+      )}
+
+      {/* Compact Card Footer */}
+      <div className="px-2.5 py-1.5 border-t border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50 rounded-b-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400">
+            <User size={10} className="mr-1" />
+            <span className="truncate max-w-[90px]">{claim.contactName}</span>
+          </div>
+          <div className="flex items-center text-[10px] text-gray-400" title="Days in stage">
+            <Clock size={10} className="mr-0.5" />
+            <span className={(claim.daysInStage || 0) > 14 ? 'text-amber-500 font-medium' : ''}>
+              {claim.daysInStage || 0}d
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+KanbanCard.displayName = 'KanbanCard';
+
+// === Memoized Kanban Column Component ===
+const KanbanColumn = memo<{
+  cat: typeof PIPELINE_CATEGORIES[number];
+  items: EnrichedClaim[];
+  filterKey: string;
+  isDragOver: boolean;
+  isCollapsed: boolean;
+  selectedClaims: Set<string>;
+  draggedClaimId: string | null;
+  onToggleColumn: (id: string) => void;
+  onDragOver: (e: React.DragEvent, columnId: string) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => void;
+  onDragStart: (e: React.DragEvent, claimId: string) => void;
+  onToggleSelection: (claimId: string) => void;
+  onNavigateToContact: (contactId: string, claimId: string) => void;
+}>(({ cat, items, filterKey, isDragOver, isCollapsed, selectedClaims, draggedClaimId, onToggleColumn, onDragOver, onDragLeave, onDrop, onDragStart, onToggleSelection, onNavigateToContact }) => {
+  const gradientConfig = columnGradients[cat.id] || columnGradients['lead-generation'];
+  // === PERFORMANCE: Progressive rendering - only render limited cards initially ===
+  const INITIAL_RENDER_LIMIT = 20;
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
+
+  // Reset render limit when items change (e.g. filter applied)
+  useEffect(() => {
+    setRenderLimit(INITIAL_RENDER_LIMIT);
+  }, [items.length, filterKey]);
+
+  const visibleItems = items.slice(0, renderLimit);
+  const hiddenCount = items.length - renderLimit;
+
+  if (isCollapsed) {
+    return (
+      <div
+        onClick={() => onToggleColumn(cat.id)}
+        className={`h-full w-10 ${gradientConfig.gradient} rounded-xl shadow-sm cursor-pointer flex flex-col items-center py-3`}
+      >
+        <div className="w-2 h-2 rounded-full mb-4 bg-white/30"></div>
+        <div className="writing-mode-vertical text-white font-medium tracking-wide whitespace-nowrap transform rotate-180 flex-1 flex items-center justify-center text-xs">
+          {cat.title}
+        </div>
+        <div className={`mt-3 ${gradientConfig.countBg} text-white text-[10px] w-6 h-6 flex items-center justify-center rounded-full font-bold`}>
+          {items.length}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`flex flex-col w-64 h-full rounded-xl shadow-sm bg-white/90 dark:bg-slate-800/90 ${isDragOver ? 'ring-2 ring-indigo-400 ring-opacity-70' : ''}`}
+      onDragOver={(e) => onDragOver(e, cat.id)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, cat.id, cat.statuses)}
+    >
+      {/* Compact Column Header with Gradient */}
+      <div className={`${gradientConfig.gradient} px-3 py-2.5 rounded-t-xl shadow-sm mb-0 group relative overflow-hidden`}>
+        {/* Decorative circles */}
+        <div className="absolute -right-3 -top-3 w-14 h-14 rounded-full bg-white/10"></div>
+
+        <div className="flex items-center justify-between relative z-10">
+          <div className="flex items-center space-x-1.5">
+            <h3 className="font-semibold text-white text-sm truncate" title={cat.title}>{cat.title}</h3>
+            <span className={`${gradientConfig.countBg} text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold`}>
+              {items.length}
+            </span>
+          </div>
+          <button
+            onClick={() => onToggleColumn(cat.id)}
+            className="text-white/70 hover:text-white p-1 rounded hover:bg-white/20 transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Column Body */}
+      <div className="flex-1 overflow-y-auto space-y-2 p-2.5 bg-gray-50 dark:bg-slate-900/60 rounded-b-xl custom-scrollbar pb-4 border border-t-0 border-gray-200 dark:border-slate-700">
+        {visibleItems.map((claim, index) => (
+          <KanbanCard
+            key={claim.id}
+            claim={claim}
+            index={index}
+            isSelected={selectedClaims.has(claim.id)}
+            isDragging={draggedClaimId === claim.id || (selectedClaims.has(claim.id) && draggedClaimId !== null)}
+            onDragStart={onDragStart}
+            onToggleSelection={onToggleSelection}
+            onNavigateToContact={onNavigateToContact}
+          />
+        ))}
+
+        {/* Load more button for columns with many cards */}
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setRenderLimit(prev => prev + 20)}
+            className="w-full py-2 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/30 font-medium"
+          >
+            Show {Math.min(hiddenCount, 20)} more ({hiddenCount} remaining)
+          </button>
+        )}
+
+        {items.length === 0 && (
+          <div className="h-24 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 text-xs bg-white/60 dark:bg-slate-800/40">
+            <TrendingUp size={16} className="text-gray-400 mb-1.5" />
+            Drop claims here
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+KanbanColumn.displayName = 'KanbanColumn';
+
 const Pipeline: React.FC = () => {
   const { claims, contacts, updateClaimStatus, bulkUpdateClaimStatusByIds, navigateToContact, fetchAllClaims } = useCRM();
   const navigate = useNavigate();
@@ -203,7 +431,9 @@ const Pipeline: React.FC = () => {
   const [dateRangeFilter, setDateRangeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('');
   const [lenderFilter, setLenderFilter] = useState('');
-  const [clientFilter, setClientFilter] = useState('');
+  const [clientFilterInput, setClientFilterInput] = useState('');
+  // Debounce client search - wait 300ms after typing stops before filtering
+  const clientFilter = useDebouncedValue(clientFilterInput, 300);
 
   // Dropdown open states
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
@@ -224,106 +454,116 @@ const Pipeline: React.FC = () => {
     [dateRangeFilter, statusFilter, lenderFilter, clientFilter]
   );
 
-  const toggleColumn = (id: string) => {
-    setCollapsedColumns(prev => 
+  const toggleColumn = useCallback((id: string) => {
+    setCollapsedColumns(prev =>
       prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
     );
-  };
+  }, []);
 
-  // Helper to enrich claim data with contact name
-  const getEnrichedClaimsForCategory = (categoryStatuses: string[]) => {
-    return claims.filter(c => {
-      // Category status match
-      const statusMatch = categoryStatuses.includes(c.status);
+  // === PERFORMANCE: O(1) contact lookup map instead of O(n) .find() per claim ===
+  const contactMap = useMemo(() => {
+    const map = new Map<string, Contact>();
+    for (const contact of contacts) {
+      map.set(contact.id, contact);
+    }
+    return map;
+  }, [contacts]);
 
-      // Specific status filter (if selected)
-      const specificStatusMatch = statusFilter === '' || c.status === statusFilter;
-
-      // Lender filter
-      const lenderMatch = lenderFilter === '' || c.lender === lenderFilter;
-
-      // Date range filter (using startDate or createdAt if available)
-      const dateMatch = isWithinDateRange(c.startDate, dateRangeFilter);
-
-      // Client filter
-      let clientMatch = true;
-      if (clientFilter) {
-         const contact = contacts.find(con => con.id === c.contactId);
-         const contactName = contact ? contact.fullName : 'Unknown';
-         clientMatch = contactName.toLowerCase().includes(clientFilter.toLowerCase());
-      }
-
-      return statusMatch && specificStatusMatch && lenderMatch && dateMatch && clientMatch;
-    }).map(claim => {
-       // Join with contact data for display
-       const contact = contacts.find(con => con.id === claim.contactId);
-       return {
-          ...claim,
-          contactName: contact ? contact.fullName : 'Unknown Client'
-       };
-    });
-  };
-
-  // Helper to get the workflow stage (pipeline category) for a status
-  const getWorkflowStage = (status: string): string => {
+  // === PERFORMANCE: Status-to-category lookup map for O(1) workflow stage resolution ===
+  const statusToCategoryMap = useMemo(() => {
+    const map = new Map<string, string>();
     for (const category of PIPELINE_CATEGORIES) {
-      if (category.statuses.includes(status as ClaimStatus)) {
-        return category.title;
+      for (const status of category.statuses) {
+        map.set(status, category.title);
       }
     }
-    return 'Unknown';
-  };
+    return map;
+  }, []);
 
-  // Get all filtered claims for list view (sorted by date created)
-  const getAllFilteredClaims = useMemo(() => {
-    return claims
-      .filter(c => {
-        // Specific status filter
-        const specificStatusMatch = statusFilter === '' || c.status === statusFilter;
-        // Lender filter
-        const lenderMatch = lenderFilter === '' || c.lender === lenderFilter;
-        // Date range filter
-        const dateMatch = isWithinDateRange(c.startDate, dateRangeFilter);
-        // Client filter
-        let clientMatch = true;
-        if (clientFilter) {
-          const contact = contacts.find(con => con.id === c.contactId);
-          const contactName = contact ? contact.fullName : 'Unknown';
-          clientMatch = contactName.toLowerCase().includes(clientFilter.toLowerCase());
-        }
-        return specificStatusMatch && lenderMatch && dateMatch && clientMatch;
-      })
-      .map(claim => {
-        const contact = contacts.find(con => con.id === claim.contactId);
-        return {
-          ...claim,
-          contactName: contact ? contact.fullName : 'Unknown Client',
-          clientId: contact ? generateClientId({ id: contact.id, clientId: contact.clientId, createdAt: contact.createdAt }) : 'N/A',
-          workflowStage: getWorkflowStage(claim.status),
-          createdAt: claim.startDate || contact?.createdAt || ''
-        };
-      })
-      .sort((a, b) => {
-        // Sort by date created (newest first)
-        const dateA = new Date(a.createdAt || 0).getTime();
-        const dateB = new Date(b.createdAt || 0).getTime();
-        return dateB - dateA;
+  // === PERFORMANCE: Single pass filter + enrich for all claims ===
+  // Pre-filter claims once, then bucket by category - instead of filtering 7 times
+  const { enrichedClaimsByCategory, allFilteredClaims } = useMemo(() => {
+    const clientFilterLower = clientFilter ? clientFilter.toLowerCase() : '';
+
+    // Initialize buckets for each category
+    const buckets: Record<string, EnrichedClaim[]> = {};
+    for (const cat of PIPELINE_CATEGORIES) {
+      buckets[cat.id] = [];
+    }
+
+    // Build status-to-categoryId map
+    const statusToCatId = new Map<string, string>();
+    for (const cat of PIPELINE_CATEGORIES) {
+      for (const status of cat.statuses) {
+        statusToCatId.set(status, cat.id);
+      }
+    }
+
+    const allFiltered: ListEnrichedClaim[] = [];
+
+    for (const claim of claims) {
+      const contact = contactMap.get(claim.contactId);
+      const contactName = contact ? contact.fullName : 'Unknown Client';
+
+      // Apply common filters
+      const specificStatusMatch = statusFilter === '' || claim.status === statusFilter;
+      if (!specificStatusMatch) continue;
+
+      const lenderMatch = lenderFilter === '' || claim.lender === lenderFilter;
+      if (!lenderMatch) continue;
+
+      const dateMatch = isWithinDateRange(claim.startDate, dateRangeFilter);
+      if (!dateMatch) continue;
+
+      if (clientFilterLower) {
+        const nameMatch = contactName.toLowerCase().includes(clientFilterLower);
+        if (!nameMatch) continue;
+      }
+
+      // Enrich claim with contact name
+      const enriched: EnrichedClaim = { ...claim, contactName };
+
+      // Add to category bucket for kanban view
+      const catId = statusToCatId.get(claim.status);
+      if (catId && buckets[catId]) {
+        buckets[catId].push(enriched);
+      }
+
+      // Add to flat list for list view
+      allFiltered.push({
+        ...enriched,
+        clientId: contact ? generateClientId({ id: contact.id, clientId: contact.clientId, createdAt: contact.createdAt }) : 'N/A',
+        workflowStage: statusToCategoryMap.get(claim.status) || 'Unknown',
+        createdAt: claim.startDate || contact?.createdAt || ''
       });
-  }, [claims, contacts, statusFilter, lenderFilter, dateRangeFilter, clientFilter]);
+    }
+
+    // Sort list view by date (newest first)
+    allFiltered.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
+    return { enrichedClaimsByCategory: buckets, allFilteredClaims: allFiltered };
+  }, [claims, contactMap, statusFilter, lenderFilter, dateRangeFilter, clientFilter, statusToCategoryMap]);
 
   // Pagination calculations for list view
-  const totalPages = Math.ceil(getAllFilteredClaims.length / claimsPerPage);
+  const totalPages = Math.ceil(allFilteredClaims.length / claimsPerPage);
   const startIndex = (currentPage - 1) * claimsPerPage;
   const endIndex = startIndex + claimsPerPage;
-  const paginatedClaims = getAllFilteredClaims.slice(startIndex, endIndex);
+  const paginatedClaims = useMemo(() =>
+    allFilteredClaims.slice(startIndex, endIndex),
+    [allFilteredClaims, startIndex, endIndex]
+  );
 
   // Reset to page 1 when filters change or per-page changes
   React.useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter, claimsPerPage]);
 
-  // Selection handlers for list view
-  const toggleClaimSelection = (claimId: string) => {
+  // Selection handlers for list view - wrapped in useCallback for stable references
+  const toggleClaimSelection = useCallback((claimId: string) => {
     setSelectedClaims(prev => {
       const newSet = new Set(prev);
       if (newSet.has(claimId)) {
@@ -333,19 +573,21 @@ const Pipeline: React.FC = () => {
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const toggleSelectAll = () => {
-    if (selectedClaims.size === getAllFilteredClaims.length) {
-      setSelectedClaims(new Set());
-    } else {
-      setSelectedClaims(new Set(getAllFilteredClaims.map(c => c.id)));
-    }
-  };
+  const toggleSelectAll = useCallback(() => {
+    setSelectedClaims(prev => {
+      if (prev.size === allFilteredClaims.length) {
+        return new Set<string>();
+      } else {
+        return new Set(allFilteredClaims.map(c => c.id));
+      }
+    });
+  }, [allFilteredClaims]);
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedClaims(new Set());
-  };
+  }, []);
 
   // Bulk update status for selected claims - optimized single API call
   const handleBulkStatusUpdate = async (newStatus: ClaimStatus) => {
@@ -355,50 +597,47 @@ const Pipeline: React.FC = () => {
     setShowStatusDropdown(false);
   };
 
-  const handleDragStart = (e: React.DragEvent, claimId: string) => {
-    // If the dragged claim is selected, we'll drag all selected claims
-    // If not selected, just drag this one claim
-    if (selectedClaims.has(claimId)) {
-      setDraggedClaimId(claimId); // Primary dragged claim
-    } else {
-      // Clear selection and only drag this claim
-      setSelectedClaims(new Set([claimId]));
-      setDraggedClaimId(claimId);
-    }
+  const handleDragStart = useCallback((e: React.DragEvent, claimId: string) => {
+    setSelectedClaims(prev => {
+      if (prev.has(claimId)) {
+        setDraggedClaimId(claimId);
+        return prev;
+      } else {
+        setDraggedClaimId(claimId);
+        return new Set([claimId]);
+      }
+    });
     e.dataTransfer.effectAllowed = 'move';
-  };
+  }, []);
 
-  const handleDragOver = (e: React.DragEvent, columnId: string) => {
+  const handleDragOver = useCallback((e: React.DragEvent, columnId: string) => {
     e.preventDefault();
     setDragOverColumnId(columnId);
-  };
+  }, []);
 
-  const handleDragLeave = (e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
      // Optional visual cleanup
-  };
+  }, []);
 
-  const handleDrop = async (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => {
+  const handleDrop = useCallback(async (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => {
     e.preventDefault();
     setDragOverColumnId(null);
 
     if (!draggedClaimId) return;
 
-    // Default to the first status in the dropped category
     const newStatus = categoryStatuses[0];
 
-    // If we have multiple selected claims, use optimized bulk update
     if (selectedClaims.size > 1) {
       const claimIds = Array.from(selectedClaims);
       await bulkUpdateClaimStatusByIds(claimIds, newStatus);
       setSelectedClaims(new Set());
     } else {
-      // Single claim - use regular update
       await updateClaimStatus(draggedClaimId, newStatus);
       setSelectedClaims(new Set());
     }
 
     setDraggedClaimId(null);
-  };
+  }, [draggedClaimId, selectedClaims, bulkUpdateClaimStatusByIds, updateClaimStatus]);
 
   // Get unique lenders from claims
   const uniqueLenders = useMemo(() => {
@@ -420,20 +659,26 @@ const Pipeline: React.FC = () => {
     return uniqueLenders.filter(l => l.toLowerCase().includes(lenderSearch.toLowerCase()));
   }, [lenderSearch, uniqueLenders]);
 
+  // Stable callback for navigating to a contact from kanban card
+  const handleNavigateToContact = useCallback((contactId: string, claimId: string) => {
+    navigateToContact(contactId, 'claims', claimId);
+    navigate('/contacts');
+  }, [navigateToContact, navigate]);
+
   // Clear all filters
   const clearAllFilters = () => {
     setDateRangeFilter('all');
     setStatusFilter('');
     setLenderFilter('');
-    setClientFilter('');
+    setClientFilterInput('');
   };
 
-  const hasActiveFilters = dateRangeFilter !== 'all' || statusFilter !== '' || lenderFilter !== '' || clientFilter !== '';
+  const hasActiveFilters = dateRangeFilter !== 'all' || statusFilter !== '' || lenderFilter !== '' || clientFilterInput !== '';
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 via-slate-50 to-gray-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors duration-200">
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-slate-900">
       {/* Pipeline Toolbar */}
-      <div className="relative z-50 border-b border-gray-200/50 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-4 py-2.5 flex-shrink-0 shadow-sm">
+      <div className="relative z-50 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 flex-shrink-0 shadow-sm">
          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
                <h2 className="text-base font-bold text-navy-900 dark:text-white">Claims Pipeline</h2>
@@ -444,7 +689,7 @@ const Pipeline: React.FC = () => {
                <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
                   <button
                      onClick={() => setViewType('kanban')}
-                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all ${
+                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
                         viewType === 'kanban'
                            ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -456,7 +701,7 @@ const Pipeline: React.FC = () => {
                   </button>
                   <button
                      onClick={() => setViewType('list')}
-                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all ${
+                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
                         viewType === 'list'
                            ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -479,7 +724,7 @@ const Pipeline: React.FC = () => {
                         setStatusDropdownOpen(false);
                         setLenderDropdownOpen(false);
                      }}
-                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-all ${
+                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors ${
                         dateRangeFilter !== 'all'
                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700'
                            : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600'
@@ -526,7 +771,7 @@ const Pipeline: React.FC = () => {
                         setDateDropdownOpen(false);
                         setLenderDropdownOpen(false);
                      }}
-                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-all ${
+                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors ${
                         statusFilter
                            ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                            : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600'
@@ -599,7 +844,7 @@ const Pipeline: React.FC = () => {
                         setDateDropdownOpen(false);
                         setStatusDropdownOpen(false);
                      }}
-                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-all ${
+                     className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors ${
                         lenderFilter
                            ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
                            : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600'
@@ -674,15 +919,15 @@ const Pipeline: React.FC = () => {
                      <input
                         type="text"
                         placeholder="Search client..."
-                        value={clientFilter}
-                        onChange={(e) => setClientFilter(e.target.value)}
-                        className="pl-7 pr-6 py-1.5 text-xs rounded-md bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-white w-36 border border-gray-200 dark:border-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all"
+                        value={clientFilterInput}
+                        onChange={(e) => setClientFilterInput(e.target.value)}
+                        className="pl-7 pr-6 py-1.5 text-xs rounded-md bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-white w-36 border border-gray-200 dark:border-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
                      />
-                     {clientFilter && (
+                     {clientFilterInput && (
                         <X
                            size={12}
                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                           onClick={() => setClientFilter('')}
+                           onClick={() => setClientFilterInput('')}
                         />
                      )}
                   </div>
@@ -726,7 +971,7 @@ const Pipeline: React.FC = () => {
                         <th className="w-12 px-4 py-3 border-r border-gray-200 dark:border-slate-600">
                            <input
                               type="checkbox"
-                              checked={getAllFilteredClaims.length > 0 && selectedClaims.size === getAllFilteredClaims.length}
+                              checked={allFilteredClaims.length > 0 && selectedClaims.size === allFilteredClaims.length}
                               onChange={toggleSelectAll}
                               className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                            />
@@ -818,7 +1063,7 @@ const Pipeline: React.FC = () => {
                                           e.stopPropagation();
                                           setInlineStatusDropdownId(inlineStatusDropdownId === claim.id ? null : claim.id);
                                        }}
-                                       className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color} hover:ring-2 hover:ring-offset-1 hover:ring-indigo-300 transition-all cursor-pointer`}
+                                       className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color} hover:ring-2 hover:ring-offset-1 hover:ring-indigo-300 transition-colors cursor-pointer`}
                                     >
                                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
                                        {claim.status}
@@ -893,11 +1138,11 @@ const Pipeline: React.FC = () => {
                   </tbody>
                </table>
                {/* Table Footer with Pagination */}
-               {getAllFilteredClaims.length > 0 && (
+               {allFilteredClaims.length > 0 && (
                   <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
                      <div className="flex items-center gap-3">
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                           Showing {startIndex + 1}-{Math.min(endIndex, getAllFilteredClaims.length)} of {getAllFilteredClaims.length}
+                           Showing {startIndex + 1}-{Math.min(endIndex, allFilteredClaims.length)} of {allFilteredClaims.length}
                         </span>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
                         <div className="flex items-center gap-1.5">
@@ -943,159 +1188,25 @@ const Pipeline: React.FC = () => {
       {viewType === 'kanban' && (
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
          <div className="flex space-x-4 h-full min-w-max pb-2">
-            {PIPELINE_CATEGORIES.map((cat) => {
-               const items = getEnrichedClaimsForCategory(cat.statuses);
-               const isDragOver = dragOverColumnId === cat.id;
-               const isCollapsed = collapsedColumns.includes(cat.id);
-               const gradientConfig = columnGradients[cat.id] || columnGradients['lead-generation'];
-
-               if (isCollapsed) {
-                 return (
-                   <div
-                      key={cat.id}
-                      onClick={() => toggleColumn(cat.id)}
-                      className={`h-full w-10 ${gradientConfig.gradient} rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex flex-col items-center py-3`}
-                   >
-                      <div className="w-2 h-2 rounded-full mb-4 bg-white/30"></div>
-                      <div className="writing-mode-vertical text-white font-medium tracking-wide whitespace-nowrap transform rotate-180 flex-1 flex items-center justify-center text-xs">
-                        {cat.title}
-                      </div>
-                      <div key={`collapsed-${cat.id}-${items.length}-${filterKey}`} className={`mt-3 ${gradientConfig.countBg} text-white text-[10px] w-6 h-6 flex items-center justify-center rounded-full font-bold count-animate`}>
-                        {items.length}
-                      </div>
-                   </div>
-                 );
-               }
-
-               return (
-                  <div
-                    key={cat.id}
-                    className={`flex flex-col w-64 h-full transition-all rounded-xl shadow-lg hover:shadow-xl bg-white/30 dark:bg-slate-800/30 backdrop-blur-sm ${isDragOver ? 'ring-2 ring-indigo-400 ring-opacity-70 scale-[1.01]' : ''}`}
-                    onDragOver={(e) => handleDragOver(e, cat.id)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, cat.id, cat.statuses)}
-                  >
-                     {/* Compact Column Header with Gradient */}
-                     <div className={`${gradientConfig.gradient} px-3 py-2.5 rounded-t-xl shadow-md mb-0 group relative overflow-hidden`}>
-                        {/* Decorative circles */}
-                        <div className="absolute -right-3 -top-3 w-14 h-14 rounded-full bg-white/10"></div>
-
-                        <div className="flex items-center justify-between relative z-10">
-                           <div className="flex items-center space-x-1.5">
-                              <h3 className="font-semibold text-white text-sm truncate" title={cat.title}>{cat.title}</h3>
-                              <span key={`${cat.id}-${items.length}-${filterKey}`} className={`${gradientConfig.countBg} text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold count-animate`}>
-                                {items.length}
-                              </span>
-                           </div>
-                           <button
-                              onClick={() => toggleColumn(cat.id)}
-                              className="text-white/70 hover:text-white p-1 rounded hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
-                           >
-                              <ChevronLeft size={14} />
-                           </button>
-                        </div>
-
-                     </div>
-
-                     {/* Column Body with subtle background */}
-                     <div key={filterKey} className="flex-1 overflow-y-auto space-y-3 p-3 bg-gray-50/80 dark:bg-slate-900/60 rounded-b-xl custom-scrollbar pb-6 border border-t-0 border-gray-200 dark:border-slate-700">
-                        {items.map((claim, index) => {
-                           const priority = getPriorityFromClaimValue(claim.claimValue || 0);
-                           const priorityStyle = priorityConfig[priority];
-                           const aiRecommendation = getAIRecommendation(claim.status, claim.daysInStage || 0);
-                           const staggerClass = `pipeline-card-stagger-${Math.min(index + 1, 5)}`;
-                           const isSelected = selectedClaims.has(claim.id);
-                           const isDragging = draggedClaimId === claim.id || (selectedClaims.has(claim.id) && draggedClaimId !== null);
-
-                           return (
-                              <div
-                                 key={claim.id}
-                                 draggable
-                                 onDragStart={(e) => handleDragStart(e, claim.id)}
-                                 onClick={() => toggleClaimSelection(claim.id)}
-                                 onDoubleClick={() => {
-                                    if (claim.contactId) {
-                                       navigateToContact(claim.contactId, 'claims', claim.id);
-                                       navigate('/contacts');
-                                    }
-                                 }}
-                                 className={`
-                                   pipeline-card-enter ${staggerClass}
-                                   bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg
-                                   transition-all duration-150 cursor-pointer active:cursor-grabbing
-                                   border-l-4 ${priorityStyle.borderColor} border border-gray-200 dark:border-slate-600
-                                   ${isDragging ? 'opacity-50 rotate-1 scale-98' : 'hover:-translate-y-1 hover:scale-[1.02]'}
-                                   ${isSelected ? 'ring-2 ring-indigo-500 ring-offset-1' : ''}
-                                 `}
-                              >
-                                 {/* Compact Card Header */}
-                                 <div className="p-2.5 pb-2">
-                                    <div className="flex items-start justify-between gap-2">
-                                       <div className="flex-1 min-w-0">
-                                          <h4 className="font-semibold text-gray-900 dark:text-white text-xs line-clamp-1">{claim.lender}</h4>
-                                          <div className="flex items-center mt-1 flex-wrap gap-1">
-                                             <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded ${priorityStyle.bgColor} ${priorityStyle.color}`}>
-                                                <span className={`w-1 h-1 rounded-full mr-1 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
-                                                {claim.status}
-                                             </span>
-                                          </div>
-                                       </div>
-                                       {/* Checkbox for selection */}
-                                       <div className="flex-shrink-0">
-                                          <input
-                                             type="checkbox"
-                                             checked={isSelected}
-                                             onChange={(e) => {
-                                                e.stopPropagation();
-                                                toggleClaimSelection(claim.id);
-                                             }}
-                                             onClick={(e) => e.stopPropagation()}
-                                             className="w-5 h-5 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                          />
-                                       </div>
-                                    </div>
-                                 </div>
-
-                                 {/* Compact AI Recommendation */}
-                                 {aiRecommendation && (
-                                    <div className="mx-2.5 mb-2 p-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded border border-indigo-100 dark:border-indigo-800/30">
-                                       <div className="flex items-center gap-1 mb-0.5">
-                                          <Sparkles size={10} className="text-indigo-500" />
-                                          <span className="text-[8px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase">AI recommendation</span>
-                                       </div>
-                                       <p className="text-[10px] text-gray-700 dark:text-gray-300 leading-tight">{aiRecommendation}</p>
-                                    </div>
-                                 )}
-
-                                 {/* Compact Card Footer */}
-                                 <div className="px-2.5 py-1.5 border-t border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50 rounded-b-lg">
-                                    <div className="flex items-center justify-between">
-                                       <div className="flex items-center text-[10px] text-gray-500 dark:text-gray-400">
-                                          <User size={10} className="mr-1" />
-                                          <span className="truncate max-w-[90px]">{claim.contactName}</span>
-                                       </div>
-                                       <div className="flex items-center text-[10px] text-gray-400" title="Days in stage">
-                                          <Clock size={10} className="mr-0.5" />
-                                          <span className={(claim.daysInStage || 0) > 14 ? 'text-amber-500 font-medium' : ''}>
-                                             {claim.daysInStage || 0}d
-                                          </span>
-                                       </div>
-                                    </div>
-                                 </div>
-                              </div>
-                           );
-                        })}
-
-                        {items.length === 0 && (
-                           <div className="h-24 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 text-xs bg-white/60 dark:bg-slate-800/40 shadow-inner">
-                              <TrendingUp size={16} className="text-gray-400 mb-1.5" />
-                              Drop claims here
-                           </div>
-                        )}
-                     </div>
-                  </div>
-               );
-            })}
+            {PIPELINE_CATEGORIES.map((cat) => (
+               <KanbanColumn
+                 key={cat.id}
+                 cat={cat}
+                 items={enrichedClaimsByCategory[cat.id] || []}
+                 filterKey={filterKey}
+                 isDragOver={dragOverColumnId === cat.id}
+                 isCollapsed={collapsedColumns.includes(cat.id)}
+                 selectedClaims={selectedClaims}
+                 draggedClaimId={draggedClaimId}
+                 onToggleColumn={toggleColumn}
+                 onDragOver={handleDragOver}
+                 onDragLeave={handleDragLeave}
+                 onDrop={handleDrop}
+                 onDragStart={handleDragStart}
+                 onToggleSelection={toggleClaimSelection}
+                 onNavigateToContact={handleNavigateToContact}
+               />
+            ))}
          </div>
       </div>
       )}
@@ -1174,4 +1285,4 @@ const Pipeline: React.FC = () => {
   );
 };
 
-export default Pipeline;
+export default memo(Pipeline);

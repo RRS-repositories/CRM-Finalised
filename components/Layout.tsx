@@ -4,10 +4,12 @@ import {
   LayoutDashboard, Users, MessageSquare, Target, Building2,
   FileText, ClipboardList, Settings, Workflow, Calendar,
   Bell, Sparkles, Megaphone, Shield, ChevronDown, ChevronRight,
-  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut, MessagesSquare
+  Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut, MessagesSquare,
+  LifeBuoy
 } from 'lucide-react';
 import { ViewState } from '../types';
 import { useCRM } from '../context/CRMContext';
+import SupportTicketModal from './SupportTicketModal';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -35,6 +37,10 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
 
   // State for notification dropdown
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
+
+  // State for profile dropdown and ticket modal
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
 
   // Fetch persistent notifications on mount and periodically
   useEffect(() => {
@@ -355,14 +361,50 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
               )}
             </div>
 
-            <div className="flex items-center gap-3 pl-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 p-1 rounded-lg transition-colors">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${currentUser?.role === 'Management' ? 'bg-purple-600' : 'bg-blue-600'}`}>
-                {currentUser?.fullName.charAt(0) || 'U'}
+            {/* Profile Dropdown */}
+            <div className="relative">
+              <div
+                className="flex items-center gap-3 pl-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 p-1 rounded-lg transition-colors"
+                onClick={() => { setProfileDropdownOpen(!profileDropdownOpen); setNotificationDropdownOpen(false); }}
+              >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${currentUser?.role === 'Management' ? 'bg-purple-600' : 'bg-blue-600'}`}>
+                  {currentUser?.fullName.charAt(0) || 'U'}
+                </div>
+                <div className="hidden md:block">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{currentUser?.fullName || 'User'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{currentUser?.role || 'Guest'}</p>
+                </div>
               </div>
-              <div className="hidden md:block">
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{currentUser?.fullName || 'User'}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{currentUser?.role || 'Guest'}</p>
-              </div>
+
+              {profileDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setProfileDropdownOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 z-50 overflow-hidden">
+                    {/* User info header */}
+                    <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{currentUser?.fullName}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{currentUser?.email}</p>
+                    </div>
+                    {/* Menu items */}
+                    <div className="py-1">
+                      <button
+                        onClick={() => { setProfileDropdownOpen(false); setTicketModalOpen(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        <LifeBuoy className="w-4 h-4 text-orange-500" />
+                        Raise Support Ticket
+                      </button>
+                      <button
+                        onClick={() => { setProfileDropdownOpen(false); logout(); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>
@@ -408,6 +450,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
             </div>
           ))}
         </div>
+
+        {/* Support Ticket Modal */}
+        <SupportTicketModal isOpen={ticketModalOpen} onClose={() => setTicketModalOpen(false)} />
       </div>
     </div>
   );

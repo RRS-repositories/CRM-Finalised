@@ -334,6 +334,21 @@ pool.on('error', (err, client) => {
                     -- Add email_sent column if it doesn't exist (for existing tables)
                     ALTER TABLE pending_lender_confirmations ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
 
+                    -- Create support_tickets table
+                    CREATE TABLE IF NOT EXISTS support_tickets (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        user_name VARCHAR(255) NOT NULL,
+                        title VARCHAR(255) NOT NULL,
+                        description TEXT NOT NULL,
+                        screenshot_key VARCHAR(500),
+                        status VARCHAR(20) DEFAULT 'open',
+                        resolved_by INTEGER,
+                        resolved_by_name VARCHAR(255),
+                        resolved_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+
                     -- Create indexes for better performance
                     CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date);
                     CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
@@ -343,6 +358,14 @@ pool.on('error', (err, client) => {
                     CREATE INDEX IF NOT EXISTS idx_notifications_unread ON persistent_notifications(user_id, is_read);
                     CREATE INDEX IF NOT EXISTS idx_pending_confirmations_token ON pending_lender_confirmations(token);
                     CREATE INDEX IF NOT EXISTS idx_pending_confirmations_contact ON pending_lender_confirmations(contact_id);
+                    CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
+
+                    -- Performance indexes for cases pipeline queries
+                    CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
+                    CREATE INDEX IF NOT EXISTS idx_cases_contact_id ON cases(contact_id);
+                    CREATE INDEX IF NOT EXISTS idx_cases_created_at ON cases(created_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_cases_lender ON cases(lender);
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
@@ -6122,6 +6145,155 @@ app.patch('/api/notifications/read-all', async (req, res) => {
     } catch (error) {
         console.error('Error marking all notifications read:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ===================== SUPPORT TICKETS =====================
+
+// Create a support ticket (with optional screenshot upload)
+app.post('/api/tickets', upload.single('screenshot'), async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { userId, userName, title, description } = req.body;
+        const file = req.file;
+
+        if (!userId || !title || !description) {
+            return res.status(400).json({ error: 'userId, title and description are required' });
+        }
+
+        let screenshotKey = null;
+
+        // Upload screenshot to S3 if provided
+        if (file) {
+            const ext = file.originalname.substring(file.originalname.lastIndexOf('.'));
+            screenshotKey = `SupportTickets/${userId}_${Date.now()}${ext}`;
+
+            await s3Client.send(new PutObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: screenshotKey,
+                Body: file.buffer,
+                ContentType: file.mimetype
+            }));
+        }
+
+        await client.query('BEGIN');
+
+        // Insert ticket
+        const { rows } = await client.query(
+            `INSERT INTO support_tickets (user_id, user_name, title, description, screenshot_key)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [userId, userName || 'Unknown', title, description, screenshotKey]
+        );
+        const ticket = rows[0];
+
+        // Notify all Management users
+        const mgmtUsers = await client.query(
+            `SELECT id FROM users WHERE role = 'Management' AND is_approved = TRUE`
+        );
+        for (const mgmt of mgmtUsers.rows) {
+            await client.query(
+                `INSERT INTO persistent_notifications (user_id, type, title, message)
+                 VALUES ($1, 'ticket_raised', $2, $3)`,
+                [mgmt.id, `New ticket: ${title}`, `${userName || 'A user'} raised a support ticket: ${description.substring(0, 100)}`]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, ticket });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error creating ticket:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Get tickets (Management sees all, others see own)
+app.get('/api/tickets', async (req, res) => {
+    try {
+        const { userId, role } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        let query, params;
+        if (role === 'Management') {
+            query = `SELECT * FROM support_tickets ORDER BY created_at DESC`;
+            params = [];
+        } else {
+            query = `SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC`;
+            params = [userId];
+        }
+
+        const { rows } = await pool.query(query, params);
+
+        // Generate signed URLs for screenshots
+        for (const ticket of rows) {
+            if (ticket.screenshot_key) {
+                try {
+                    ticket.screenshot_url = await getSignedUrl(
+                        s3Client,
+                        new GetObjectCommand({ Bucket: BUCKET_NAME, Key: ticket.screenshot_key }),
+                        { expiresIn: 3600 }
+                    );
+                } catch (e) {
+                    ticket.screenshot_url = null;
+                }
+            }
+        }
+
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching tickets:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Resolve a ticket
+app.patch('/api/tickets/:id/resolve', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        const { resolvedBy, resolvedByName } = req.body;
+
+        if (!resolvedBy) {
+            return res.status(400).json({ error: 'resolvedBy is required' });
+        }
+
+        await client.query('BEGIN');
+
+        const { rows } = await client.query(
+            `UPDATE support_tickets SET status = 'resolved', resolved_by = $1, resolved_by_name = $2, resolved_at = NOW()
+             WHERE id = $3 RETURNING *`,
+            [resolvedBy, resolvedByName || 'Management', id]
+        );
+
+        if (rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Ticket not found' });
+        }
+
+        const ticket = rows[0];
+
+        // Notify the original ticket creator
+        await client.query(
+            `INSERT INTO persistent_notifications (user_id, type, title, message)
+             VALUES ($1, 'ticket_resolved', $2, $3)`,
+            [ticket.user_id, `Ticket resolved: ${ticket.title}`, `Your support ticket has been resolved by ${resolvedByName || 'Management'}.`]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({ success: true, ticket });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error resolving ticket:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
     }
 });
 

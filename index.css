@@ -15,47 +15,23 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Pipeline Card Animations */
+/* Pipeline Card Animations - lightweight, GPU-composited only */
 @keyframes cardFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-@keyframes cardSlideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
+/* Only animate first few cards per column, rest appear instantly */
 .pipeline-card-enter {
-  animation: cardFadeIn 0.25s ease-out forwards;
+  animation: none; /* Default: no animation for performance */
+}
+.pipeline-card-animate {
+  animation: cardFadeIn 0.15s ease-out forwards;
 }
 
-.pipeline-card-stagger-1 { animation-delay: 0.02s; }
-.pipeline-card-stagger-2 { animation-delay: 0.04s; }
-.pipeline-card-stagger-3 { animation-delay: 0.06s; }
-.pipeline-card-stagger-4 { animation-delay: 0.08s; }
-.pipeline-card-stagger-5 { animation-delay: 0.1s; }
-
-/* Column count animation */
-@keyframes countPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
-
+/* Column count animation - lightweight */
 .count-animate {
-  animation: countPulse 0.3s ease-out;
+  /* Removed pulse animation - causes layout recalculation */
 }
 
 /* ========== A4 Paged Editor - Multi-page visual breaks ========== */

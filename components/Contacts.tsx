@@ -210,7 +210,83 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       refreshAllData, addNotification, fetchCasesForContact, updateClaimStatus
    } = useCRM();
 
-   const contact = contacts.find(c => c.id === contactId);
+   const inMemoryContact = contacts.find(c => c.id === contactId);
+
+   // If contact not in memory (e.g. page refresh with paginated data), fetch from API
+   const [fetchedContact, setFetchedContact] = useState<Contact | null>(null);
+   const [isLoadingContact, setIsLoadingContact] = useState(false);
+
+   useEffect(() => {
+      if (!inMemoryContact && contactId && !fetchedContact && !isLoadingContact) {
+         setIsLoadingContact(true);
+         fetch(`${API_BASE_URL}/api/contacts/${contactId}/full`)
+            .then(res => res.ok ? res.json() : Promise.reject('Not found'))
+            .then((c: any) => {
+               setFetchedContact({
+                  id: c.id.toString(),
+                  firstName: c.first_name,
+                  lastName: c.last_name,
+                  fullName: c.full_name,
+                  email: c.email,
+                  phone: c.phone,
+                  status: ClaimStatus.NEW_LEAD,
+                  lastActivity: 'Active',
+                  source: c.source,
+                  dateOfBirth: c.dob,
+                  createdAt: c.created_at,
+                  address: {
+                     line1: c.address_line_1,
+                     line2: c.address_line_2,
+                     city: c.city,
+                     state_county: c.state_county,
+                     postalCode: c.postal_code
+                  },
+                  previousAddresses: (() => {
+                     let prevAddrs = c.previous_addresses;
+                     if (typeof prevAddrs === 'string') {
+                        try { prevAddrs = JSON.parse(prevAddrs); } catch { prevAddrs = null; }
+                     }
+                     if (prevAddrs && Array.isArray(prevAddrs) && prevAddrs.length > 0) {
+                        return prevAddrs.map((pa: any, idx: number) => ({
+                           id: pa.id || `prev_addr_${idx}`,
+                           line1: pa.line1 || pa.address_line_1 || '',
+                           line2: pa.line2 || pa.address_line_2 || '',
+                           city: pa.city || '',
+                           county: pa.county || pa.state_county || '',
+                           postalCode: pa.postalCode || pa.postal_code || ''
+                        }));
+                     }
+                     return [];
+                  })(),
+                  documentChecklist: c.document_checklist ? (
+                     typeof c.document_checklist === 'string'
+                        ? JSON.parse(c.document_checklist)
+                        : c.document_checklist
+                  ) : { identification: false, extraLender: false, questionnaire: false, poa: false },
+                  bankDetails: {
+                     bankName: c.bank_name || '',
+                     accountName: c.account_name || '',
+                     sortCode: c.sort_code || '',
+                     accountNumber: c.bank_account_number || ''
+                  },
+                  extraLenders: c.extra_lenders,
+                  clientId: c.client_id
+               });
+            })
+            .catch(() => setFetchedContact(null))
+            .finally(() => setIsLoadingContact(false));
+      }
+   }, [inMemoryContact, contactId, fetchedContact, isLoadingContact]);
+
+   const contact = inMemoryContact || fetchedContact;
+
+   // When contact was fetched from API (not in memory), also load its cases
+   useEffect(() => {
+      if (fetchedContact && contactId) {
+         fetchCasesForContact(contactId);
+      }
+   }, [fetchedContact, contactId, fetchCasesForContact]);
+
    const contactClaims = claims.filter(c => c.contactId === contactId);
 
    // Main 7-Tab Navigation
@@ -614,6 +690,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    }, [activeTab, fetchContactDocuments]);
 
+   if (isLoadingContact) return <div className="p-6 flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading contact...</div>;
    if (!contact) return <div className="p-6">Contact not found. <button onClick={onBack} className="text-blue-600 underline ml-2">Back</button></div>;
 
    // Filter documents for this contact, only hiding signature.png and signature2.png

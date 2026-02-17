@@ -1,15 +1,15 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCRM } from '../context/CRMContext';
-import { Shield, Key, Users, Copy, Eye, EyeOff, Edit, Check, X, AlertTriangle, Trash2 } from 'lucide-react';
+import { Shield, Key, Users, Copy, Eye, EyeOff, Edit, Check, X, AlertTriangle, Trash2, LifeBuoy, CheckCircle, Clock, ExternalLink } from 'lucide-react';
 import { Role, User } from '../types';
 
 // Strict Hierarchy: Management > IT > Payments > Admin > Sales
 const ROLE_HIERARCHY: Role[] = ['Management', 'IT', 'Payments', 'Admin', 'Sales'];
 
 const AdminPanel: React.FC = () => {
-  const { users, updateUserRole, updateUserStatus, deleteUser, currentUser } = useCRM();
-  const [activeTab, setActiveTab] = useState<'users' | 'api-keys'>('users');
+  const { users, updateUserRole, updateUserStatus, deleteUser, currentUser, tickets, fetchTickets, resolveTicket, addNotification } = useCRM();
+  const [activeTab, setActiveTab] = useState<'users' | 'api-keys' | 'tickets'>('users');
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
 
   // Edit State
@@ -29,6 +29,13 @@ const AdminPanel: React.FC = () => {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2 | 3>(1);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  // Fetch tickets when tab is active
+  useEffect(() => {
+    if (activeTab === 'tickets') {
+      fetchTickets();
+    }
+  }, [activeTab, fetchTickets]);
 
   // Ensure current user is Management
   if (currentUser?.role !== 'Management') {
@@ -152,6 +159,17 @@ const AdminPanel: React.FC = () => {
         >
           <Key size={16} /> API Credentials
         </button>
+        <button
+          onClick={() => setActiveTab('tickets')}
+          className={`pb-3 px-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'tickets' ? 'border-brand-orange text-navy-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-200'}`}
+        >
+          <LifeBuoy size={16} /> Support Tickets
+          {tickets.filter(t => t.status === 'open').length > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+              {tickets.filter(t => t.status === 'open').length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 flex-1 overflow-hidden">
@@ -261,6 +279,78 @@ const AdminPanel: React.FC = () => {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Tickets Tab */}
+        {activeTab === 'tickets' && (
+          <div className="overflow-y-auto max-h-[calc(100vh-300px)]">
+            {tickets.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+                <LifeBuoy size={48} className="mb-3 opacity-50" />
+                <p className="text-lg font-medium">No support tickets</p>
+                <p className="text-sm">All clear! No tickets have been raised.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                {tickets.map(ticket => (
+                  <div key={ticket.id} className="p-5 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {ticket.status === 'open' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                              <Clock size={10} /> OPEN
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
+                              <CheckCircle size={10} /> RESOLVED
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                            #{ticket.id}
+                          </span>
+                        </div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white text-sm">{ticket.title}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 whitespace-pre-wrap">{ticket.description}</p>
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 dark:text-gray-500">
+                          <span>By: <strong className="text-gray-600 dark:text-gray-300">{ticket.userName}</strong></span>
+                          <span>{new Date(ticket.createdAt).toLocaleString()}</span>
+                          {ticket.resolvedByName && (
+                            <span>Resolved by: <strong className="text-green-600 dark:text-green-400">{ticket.resolvedByName}</strong></span>
+                          )}
+                        </div>
+                        {ticket.screenshotUrl && (
+                          <a
+                            href={ticket.screenshotUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            <ExternalLink size={12} /> View Screenshot
+                          </a>
+                        )}
+                      </div>
+                      {ticket.status === 'open' && (
+                        <button
+                          onClick={async () => {
+                            const result = await resolveTicket(ticket.id);
+                            if (result.success) {
+                              addNotification('success', `Ticket #${ticket.id} resolved`);
+                            } else {
+                              addNotification('error', result.message);
+                            }
+                          }}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <Check size={14} /> Resolve
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
