@@ -197,6 +197,45 @@ const formatActionDate = (dateString: string | undefined | null): string => {
    }
 };
 
+// Consistent lender color mapping - same lender always gets same color
+const LENDER_COLORS = [
+   { bg: 'bg-purple-200', text: 'text-purple-900', dark: 'dark:bg-purple-800 dark:text-purple-100', rowBg: 'bg-purple-50 dark:bg-purple-900/20' },
+   { bg: 'bg-cyan-200', text: 'text-cyan-900', dark: 'dark:bg-cyan-800 dark:text-cyan-100', rowBg: 'bg-cyan-50 dark:bg-cyan-900/20' },
+   { bg: 'bg-blue-200', text: 'text-blue-900', dark: 'dark:bg-blue-800 dark:text-blue-100', rowBg: 'bg-blue-50 dark:bg-blue-900/20' },
+   { bg: 'bg-green-200', text: 'text-green-900', dark: 'dark:bg-green-800 dark:text-green-100', rowBg: 'bg-green-50 dark:bg-green-900/20' },
+   { bg: 'bg-yellow-200', text: 'text-yellow-900', dark: 'dark:bg-yellow-800 dark:text-yellow-100', rowBg: 'bg-yellow-50 dark:bg-yellow-900/20' },
+   { bg: 'bg-pink-200', text: 'text-pink-900', dark: 'dark:bg-pink-800 dark:text-pink-100', rowBg: 'bg-pink-50 dark:bg-pink-900/20' },
+   { bg: 'bg-orange-200', text: 'text-orange-900', dark: 'dark:bg-orange-800 dark:text-orange-100', rowBg: 'bg-orange-50 dark:bg-orange-900/20' },
+   { bg: 'bg-teal-200', text: 'text-teal-900', dark: 'dark:bg-teal-800 dark:text-teal-100', rowBg: 'bg-teal-50 dark:bg-teal-900/20' },
+   { bg: 'bg-indigo-200', text: 'text-indigo-900', dark: 'dark:bg-indigo-800 dark:text-indigo-100', rowBg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+   { bg: 'bg-rose-200', text: 'text-rose-900', dark: 'dark:bg-rose-800 dark:text-rose-100', rowBg: 'bg-rose-50 dark:bg-rose-900/20' },
+   { bg: 'bg-lime-200', text: 'text-lime-900', dark: 'dark:bg-lime-800 dark:text-lime-100', rowBg: 'bg-lime-50 dark:bg-lime-900/20' },
+   { bg: 'bg-amber-200', text: 'text-amber-900', dark: 'dark:bg-amber-800 dark:text-amber-100', rowBg: 'bg-amber-50 dark:bg-amber-900/20' },
+   { bg: 'bg-violet-200', text: 'text-violet-900', dark: 'dark:bg-violet-800 dark:text-violet-100', rowBg: 'bg-violet-50 dark:bg-violet-900/20' },
+   { bg: 'bg-fuchsia-200', text: 'text-fuchsia-900', dark: 'dark:bg-fuchsia-800 dark:text-fuchsia-100', rowBg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20' },
+   { bg: 'bg-emerald-200', text: 'text-emerald-900', dark: 'dark:bg-emerald-800 dark:text-emerald-100', rowBg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+   { bg: 'bg-sky-200', text: 'text-sky-900', dark: 'dark:bg-sky-800 dark:text-sky-100', rowBg: 'bg-sky-50 dark:bg-sky-900/20' },
+];
+
+const getLenderColorIndex = (lender: string): number => {
+   let hash = 0;
+   for (let i = 0; i < lender.length; i++) {
+      hash = lender.charCodeAt(i) + ((hash << 5) - hash);
+   }
+   return Math.abs(hash) % LENDER_COLORS.length;
+};
+
+const getLenderColor = (lender: string) => LENDER_COLORS[getLenderColorIndex(lender)];
+
+// Parse lender from note content (format: {{lender:NAME}} at start)
+const parseLenderFromNote = (content: string): { lender: string; noteContent: string } => {
+   const match = content.match(/^\{\{lender:(.+?)\}\}/);
+   if (match) {
+      return { lender: match[1], noteContent: content.replace(/^\{\{lender:.+?\}\}/, '').trim() };
+   }
+   return { lender: '', noteContent: content };
+};
+
 // --- Sub-Component: Contact Detail View (7-Tab Structure) ---
 const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initialClaimId, onBackToPipeline }: { contactId: string, onBack: () => void, initialTab?: ContactTab, initialClaimId?: string, onBackToPipeline?: () => void }) => {
    const {
@@ -204,7 +243,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       // CRM Specification Methods
       communications, fetchCommunications, addCommunication,
       workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
-      crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
+      crmNotes, notesLoading, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
       actionLogs, fetchActionLogs, fetchAllActionLogs,
       updateContactExtended, updateClaimExtended, fetchFullClaim, currentUser,
       refreshAllData, addNotification, fetchCasesForContact, updateClaimStatus
@@ -354,6 +393,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [newNoteContent, setNewNoteContent] = useState('');
    const [newNotePinned, setNewNotePinned] = useState(false);
    const [editingNote, setEditingNote] = useState<CRMNote | null>(null);
+   const [showClaimNoteModal, setShowClaimNoteModal] = useState(false);
+   const [claimNoteContent, setClaimNoteContent] = useState('');
+   const [claimNoteLender, setClaimNoteLender] = useState('');
+   const [previewNote, setPreviewNote] = useState<CRMNote | null>(null);
+   const [noteFilter, setNoteFilter] = useState<string>('all');
 
    // Personal Details Extended (Bank Details & Previous Address)
    const [bankDetails, setBankDetails] = useState<BankDetails>({
@@ -857,12 +901,22 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       return true;
    });
 
-   // Sort CRM notes (pinned first, then by date)
-   const sortedNotes = [...crmNotes].sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-   });
+   // Sort & filter CRM notes (pinned first, then by date)
+   const sortedNotes = [...crmNotes]
+      .filter((note) => {
+         if (noteFilter === 'all') return true;
+         const { lender } = parseLenderFromNote(note.content);
+         if (noteFilter === 'note') return !lender;
+         return lender === noteFilter;
+      })
+      .sort((a, b) => {
+         if (a.pinned && !b.pinned) return -1;
+         if (!a.pinned && b.pinned) return 1;
+         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+   // Unique lenders from notes for filter options
+   const noteLenders = [...new Set(crmNotes.map(n => parseLenderFromNote(n.content).lender).filter(Boolean))];
 
    // Active workflows for this client
    const activeWorkflows = workflowTriggers.filter(w => w.status === 'active');
@@ -1105,6 +1159,34 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setNewNoteContent(note.content);
       setNewNotePinned(note.pinned);
       setShowAddNoteModal(true);
+   };
+
+   // Claim Note Handler - creates a note tagged with the lender
+   const handleAddClaimNote = async () => {
+      if (!claimNoteContent.trim() || !claimNoteLender) return;
+      const taggedContent = `{{lender:${claimNoteLender}}}${claimNoteContent}`;
+      setShowClaimNoteModal(false);
+      setClaimNoteContent('');
+      setClaimNoteLender('');
+      await addCRMNote(contact.id, taggedContent, false);
+   };
+
+   // Edit note from preview (management only) - preserves lender tag
+   const handleEditNoteFromPreview = (note: CRMNote) => {
+      const { lender, noteContent } = parseLenderFromNote(note.content);
+      setEditingNote(note);
+      setNewNoteContent(lender ? `{{lender:${lender}}}${noteContent}` : noteContent);
+      setNewNotePinned(note.pinned);
+      setPreviewNote(null);
+      setShowAddNoteModal(true);
+   };
+
+   // Delete note from preview (management only)
+   const handleDeleteNoteFromPreview = async (noteId: string) => {
+      if (confirm('Are you sure you want to delete this note?')) {
+         setPreviewNote(null);
+         await deleteCRMNote(noteId);
+      }
    };
 
    // Extended Details Handlers
@@ -3406,12 +3488,20 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-300 dark:border-slate-600 p-5">
                               <div className="flex justify-between items-center mb-4">
                                  <h3 className="text-sm font-bold text-navy-900 dark:text-white uppercase tracking-wide">Claim Documents</h3>
-                                 <button
-                                    onClick={() => setShowClaimDocUpload(true)}
-                                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                                 >
-                                    <Plus size={14} /> Upload Document
-                                 </button>
+                                 <div className="flex items-center gap-3">
+                                    <button
+                                       onClick={() => { setClaimNoteLender(claimFileForm.lender); setClaimNoteContent(''); setShowClaimNoteModal(true); }}
+                                       className="text-xs font-medium text-green-600 dark:text-green-400 hover:underline flex items-center gap-1"
+                                    >
+                                       <Plus size={14} /> Add Note
+                                    </button>
+                                    <button
+                                       onClick={() => setShowClaimDocUpload(true)}
+                                       className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                                    >
+                                       <Plus size={14} /> Upload Document
+                                    </button>
+                                 </div>
                               </div>
                               <div className="space-y-2">
                                  {(() => {
@@ -3745,56 +3835,92 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                <div className="space-y-4">
                   <div className="flex justify-between items-center mb-4">
                      <h2 className="text-lg font-bold text-navy-900 dark:text-white">Notes</h2>
-                     <button
-                        onClick={() => { setEditingNote(null); setNewNoteContent(''); setNewNotePinned(false); setShowAddNoteModal(true); }}
-                        className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
-                     >
-                        <Plus size={14} /> Add Note
-                     </button>
+                     <div className="flex items-center gap-3">
+                        {/* Lender Filter */}
+                        <div className="flex items-center gap-2 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-700">
+                           <Filter size={14} className="text-gray-400" />
+                           <select
+                              value={noteFilter}
+                              onChange={(e) => setNoteFilter(e.target.value)}
+                              className="text-xs bg-transparent text-gray-700 dark:text-gray-200 outline-none cursor-pointer pr-1"
+                           >
+                              <option value="all">All Notes</option>
+                              <option value="note">General Notes</option>
+                              {noteLenders.map(l => (
+                                 <option key={l} value={l}>{l}</option>
+                              ))}
+                           </select>
+                        </div>
+                        <button
+                           onClick={() => { setEditingNote(null); setNewNoteContent(''); setNewNotePinned(false); setShowAddNoteModal(true); }}
+                           className="text-xs font-bold bg-navy-700 hover:bg-navy-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                        >
+                           <Plus size={14} /> Add Note
+                        </button>
+                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                     {sortedNotes.map((note) => (
-                        <div key={note.id} className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border p-4 ${note.pinned ? 'border-yellow-300 dark:border-yellow-600' : 'border-gray-200 dark:border-slate-700'}`}>
-                           <div className="flex items-start gap-3">
-                              <div className={`p-2 rounded-lg ${note.pinned ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600' : 'bg-gray-50 dark:bg-slate-700 text-gray-400'}`}>
-                                 {note.pinned ? <Pin size={18} /> : <StickyNote size={18} />}
-                              </div>
-                              <div className="flex-1">
-                                 <div className="flex justify-between items-start">
-                                    <div className="flex items-center gap-2">
-                                       {note.pinned && <span className="text-[10px] font-bold text-yellow-600 uppercase">Pinned</span>}
-                                       <span className="text-xs text-gray-400">{note.createdByName || 'Unknown'}</span>
-                                       <span className="text-xs text-gray-400">• {formatTimeAgo(note.createdAt)}</span>
+                  {/* Notes List */}
+                  {notesLoading ? (
+                     <div className="flex items-center justify-center py-16">
+                        <Loader2 size={24} className="animate-spin text-navy-700 dark:text-gray-400" />
+                     </div>
+                  ) : sortedNotes.length > 0 ? (
+                     <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        {/* Table Header */}
+                        <div className="grid grid-cols-[140px_1fr_48px] bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-600">
+                           <div className="px-4 py-3 text-xs font-bold text-gray-700 dark:text-gray-200 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">Lender</div>
+                           <div className="px-4 py-3 text-xs font-bold text-gray-700 dark:text-gray-200 uppercase tracking-wider text-center">Notes</div>
+                           <div className="px-4 py-3"></div>
+                        </div>
+                        {/* List Rows */}
+                        <div className="divide-y divide-gray-200 dark:divide-slate-600">
+                           {sortedNotes.map((note) => {
+                              const { lender, noteContent } = parseLenderFromNote(note.content);
+                              const color = lender ? getLenderColor(lender) : null;
+                              // Lender notes get lender's light row color, generic notes get light yellow
+                              const rowBgClass = lender && color ? color.rowBg : 'bg-yellow-50 dark:bg-yellow-900/20';
+                              return (
+                                 <div key={note.id} className={`grid grid-cols-[140px_1fr_48px] items-center ${rowBgClass} transition-all hover:opacity-90`}>
+                                    {/* Lender Column */}
+                                    <div className="px-4 py-4 border-r border-gray-200 dark:border-slate-600 flex items-center justify-center">
+                                       {lender ? (
+                                          <span className={`inline-block px-3 py-1.5 rounded-md text-sm font-bold ${color!.bg} ${color!.text} ${color!.dark}`}>
+                                             {lender}
+                                          </span>
+                                       ) : (
+                                          <span className="inline-block px-3 py-1.5 rounded-md text-sm font-bold bg-yellow-200 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100">
+                                             Note
+                                          </span>
+                                       )}
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    {/* Notes Column - Truncated to 3 lines */}
+                                    <div className="px-5 py-4">
+                                       <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                          {noteContent || note.content}
+                                       </p>
+                                    </div>
+                                    {/* Preview Button */}
+                                    <div className="px-2 py-4 flex justify-center">
                                        <button
-                                          onClick={() => openEditNote(note)}
-                                          className="text-gray-400 hover:text-blue-600"
+                                          onClick={() => setPreviewNote(note)}
+                                          className="w-8 h-8 rounded-full border-2 border-gray-300 dark:border-slate-500 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-white dark:hover:bg-slate-700 transition-all flex items-center justify-center shadow-sm"
+                                          title="Preview note"
                                        >
-                                          <Edit size={14} />
-                                       </button>
-                                       <button
-                                          onClick={() => handleDeleteNote(note.id)}
-                                          className="text-gray-400 hover:text-red-600"
-                                       >
-                                          <Trash2 size={14} />
+                                          <Eye size={14} className="text-gray-500 dark:text-gray-400" />
                                        </button>
                                     </div>
                                  </div>
-                                 <p className="text-sm text-gray-700 dark:text-gray-300 mt-2 whitespace-pre-wrap">{note.content}</p>
-                              </div>
-                           </div>
+                              );
+                           })}
                         </div>
-                     ))}
-
-                     {sortedNotes.length === 0 && (
-                        <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl">
-                           <StickyNote size={48} className="mx-auto mb-3 opacity-20" />
-                           <p>No notes found. Add one to get started.</p>
-                        </div>
-                     )}
-                  </div>
+                     </div>
+                  ) : (
+                     <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl">
+                        <StickyNote size={48} className="mx-auto mb-3 opacity-20" />
+                        <p>No notes found. Add one to get started.</p>
+                     </div>
+                  )}
                </div>
             )}
 
@@ -4786,6 +4912,119 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                </div>
             </div>
          )}
+
+         {/* Claim Note Modal - Add note from claim section */}
+         {showClaimNoteModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-md p-6 border border-gray-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg mb-4 text-navy-900 dark:text-white flex items-center gap-2">
+                     <StickyNote size={20} className="text-green-500" /> Add Note for {claimNoteLender}
+                  </h3>
+                  <div className="space-y-4">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lender</label>
+                        <div className="px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-50 dark:bg-slate-700/50 text-gray-900 dark:text-white font-medium">
+                           {claimNoteLender || 'Unknown'}
+                        </div>
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Note Content</label>
+                        <textarea
+                           value={claimNoteContent}
+                           onChange={(e) => setClaimNoteContent(e.target.value)}
+                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                           rows={6}
+                           placeholder="Type your note for this claim..."
+                           autoFocus
+                        />
+                     </div>
+                  </div>
+                  <div className="flex justify-end gap-3 mt-6">
+                     <button onClick={() => { setShowClaimNoteModal(false); setClaimNoteContent(''); }} className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm">Cancel</button>
+                     <button
+                        onClick={handleAddClaimNote}
+                        disabled={!claimNoteContent.trim()}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                        Save Note
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* Note Preview Modal - Expanded view */}
+         {previewNote && (() => {
+            const { lender, noteContent } = parseLenderFromNote(previewNote.content);
+            const color = lender ? getLenderColor(lender) : null;
+            const isManagement = currentUser?.role === 'Management';
+            const modalBg = lender && color ? color.rowBg : 'bg-yellow-50 dark:bg-yellow-900/20';
+            return (
+               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                  <div className={`${modalBg} rounded-xl shadow-xl w-full max-w-lg border border-gray-200 dark:border-slate-700 flex flex-col max-h-[80vh]`}>
+                     {/* Header */}
+                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-300/50 dark:border-slate-600/50">
+                        <div className="flex items-center gap-3">
+                           {lender && color ? (
+                              <span className={`inline-block px-4 py-1.5 rounded-md text-base font-bold ${color.bg} ${color.text} ${color.dark}`}>
+                                 {lender}
+                              </span>
+                           ) : (
+                              <span className="inline-block px-4 py-1.5 rounded-md text-base font-bold bg-yellow-200 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100">Note</span>
+                           )}
+                        </div>
+                        <button
+                           onClick={() => setPreviewNote(null)}
+                           className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                        >
+                           <X size={20} />
+                        </button>
+                     </div>
+                     {/* Scrollable Note Content */}
+                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+                        <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
+                           {noteContent || previewNote.content}
+                        </p>
+                     </div>
+                     {/* Footer: Date, Agent, Actions */}
+                     <div className="border-t border-gray-300/50 dark:border-slate-600/50 px-6 py-4">
+                        <div className="flex items-center justify-between">
+                           <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-2">
+                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 w-20">Date Added</span>
+                                 <span className="text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded">
+                                    {previewNote.createdAt ? new Date(previewNote.createdAt).toLocaleDateString('en-GB') : 'Unknown'}
+                                 </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 w-20">Agent:</span>
+                                 <span className="text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded">
+                                    {previewNote.createdByName || 'Unknown'}
+                                 </span>
+                              </div>
+                           </div>
+                           {isManagement && (
+                              <div className="flex items-center gap-2">
+                                 <button
+                                    onClick={() => handleEditNoteFromPreview(previewNote)}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium transition-colors"
+                                 >
+                                    Edit
+                                 </button>
+                                 <button
+                                    onClick={() => handleDeleteNoteFromPreview(previewNote.id)}
+                                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-medium transition-colors"
+                                 >
+                                    Delete
+                                 </button>
+                              </div>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            );
+         })()}
 
          {/* LOA Link Modal */}
          {showLoaLinkModal && loaLink && (

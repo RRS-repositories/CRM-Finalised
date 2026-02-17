@@ -122,6 +122,7 @@ interface CRMContextType {
 
   // Notes (Enhanced CRM)
   crmNotes: CRMNote[];
+  notesLoading: boolean;
   fetchNotes: (clientId: string) => Promise<void>;
   addCRMNote: (clientId: string, content: string, pinned?: boolean) => Promise<{ success: boolean; message: string; id?: string }>;
   updateCRMNote: (noteId: string, content: string, pinned?: boolean) => Promise<{ success: boolean; message: string }>;
@@ -334,6 +335,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [communications, setCommunications] = useState<CRMCommunication[]>([]);
   const [workflowTriggers, setWorkflowTriggers] = useState<WorkflowTrigger[]>([]);
   const [crmNotes, setCrmNotes] = useState<CRMNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
   const [actionLogs, setActionLogs] = useState<ActionLogEntry[]>([]);
 
   // Tasks & Persistent Notifications State
@@ -1974,6 +1976,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- Communications ---
   const fetchCommunications = useCallback(async (clientId: string) => {
+    setCommunications([]);
     try {
       const response = await fetch(`${API_BASE_URL}/clients/${clientId}/communications`);
       if (!response.ok) throw new Error('Failed to fetch communications');
@@ -2058,6 +2061,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- Workflow Triggers ---
   const fetchWorkflows = useCallback(async (clientId: string) => {
+    setWorkflowTriggers([]);
     try {
       const response = await fetch(`${API_BASE_URL}/clients/${clientId}/workflows`);
       if (!response.ok) throw new Error('Failed to fetch workflows');
@@ -2173,6 +2177,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- CRM Notes (Enhanced) ---
   const fetchNotes = useCallback(async (clientId: string) => {
+    setNotesLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/clients/${clientId}/notes`);
       if (!response.ok) throw new Error('Failed to fetch notes');
@@ -2193,6 +2198,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCrmNotes(mappedNotes);
     } catch (error) {
       console.error('Error fetching notes:', error);
+    } finally {
+      setNotesLoading(false);
     }
   }, []);
 
@@ -2297,6 +2304,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- Action Timeline ---
   const fetchActionLogs = useCallback(async (clientId: string) => {
+    setActionLogs([]);
     try {
       const response = await fetch(`${API_BASE_URL}/clients/${clientId}/actions`);
       if (!response.ok) throw new Error('Failed to fetch action logs');
@@ -2940,7 +2948,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNote, theme, toggleTheme,
     communications, fetchCommunications, addCommunication,
     workflowTriggers, fetchWorkflows, triggerWorkflow, cancelWorkflow,
-    crmNotes, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
+    crmNotes, notesLoading, fetchNotes, addCRMNote, updateCRMNote, deleteCRMNote,
     actionLogs, fetchActionLogs, fetchAllActionLogs,
     updateContactExtended, updateClaimExtended, fetchFullClaim,
     refreshAllData,
@@ -2953,7 +2961,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }), [
     currentUser, users, contacts, documents, templates, forms, claims, appointments,
     activityLogs, notifications, activeContext, currentView, pendingContactNavigation,
-    communications, workflowTriggers, crmNotes, actionLogs, theme,
+    communications, workflowTriggers, crmNotes, notesLoading, actionLogs, theme,
     tasks, persistentNotifications, unreadNotificationCount, tickets, isLoading, contactsPagination,
     // Stable callbacks (useCallback) won't trigger re-renders
     login, logout, initiateRegistration, verifyRegistration, updateUserRole, updateUserStatus,

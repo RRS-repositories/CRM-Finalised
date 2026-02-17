@@ -84,12 +84,12 @@ export const viewStateToRoute: Record<ViewState, string> = {
 
 // Loading spinner component
 const LoadingSpinner = () => (
-  <div className="fixed inset-0 bg-white dark:bg-slate-900 flex flex-col items-center justify-center z-50">
+  <div className="fixed inset-0 bg-white dark:bg-surface-900 flex flex-col items-center justify-center z-50">
     <div className="relative">
       {/* Outer ring */}
-      <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-900 rounded-full animate-pulse"></div>
+      <div className="w-16 h-16 border-4 border-brand-orange/20 rounded-full animate-pulse"></div>
       {/* Spinning ring */}
-      <div className="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+      <div className="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-brand-orange rounded-full animate-spin"></div>
     </div>
     <p className="mt-4 text-gray-600 dark:text-gray-400 text-sm font-medium">Loading CRM data...</p>
   </div>

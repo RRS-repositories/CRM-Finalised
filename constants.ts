@@ -185,6 +185,37 @@ export const MOCK_KPIS: KPI[] = [
   { label: 'Conversion Rate', value: '24%', change: -2.1, trend: 'down' },
 ];
 
+// Dashboard - Top Performers data (claims sent, lender responses, active status)
+export const MOCK_TOP_PERFORMERS = [
+  { rank: 1, name: 'Zanele Nkosi', initials: 'ZN', color: '#06b6d4', sent: 10, responses: 6, active: true, week: 20 },
+  { rank: 2, name: 'Thabo Mokoena', initials: 'TM', color: '#f97316', sent: 6, responses: 6, active: false, week: 20 },
+  { rank: 3, name: 'Nomvula Khumalo', initials: 'NK', color: '#eab308', sent: 6, responses: 3, active: true, week: 20 },
+  { rank: 4, name: 'Sipho Dlamini', initials: 'SD', color: '#8b5cf6', sent: 6, responses: 5, active: true, week: 20 },
+  { rank: 5, name: 'Andile Mbeki', initials: 'AM', color: '#10b981', sent: 6, responses: 5, active: true, week: 20 },
+  { rank: 6, name: 'Lerato Molefe', initials: 'LM', color: '#ec4899', sent: 6, responses: 5, active: true, week: 20 },
+];
+
+// Dashboard - Lender Claims data
+export const MOCK_LENDER_CLAIMS = [
+  { name: 'Vanquis', value: 18, color: '#ef4444', percent: '16%' },
+  { name: 'Aqua', value: 17, color: '#3b82f6', percent: '15%' },
+  { name: 'Loans 2 Go', value: 17, color: '#f97316', percent: '15%' },
+  { name: '118 Money', value: 16, color: '#eab308', percent: '14%' },
+  { name: 'Capital One', value: 14, color: '#ec4899', percent: '12%' },
+  { name: 'Revolut', value: 14, color: '#8b5cf6', percent: '12%' },
+  { name: 'Quid Market', value: 12, color: '#22c55e', percent: '10%' },
+];
+
+// Dashboard - Agent Status data
+export const MOCK_AGENTS_STATUS = [
+  { name: 'Thabo', initials: 'TM', color: '#f97316', online: true, rank: 2 },
+  { name: 'Zanele', initials: 'ZN', color: '#06b6d4', online: true, rank: 1 },
+  { name: 'Sipho', initials: 'SD', color: '#8b5cf6', online: true, rank: 0 },
+  { name: 'Nomvula', initials: 'NK', color: '#eab308', online: false, rank: 3 },
+  { name: 'Andile', initials: 'AM', color: '#10b981', online: true, rank: 0 },
+  { name: 'Lerato', initials: 'LM', color: '#ec4899', online: true, rank: 0 },
+];
+
 // Template folders for document templates
 export const MOCK_TEMPLATE_FOLDERS = [
   { id: 'irl-claims', name: 'IRL Claims', count: 3 },
