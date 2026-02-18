@@ -25,6 +25,9 @@ import { exec } from 'child_process';
 import mammoth from 'mammoth';
 import juice from 'juice';
 import { generateCoverLetterFromTemplate } from './coverletter.js';
+import Docxtemplater from 'docxtemplater';
+import PizZip from 'pizzip';
+import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,6 +119,17 @@ const s3Client = new S3Client({
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     }
+});
+
+// Path-style S3 client for OnlyOffice — buckets with dots (e.g. client.landing.page)
+// cause SSL cert failures with virtual-hosted-style URLs when fetched server-side
+const s3ClientPathStyle = new S3Client({
+    region: process.env.AWS_REGION,
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    },
+    forcePathStyle: true,
 });
 
 const pool = new Pool({
@@ -369,6 +383,39 @@ pool.on('error', (err, client) => {
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
+
+            // Add document_status column if not present
+            await client.query(`
+                ALTER TABLE documents ADD COLUMN IF NOT EXISTS document_status VARCHAR(30) NOT NULL DEFAULT 'Draft'
+            `);
+            console.log('✅ documents.document_status column ready');
+
+            // Document tracking columns
+            await client.query(`
+                ALTER TABLE documents ADD COLUMN IF NOT EXISTS tracking_token UUID UNIQUE DEFAULT NULL;
+                ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP DEFAULT NULL;
+            `);
+
+            // Workflow triggers metadata column for document chase
+            await client.query(`
+                ALTER TABLE workflow_triggers ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT NULL
+            `);
+
+            // Document tracking events table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS document_tracking_events (
+                    id SERIAL PRIMARY KEY,
+                    document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+                    event_type VARCHAR(30) NOT NULL,
+                    tracking_token UUID NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_doc_tracking_doc_id ON document_tracking_events(document_id);
+                CREATE INDEX IF NOT EXISTS idx_doc_tracking_token ON document_tracking_events(tracking_token);
+            `);
+            console.log('✅ Document tracking schema ready');
         } finally {
             client.release();
         }
@@ -391,6 +438,91 @@ const openai = new OpenAI({
 
 // Store chat sessions in memory (in production, use Redis or similar)
 const chatSessions = new Map();
+
+// ============================================================================
+// ONLYOFFICE INTEGRATION - In-Memory Storage (Phase 1)
+// Will be replaced with database tables in Phase 2
+// ============================================================================
+const ooTemplates = new Map();
+const ooDocuments = new Map();
+let ooTemplateIdCounter = 1;
+let ooDocumentIdCounter = 1;
+
+const OO_FIRM_DEFAULTS = {
+    firm_name: 'Rowan Rose Solicitors',
+    firm_trading_name: 'Fast Action Claims',
+    firm_address: 'Boat Shed, Exchange Quay, Salford M5 3EQ',
+    sra_number: '8000843',
+    firm_entity: 'Rowan Rose Ltd',
+    company_number: '12916452',
+};
+
+const OO_MOCK_CASE_DATA = {
+    client_name: 'John Smith',
+    client_address: '123 Test Street, Manchester M1 1AA',
+    client_email: 'john@example.com',
+    client_phone: '07700 900000',
+    client_dob: '01/01/1980',
+    lender_name: 'Vanquis Bank',
+    lender_address: '1 Godwin Street, Bradford BD1 2SU',
+    lender_ref: 'VB-2024-12345',
+    lender_entity: 'Vanquis Banking Group plc',
+    loan_amount: '2,500.00',
+    loan_date: '15 March 2023',
+    loan_type: 'Credit Card',
+    interest_rate: '39.9',
+    monthly_repayment: '125.00',
+    total_repayable: '4,500.00',
+    loan_term: '48 months',
+    dti_ratio: '58',
+    disposable_income: '-120.45',
+    monthly_income: '1,800.00',
+    monthly_expenditure: '1,920.45',
+    total_debt: '15,000.00',
+    case_ref: 'RR-2024-0001',
+    case_status: 'Active',
+    settlement_amount: '1,250.00',
+    ...OO_FIRM_DEFAULTS,
+    solicitor_name: 'Brad',
+    today_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+};
+
+// Helper: Download S3 object as Buffer
+async function downloadS3Buffer(key) {
+    const resp = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    const chunks = [];
+    for await (const chunk of resp.Body) {
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+}
+
+// Helper: Upload buffer to S3
+async function uploadS3Buffer(key, buffer, contentType) {
+    await s3Client.send(new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+    }));
+}
+
+// Helper: Extract merge field names from DOCX template
+function extractMergeFields(docxBuffer) {
+    try {
+        const zip = new PizZip(docxBuffer);
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+        });
+        const text = doc.getFullText();
+        const matches = text.match(/\{\{([^}]+)\}\}/g) || [];
+        return [...new Set(matches.map(m => m.replace(/^\{\{|\}\}$/g, '').trim()))];
+    } catch (err) {
+        console.warn('[OO] Could not extract merge fields:', err.message);
+        return [];
+    }
+}
 
 // --- EMAIL CONFIGURATION ---
 const emailTransporter = nodemailer.createTransport({
@@ -1318,7 +1450,31 @@ app.post('/send-email', async (req, res) => {
         res.status(200).json({ success: true, messageId: info.messageId });
     } catch (error) {
         console.error('Email error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        const isBounce = (error.responseCode && error.responseCode >= 500) ||
+            /invalid|does not exist|user unknown|mailbox not found|undeliverable/i.test(error.message);
+        if (isBounce) {
+            try {
+                const contactRes = await pool.query('SELECT id FROM contacts WHERE email = $1', [to]);
+                if (contactRes.rows.length > 0) {
+                    const cId = contactRes.rows[0].id;
+                    await pool.query(
+                        `UPDATE documents SET document_status = 'Draft', updated_at = NOW()
+                         WHERE contact_id = $1 AND document_status = 'Sent'`, [cId]
+                    );
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                         VALUES ($1, 'system', 'system', 'System', 'email_bounced', 'documents', $2, $3, NOW())`,
+                        [cId, `Email bounced for ${to} - documents reverted to Draft`, JSON.stringify({ email: to, error: error.message })]
+                    );
+                    await pool.query(
+                        `INSERT INTO persistent_notifications (type, title, message, link, is_read, created_at)
+                         VALUES ('ticket_raised', 'Email Bounced', $1, $2, false, NOW())`,
+                        [`Email to ${to} bounced: ${error.message}`, `/contacts`]
+                    );
+                }
+            } catch (logErr) { console.error('Bounce log error:', logErr.message); }
+        }
+        res.status(500).json({ success: false, error: error.message, bounced: isBounce });
     }
 });
 
@@ -1831,9 +1987,43 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
         return { success: true, draft: true, message: 'Email in DRAFT mode - not sent' };
     }
 
-    const info = await emailTransporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    try {
+        const info = await emailTransporter.sendMail(mailOptions);
+        console.log('✅ Email sent successfully:', info.messageId);
+        return { success: true, messageId: info.messageId };
+    } catch (smtpError) {
+        console.error('❌ Email delivery failed:', smtpError.message);
+        const isBounce = (smtpError.responseCode && smtpError.responseCode >= 500) ||
+            /invalid|does not exist|user unknown|mailbox not found|undeliverable/i.test(smtpError.message);
+
+        if (isBounce) {
+            // Log bounce to action_logs - find contact by email
+            try {
+                const contactRes = await pool.query('SELECT id FROM contacts WHERE email = $1', [toEmail]);
+                if (contactRes.rows.length > 0) {
+                    const cId = contactRes.rows[0].id;
+                    // Revert any Sent documents to Draft
+                    await pool.query(
+                        `UPDATE documents SET document_status = 'Draft', updated_at = NOW()
+                         WHERE contact_id = $1 AND document_status = 'Sent'`, [cId]
+                    );
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                         VALUES ($1, 'system', 'system', 'System', 'email_bounced', 'documents', $2, $3, NOW())`,
+                        [cId, `Email bounced for ${toEmail} - documents reverted to Draft`, JSON.stringify({ email: toEmail, error: smtpError.message })]
+                    );
+                    await pool.query(
+                        `INSERT INTO persistent_notifications (type, title, message, link, is_read, created_at)
+                         VALUES ('ticket_raised', 'Email Bounced', $1, $2, false, NOW())`,
+                        [`Email to ${toEmail} bounced: ${smtpError.message}. Please update the client's email address.`, `/contacts`]
+                    );
+                }
+            } catch (logErr) {
+                console.error('Failed to log bounce:', logErr.message);
+            }
+        }
+        return { success: false, bounced: isBounce, error: smtpError.message };
+    }
 }
 
 app.post('/api/submit-page1', async (req, res) => {
@@ -2182,7 +2372,29 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
                  WHERE id = $1`,
                 [contact_id]
             );
+            // Auto-complete: ID Document uploaded by client = Completed
+            await pool.query(
+                `UPDATE documents SET document_status = 'Completed', updated_at = NOW() WHERE id = $1`,
+                [rows[0].id]
+            );
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+                [contact_id, `Client uploaded ID document: "${s3FileName}"`, JSON.stringify({ document_id: rows[0].id, category: 'ID Document' })]
+            );
             console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}, identification set to true`);
+        } else if (docCategory === 'Proof of Address') {
+            // Auto-complete: POA uploaded by client = Completed
+            await pool.query(
+                `UPDATE documents SET document_status = 'Completed', updated_at = NOW() WHERE id = $1`,
+                [rows[0].id]
+            );
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+                [contact_id, `Client uploaded proof of address: "${s3FileName}"`, JSON.stringify({ document_id: rows[0].id, category: 'Proof of Address' })]
+            );
+            console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}, POA completed`);
         } else {
             console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}`);
         }
@@ -2437,6 +2649,297 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
         const { rows } = await pool.query('SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC', [contactId]);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DOCUMENT STATUS UPDATE ---
+app.put('/api/documents/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status, actor_id, actor_name, previous_status } = req.body;
+
+    const validStatuses = [
+        'Draft', 'For Approval', 'Sent', 'Viewed',
+        'Completed', 'Expired', 'Waiting for Payment', 'Paid', 'Declined'
+    ];
+
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status value' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE documents SET document_status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, document_status, contact_id, name`,
+            [status, id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        // Log the status change to action_logs
+        const doc = rows[0];
+        await pool.query(
+            `INSERT INTO action_logs
+             (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+             VALUES ($1, 'agent', $2, $3, 'document_status_changed', 'documents', $4, $5, NOW())`,
+            [
+                doc.contact_id,
+                actor_id || 'system',
+                actor_name || 'System',
+                `Document "${doc.name}" status changed from "${previous_status || 'unknown'}" to "${status}"`,
+                JSON.stringify({ document_id: id, new_status: status, old_status: previous_status || null })
+            ]
+        );
+
+        res.json({ success: true, document: rows[0] });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// --- DOCUMENT SEND (mark as Sent + generate tracking token) ---
+app.post('/api/documents/:id/send', async (req, res) => {
+    const { id } = req.params;
+    const { actor_id, actor_name, contact_id } = req.body;
+
+    try {
+        const { randomUUID } = await import('crypto');
+        const token = randomUUID();
+
+        const { rows } = await pool.query(
+            `UPDATE documents
+             SET document_status = 'Sent', tracking_token = $1, sent_at = NOW(), updated_at = NOW()
+             WHERE id = $2
+             RETURNING id, name, contact_id, tracking_token`,
+            [token, id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        const doc = rows[0];
+        const resolvedContactId = contact_id || doc.contact_id;
+
+        // Log to action_logs
+        await pool.query(
+            `INSERT INTO action_logs
+             (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+             VALUES ($1, 'agent', $2, $3, 'document_sent', 'documents', $4, $5, NOW())`,
+            [
+                resolvedContactId,
+                actor_id || 'system',
+                actor_name || 'System',
+                `Document "${doc.name}" sent to client`,
+                JSON.stringify({ document_id: id, tracking_token: token })
+            ]
+        );
+
+        // Insert tracking event
+        await pool.query(
+            `INSERT INTO document_tracking_events (document_id, event_type, tracking_token)
+             VALUES ($1, 'sent', $2)`,
+            [id, token]
+        );
+
+        // Create chase workflow trigger (Day 3 first chase)
+        const day3 = new Date(Date.now() + 3 * 86400000).toISOString();
+        await pool.query(
+            `INSERT INTO workflow_triggers
+             (client_id, workflow_type, workflow_name, triggered_by, status, current_step, total_steps, next_action_at, next_action_description, metadata)
+             VALUES ($1, 'document_chase', 'Document Chase', $2, 'active', 1, 5, $3, 'First chase - Day 3', $4)`,
+            [
+                resolvedContactId,
+                actor_name || 'System',
+                day3,
+                JSON.stringify({ document_id: parseInt(id) })
+            ]
+        );
+
+        const BASE_URL = process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+        res.json({
+            success: true,
+            tracking_url: `${BASE_URL}/api/documents/track/${token}/view`,
+            decline_url: `${BASE_URL}/api/documents/track/${token}/decline`,
+            tracking_token: token
+        });
+    } catch (err) {
+        console.error('[Document Send]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// --- DOCUMENT VIEW TRACKING (client-facing, embedded in emails) ---
+app.get('/api/documents/track/:token/view', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, contact_id, name, url, document_status FROM documents WHERE tracking_token = $1`,
+            [token]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).send('<html><body style="font-family:Arial;text-align:center;padding:60px"><h2>This document link is no longer valid.</h2></body></html>');
+        }
+
+        const doc = rows[0];
+
+        // Only advance to Viewed if currently Sent (guard against regression)
+        if (doc.document_status === 'Sent') {
+            await pool.query(
+                `UPDATE documents SET document_status = 'Viewed', updated_at = NOW() WHERE id = $1`,
+                [doc.id]
+            );
+
+            await pool.query(
+                `INSERT INTO action_logs
+                 (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'client', $1, 'Client', 'document_viewed', 'documents', $2, $3, NOW())`,
+                [
+                    doc.contact_id,
+                    `Client opened document "${doc.name}"`,
+                    JSON.stringify({ document_id: doc.id })
+                ]
+            );
+        }
+
+        // Always record tracking event
+        await pool.query(
+            `INSERT INTO document_tracking_events (document_id, event_type, tracking_token, ip_address, user_agent)
+             VALUES ($1, 'viewed', $2, $3, $4)`,
+            [doc.id, token, req.ip, req.headers['user-agent'] || null]
+        );
+
+        // Redirect to document URL or show landing page
+        if (doc.url) {
+            return res.redirect(doc.url);
+        }
+        res.send('<html><body style="font-family:Arial;text-align:center;padding:60px"><h2>Document opened successfully.</h2><p>Thank you for viewing this document.</p></body></html>');
+    } catch (err) {
+        console.error('[Track View]', err);
+        res.status(500).send('Error processing document link');
+    }
+});
+
+// --- DOCUMENT DECLINE TRACKING (client-facing, embedded in emails) ---
+app.get('/api/documents/track/:token/decline', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, contact_id, name, document_status FROM documents WHERE tracking_token = $1`,
+            [token]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).send('<html><body style="font-family:Arial;text-align:center;padding:60px"><h2>This document link is no longer valid.</h2></body></html>');
+        }
+
+        const doc = rows[0];
+
+        // Only decline if not already Completed
+        if (doc.document_status !== 'Completed' && doc.document_status !== 'Declined') {
+            await pool.query(
+                `UPDATE documents SET document_status = 'Declined', updated_at = NOW() WHERE id = $1`,
+                [doc.id]
+            );
+
+            await pool.query(
+                `INSERT INTO action_logs
+                 (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'client', $1, 'Client', 'document_declined', 'documents', $2, $3, NOW())`,
+                [
+                    doc.contact_id,
+                    `Client declined document "${doc.name}"`,
+                    JSON.stringify({ document_id: doc.id })
+                ]
+            );
+
+            // Record tracking event
+            await pool.query(
+                `INSERT INTO document_tracking_events (document_id, event_type, tracking_token, ip_address, user_agent)
+                 VALUES ($1, 'declined', $2, $3, $4)`,
+                [doc.id, token, req.ip, req.headers['user-agent'] || null]
+            );
+
+            // Cancel any active document chase workflow
+            await pool.query(
+                `UPDATE workflow_triggers
+                 SET status = 'cancelled', cancelled_at = NOW()
+                 WHERE workflow_type = 'document_chase'
+                   AND metadata->>'document_id' = $1
+                   AND status = 'active'`,
+                [doc.id.toString()]
+            );
+
+            // Create notification for staff
+            await pool.query(
+                `INSERT INTO persistent_notifications (type, title, message, link, is_read, created_at)
+                 VALUES ('ticket_raised', $1, $2, $3, false, NOW())`,
+                [
+                    'Document Declined',
+                    `Client declined document "${doc.name}". Review required.`,
+                    `/documents`
+                ]
+            );
+        }
+
+        res.send(`
+            <html><body style="font-family:Arial;text-align:center;padding:60px;color:#333">
+            <div style="max-width:500px;margin:0 auto;border:1px solid #ddd;border-radius:12px;padding:40px">
+                <h2 style="color:#be123c">Document Declined</h2>
+                <p>You have declined this document. If this was a mistake, please contact Rowan Rose Solicitors.</p>
+                <p style="color:#666;font-size:14px;margin-top:24px">Email: info@fastactionclaims.co.uk</p>
+            </div>
+            </body></html>
+        `);
+    } catch (err) {
+        console.error('[Track Decline]', err);
+        res.status(500).send('Error processing decline');
+    }
+});
+
+// --- DOCUMENT ACTIVITY TIMELINE FEED ---
+app.get('/api/actions/documents', async (req, res) => {
+    const limit = parseInt(req.query.limit) || 20;
+    try {
+        const { rows } = await pool.query(
+            `SELECT al.*, c.full_name as contact_name
+             FROM action_logs al
+             LEFT JOIN contacts c ON al.client_id = c.id
+             WHERE al.action_category = 'documents'
+             ORDER BY al.timestamp DESC
+             LIMIT $1`,
+            [limit]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PER-DOCUMENT TIMELINE ---
+app.get('/api/documents/:id/timeline', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [logsRes, eventsRes] = await Promise.all([
+            pool.query(
+                `SELECT id, action_type, description, actor_name, actor_type, timestamp, metadata
+                 FROM action_logs
+                 WHERE metadata->>'document_id' = $1
+                 ORDER BY timestamp DESC`,
+                [id]
+            ),
+            pool.query(
+                `SELECT id, event_type, ip_address, user_agent, occurred_at as timestamp
+                 FROM document_tracking_events
+                 WHERE document_id = $1
+                 ORDER BY occurred_at DESC`,
+                [parseInt(id)]
+            )
+        ]);
+        res.json({ action_logs: logsRes.rows, tracking_events: eventsRes.rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- S3 DOCUMENT SYNC ---
@@ -5570,6 +6073,34 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     ]
                 );
 
+                // Auto-complete: Mark any Sent/Viewed LOA documents as Completed
+                const loaCompleted = await pool.query(
+                    `UPDATE documents SET document_status = 'Completed', updated_at = NOW()
+                     WHERE contact_id = $1
+                       AND document_status IN ('Sent', 'Viewed')
+                       AND (tags @> ARRAY['LOA']::text[] OR tags @> ARRAY['LOA Form']::text[] OR name ILIKE '%LOA%')
+                     RETURNING id, name`,
+                    [contactId]
+                );
+                if (loaCompleted.rows.length > 0) {
+                    for (const ld of loaCompleted.rows) {
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                             VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+                            [contactId, `LOA form signed - document "${ld.name}" marked Completed`, JSON.stringify({ document_id: ld.id, trigger: 'loa_form_submission' })]
+                        );
+                    }
+                    // Cancel active document chase workflows for these documents
+                    for (const ld of loaCompleted.rows) {
+                        await pool.query(
+                            `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW()
+                             WHERE workflow_type = 'document_chase' AND metadata->>'document_id' = $1 AND status = 'active'`,
+                            [ld.id.toString()]
+                        );
+                    }
+                    console.log(`[Background LOA] Marked ${loaCompleted.rows.length} LOA documents as Completed`);
+                }
+
                 console.log(`[Background LOA] ✅ ALL TASKS COMPLETED for contact ${contactId}`);
 
             } catch (err) {
@@ -7147,6 +7678,28 @@ app.post('/api/submit-sales-signature', async (req, res) => {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
             [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'signature_captured', 'Document', `Signature captured via sales form for ${record.lender} claim`]
         );
+
+        // Auto-complete: Mark acceptance/signature documents as Completed
+        const sigCompleted = await pool.query(
+            `UPDATE documents SET document_status = 'Completed', updated_at = NOW()
+             WHERE contact_id = $1
+               AND document_status IN ('Sent', 'Viewed')
+               AND (name ILIKE '%signature%' OR name ILIKE '%acceptance%' OR tags @> ARRAY['Signature']::text[])
+             RETURNING id, name`,
+            [contactId]
+        );
+        for (const sd of sigCompleted.rows) {
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+                [contactId, `Signature captured - document "${sd.name}" marked Completed`, JSON.stringify({ document_id: sd.id, trigger: 'sales_signature' })]
+            );
+            await pool.query(
+                `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW()
+                 WHERE workflow_type = 'document_chase' AND metadata->>'document_id' = $1 AND status = 'active'`,
+                [sd.id.toString()]
+            );
+        }
 
         res.json({ success: true, message: 'Signature submitted successfully' });
 
@@ -8903,6 +9456,416 @@ app.post('/api/templates/generate-from-docx', async (req, res) => {
     } catch (err) {
         console.error('[DOCX Generate] Error:', err);
         res.status(500).json({ success: false, message: 'Failed to generate document: ' + err.message });
+    }
+});
+
+// ============================================================================
+// ONLYOFFICE INTEGRATION API ROUTES (Phase 1 - In-Memory)
+// ============================================================================
+
+// --- OO Template CRUD ---
+
+// GET /api/oo/templates - List all templates, optional ?category filter
+app.get('/api/oo/templates', (req, res) => {
+    try {
+        let templates = Array.from(ooTemplates.values());
+        if (req.query.category) {
+            templates = templates.filter(t => t.category === req.query.category);
+        }
+        res.json({ success: true, templates });
+    } catch (err) {
+        console.error('[OO Templates] List error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// POST /api/oo/templates - Upload new DOCX template
+app.post('/api/oo/templates', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+        const { name, description, category } = req.body;
+        if (!name) return res.status(400).json({ success: false, message: 'name is required' });
+
+        const sanitizedName = name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+        const s3Key = `oo-templates/${Date.now()}-${sanitizedName}.docx`;
+        await uploadS3Buffer(s3Key, req.file.buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+        const mergeFields = extractMergeFields(req.file.buffer);
+
+        const id = ooTemplateIdCounter++;
+        const now = new Date().toISOString();
+        const template = {
+            id, name,
+            description: description || '',
+            category: category || 'General',
+            s3Key, mergeFields,
+            createdAt: now,
+            updatedAt: now,
+        };
+        ooTemplates.set(id, template);
+
+        console.log(`[OO Templates] Created #${id}: "${name}" (${mergeFields.length} merge fields)`);
+        res.json({ success: true, template });
+    } catch (err) {
+        console.error('[OO Templates] Create error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/oo/templates/:id - Get template metadata + presigned download URL
+app.get('/api/oo/templates/:id', async (req, res) => {
+    try {
+        const template = ooTemplates.get(Number(req.params.id));
+        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+            Bucket: BUCKET_NAME, Key: template.s3Key
+        }), { expiresIn: 604800 });
+        res.json({ success: true, template, downloadUrl });
+    } catch (err) {
+        console.error('[OO Templates] Get error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/oo/templates/:id - Update template metadata
+app.put('/api/oo/templates/:id', (req, res) => {
+    try {
+        const template = ooTemplates.get(Number(req.params.id));
+        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        if (req.body.name !== undefined) template.name = req.body.name;
+        if (req.body.description !== undefined) template.description = req.body.description;
+        if (req.body.category !== undefined) template.category = req.body.category;
+        template.updatedAt = new Date().toISOString();
+
+        res.json({ success: true, template });
+    } catch (err) {
+        console.error('[OO Templates] Update error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// DELETE /api/oo/templates/:id - Remove from in-memory store
+app.delete('/api/oo/templates/:id', (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!ooTemplates.has(id)) return res.status(404).json({ success: false, message: 'Template not found' });
+        ooTemplates.delete(id);
+        console.log(`[OO Templates] Deleted #${id}`);
+        res.json({ success: true, message: 'Template deleted' });
+    } catch (err) {
+        console.error('[OO Templates] Delete error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// --- OO Editor Config ---
+
+// GET /api/oo/templates/:id/editor-config
+app.get('/api/oo/templates/:id/editor-config', async (req, res) => {
+    try {
+        const template = ooTemplates.get(Number(req.params.id));
+        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        // Use path-style S3 client — bucket "client.landing.page" has dots which break
+        // virtual-hosted-style SSL certs when OnlyOffice fetches the file server-side
+        const fileUrl = await getSignedUrl(s3ClientPathStyle, new GetObjectCommand({
+            Bucket: BUCKET_NAME, Key: template.s3Key
+        }), { expiresIn: 3600 });
+
+
+        const callbackBase = process.env.ONLYOFFICE_CALLBACK_BASE_URL || 'http://localhost:5000';
+        const callbackUrl = `${callbackBase}/api/oo/callback`;
+        const callbackReachable = !callbackBase.includes('localhost') && !callbackBase.includes('127.0.0.1');
+
+        const config = {
+            documentType: 'word',
+            document: {
+                fileType: 'docx',
+                key: `tpl_${template.id}_v${Date.now()}`,
+                title: template.name,
+                url: fileUrl,
+                permissions: { download: true, edit: true, print: true },
+            },
+            editorConfig: {
+                ...(callbackReachable ? { callbackUrl } : {}),
+                mode: 'edit',
+                user: { id: '1', name: 'Brad' },
+                customization: {
+                    autosave: callbackReachable,
+                    forcesave: callbackReachable,
+                    chat: false,
+                    compactHeader: true,
+                },
+            },
+        };
+
+        if (process.env.ONLYOFFICE_JWT_SECRET) {
+            config.token = jwt.sign(config, process.env.ONLYOFFICE_JWT_SECRET);
+        }
+
+        res.json({ success: true, config, onlyOfficeUrl: process.env.ONLYOFFICE_URL || '' });
+    } catch (err) {
+        console.error('[OO] Template editor config error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/oo/documents/:id/editor-config
+app.get('/api/oo/documents/:id/editor-config', async (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+
+        // Path-style S3 URL for OnlyOffice (see template editor-config comment)
+        const fileUrl = await getSignedUrl(s3ClientPathStyle, new GetObjectCommand({
+            Bucket: BUCKET_NAME, Key: doc.s3KeyDocx
+        }), { expiresIn: 3600 });
+
+        const callbackBase = process.env.ONLYOFFICE_CALLBACK_BASE_URL || 'http://localhost:5000';
+        const callbackUrl = `${callbackBase}/api/oo/callback`;
+        const callbackReachable = !callbackBase.includes('localhost') && !callbackBase.includes('127.0.0.1');
+
+        const config = {
+            documentType: 'word',
+            document: {
+                fileType: 'docx',
+                key: doc.ooDocKey,
+                title: doc.name,
+                url: fileUrl,
+                permissions: { download: true, edit: true, print: true },
+            },
+            editorConfig: {
+                ...(callbackReachable ? { callbackUrl } : {}),
+                mode: 'edit',
+                user: { id: '1', name: 'Brad' },
+                customization: {
+                    autosave: callbackReachable,
+                    forcesave: callbackReachable,
+                    chat: false,
+                    compactHeader: true,
+                },
+            },
+        };
+
+        if (process.env.ONLYOFFICE_JWT_SECRET) {
+            config.token = jwt.sign(config, process.env.ONLYOFFICE_JWT_SECRET);
+        }
+
+        res.json({ success: true, config, onlyOfficeUrl: process.env.ONLYOFFICE_URL || '' });
+    } catch (err) {
+        console.error('[OO] Document editor config error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// --- OO Callback ---
+
+// POST /api/oo/callback - OnlyOffice save callback (MUST always return {"error": 0})
+app.post('/api/oo/callback', async (req, res) => {
+    try {
+        const { status, url, key } = req.body;
+        console.log(`[OO Callback] status=${status}, key=${key}`);
+
+        // Status 2 = document ready for saving, 6 = force save
+        if ((status === 2 || status === 6) && url) {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Failed to download from OO: ${response.status}`);
+            const buffer = Buffer.from(await response.arrayBuffer());
+
+            // Check documents
+            for (const [id, doc] of ooDocuments) {
+                if (doc.ooDocKey === key) {
+                    await uploadS3Buffer(doc.s3KeyDocx, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                    doc.ooDocKey = `doc_${id}_v${Date.now()}`;
+                    doc.updatedAt = new Date().toISOString();
+                    console.log(`[OO Callback] Updated document #${id}`);
+                    break;
+                }
+            }
+
+            // Check templates
+            for (const [id, tpl] of ooTemplates) {
+                if (key.startsWith(`tpl_${id}_`)) {
+                    await uploadS3Buffer(tpl.s3Key, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                    tpl.mergeFields = extractMergeFields(buffer);
+                    tpl.updatedAt = new Date().toISOString();
+                    console.log(`[OO Callback] Updated template #${id}`);
+                    break;
+                }
+            }
+        }
+    } catch (err) {
+        console.error('[OO Callback] Error:', err);
+    }
+    // MUST always return error:0
+    res.json({ error: 0 });
+});
+
+// --- OO Document Generation & Management ---
+
+// POST /api/oo/documents/generate - Generate merged document from template
+app.post('/api/oo/documents/generate', async (req, res) => {
+    try {
+        const { templateId, caseId, name, mergeData } = req.body;
+        if (!templateId) return res.status(400).json({ success: false, message: 'templateId is required' });
+
+        const template = ooTemplates.get(Number(templateId));
+        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        // Download template from S3
+        const templateBuffer = await downloadS3Buffer(template.s3Key);
+
+        // Use provided merge data or fall back to mock data
+        const data = mergeData || {
+            ...OO_MOCK_CASE_DATA,
+            case_ref: `RR-2024-${String(caseId || 1).padStart(4, '0')}`,
+            today_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+        };
+
+        // Merge with docxtemplater
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+        });
+        doc.render(data);
+        const mergedBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+
+        // Upload merged DOCX to S3
+        const docId = ooDocumentIdCounter++;
+        const timestamp = Date.now();
+        const effectiveCaseId = caseId || 0;
+        const s3KeyDocx = `oo-documents/${effectiveCaseId}/${docId}_v${timestamp}.docx`;
+        await uploadS3Buffer(s3KeyDocx, mergedBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+        const now = new Date().toISOString();
+        const document = {
+            id: docId,
+            caseId: effectiveCaseId,
+            templateId: Number(templateId),
+            name: name || `${template.name} - Generated ${new Date().toLocaleDateString('en-GB')}`,
+            s3KeyDocx,
+            s3KeyPdf: null,
+            status: 'draft',
+            ooDocKey: `doc_${docId}_v${timestamp}`,
+            createdAt: now,
+            updatedAt: now,
+        };
+        ooDocuments.set(docId, document);
+
+        console.log(`[OO Documents] Generated #${docId} from template #${templateId}`);
+        res.json({ success: true, document });
+    } catch (err) {
+        console.error('[OO Documents] Generate error:', err);
+        res.status(500).json({ success: false, message: 'Failed to generate document: ' + err.message });
+    }
+});
+
+// GET /api/oo/documents - List documents, optional ?caseId filter
+app.get('/api/oo/documents', (req, res) => {
+    try {
+        let documents = Array.from(ooDocuments.values());
+        if (req.query.caseId) {
+            documents = documents.filter(d => d.caseId === Number(req.query.caseId));
+        }
+        res.json({ success: true, documents });
+    } catch (err) {
+        console.error('[OO Documents] List error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/oo/documents/:id - Get document metadata
+app.get('/api/oo/documents/:id', (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+        res.json({ success: true, document: doc });
+    } catch (err) {
+        console.error('[OO Documents] Get error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/oo/documents/:id/download - Presigned download URL
+app.get('/api/oo/documents/:id/download', async (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+
+        const key = req.query.format === 'pdf' && doc.s3KeyPdf ? doc.s3KeyPdf : doc.s3KeyDocx;
+        const url = await getSignedUrl(s3Client, new GetObjectCommand({
+            Bucket: BUCKET_NAME, Key: key
+        }), { expiresIn: 604800 });
+        res.json({ success: true, url });
+    } catch (err) {
+        console.error('[OO Documents] Download error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// POST /api/oo/documents/:id/convert-pdf - Convert DOCX to PDF via LibreOffice
+app.post('/api/oo/documents/:id/convert-pdf', async (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+
+        const docxBuffer = await downloadS3Buffer(doc.s3KeyDocx);
+
+        const libreOfficePath = await findLibreOffice();
+        let pdfBuffer;
+        if (libreOfficePath) {
+            pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+        } else {
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+        }
+
+        const s3KeyPdf = `oo-documents/${doc.caseId}/${doc.id}.pdf`;
+        await uploadS3Buffer(s3KeyPdf, pdfBuffer, 'application/pdf');
+
+        doc.s3KeyPdf = s3KeyPdf;
+        doc.updatedAt = new Date().toISOString();
+
+        console.log(`[OO Documents] Converted #${doc.id} to PDF (${(pdfBuffer.length / 1024).toFixed(1)} KB)`);
+        res.json({ success: true, document: doc });
+    } catch (err) {
+        console.error('[OO Documents] PDF conversion error:', err);
+        res.status(500).json({ success: false, message: 'PDF conversion failed: ' + err.message });
+    }
+});
+
+// PUT /api/oo/documents/:id/status - Update document status
+app.put('/api/oo/documents/:id/status', (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+
+        const { status } = req.body;
+        if (!['draft', 'final', 'sent'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status. Must be draft, final, or sent' });
+        }
+        doc.status = status;
+        doc.updatedAt = new Date().toISOString();
+        res.json({ success: true, document: doc });
+    } catch (err) {
+        console.error('[OO Documents] Status update error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// DELETE /api/oo/documents/:id - Remove from in-memory store
+app.delete('/api/oo/documents/:id', (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!ooDocuments.has(id)) return res.status(404).json({ success: false, message: 'Document not found' });
+        ooDocuments.delete(id);
+        console.log(`[OO Documents] Deleted #${id}`);
+        res.json({ success: true, message: 'Document deleted' });
+    } catch (err) {
+        console.error('[OO Documents] Delete error:', err);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 

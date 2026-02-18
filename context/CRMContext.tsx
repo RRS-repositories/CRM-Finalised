@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
-import { Contact, ClaimStatus, Document, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem, SupportTicket } from '../types';
+import { Contact, ClaimStatus, Document, DocumentStatus, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem, SupportTicket } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
@@ -91,6 +91,9 @@ interface CRMContextType {
   // Document Methods
   addDocument: (doc: Partial<Document>, file?: File) => Promise<{ success: boolean; message: string; id?: string }>;
   updateDocument: (doc: Document) => { success: boolean; message: string };
+  updateDocumentStatus: (docId: string, status: DocumentStatus) => Promise<void>;
+  sendDocument: (docId: string) => Promise<{ trackingUrl?: string; declineUrl?: string } | null>;
+  fetchDocumentTimeline: (docId: string) => Promise<any[]>;
 
   // Template Methods
   addTemplate: (tpl: Partial<Template>) => { success: boolean; message: string; id?: string };
@@ -755,7 +758,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         version: d.version,
         tags: d.tags || [],
         associatedContactId: d.contact_id?.toString(),
-        dateModified: d.created_at?.split('T')[0]
+        dateModified: d.created_at?.split('T')[0],
+        documentStatus: (d.document_status as DocumentStatus) || 'Draft',
+        trackingToken: d.tracking_token || null,
+        sentAt: d.sent_at || null,
       }));
 
       setDocuments(mappedDocs);
@@ -1891,6 +1897,76 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: `Updated document: ${doc.name}` };
   };
 
+  const updateDocumentStatus = async (docId: string, status: DocumentStatus) => {
+    const doc = documents.find(d => d.id === docId);
+    const previousStatus = doc?.documentStatus || 'Draft';
+    // Optimistic update
+    setDocuments(prev => prev.map(d =>
+      d.id === docId ? { ...d, documentStatus: status } : d
+    ));
+    try {
+      await fetch(`${API_BASE_URL}/documents/${docId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status,
+          previous_status: previousStatus,
+          actor_id: currentUser?.id,
+          actor_name: currentUser?.fullName || currentUser?.email,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to update document status:', err);
+    }
+  };
+
+  const sendDocument = async (docId: string): Promise<{ trackingUrl?: string; declineUrl?: string } | null> => {
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return null;
+    // Optimistic update to Sent
+    setDocuments(prev => prev.map(d =>
+      d.id === docId ? { ...d, documentStatus: 'Sent' as DocumentStatus, sentAt: new Date().toISOString() } : d
+    ));
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/${docId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor_id: currentUser?.id,
+          actor_name: currentUser?.fullName || currentUser?.email,
+          contact_id: doc.associatedContactId,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to send document');
+      const data = await res.json();
+      // Update local doc with tracking token
+      setDocuments(prev => prev.map(d =>
+        d.id === docId ? { ...d, trackingToken: data.tracking_token } : d
+      ));
+      addNotification('success', `Document marked as Sent`);
+      return { trackingUrl: data.tracking_url, declineUrl: data.decline_url };
+    } catch (err) {
+      console.error('Failed to send document:', err);
+      // Revert optimistic update
+      setDocuments(prev => prev.map(d =>
+        d.id === docId ? { ...d, documentStatus: doc.documentStatus, sentAt: doc.sentAt } : d
+      ));
+      addNotification('error', 'Failed to send document');
+      return null;
+    }
+  };
+
+  const fetchDocumentTimeline = async (docId: string): Promise<any[]> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/${docId}/timeline`);
+      if (!res.ok) throw new Error('Failed to fetch timeline');
+      return await res.json();
+    } catch (err) {
+      console.error('Failed to fetch document timeline:', err);
+      return [];
+    }
+  };
+
   // --- Template Logic ---
   const addTemplate = (tplData: Partial<Template>) => {
     const newTpl: Template = {
@@ -2942,7 +3018,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     pendingContactNavigation, navigateToContact, clearContactNavigation,
     updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails, getPipelineStats,
     addClaim, updateClaim, deleteClaim, updateClaimStatus, bulkUpdateClaimStatusByIds, bulkUpdateClaims,
-    addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument,
+    addAppointment, updateAppointment, deleteAppointment, addDocument, updateDocument, updateDocumentStatus, sendDocument, fetchDocumentTimeline,
     addTemplate, updateTemplate, deleteTemplate,
     addForm, updateForm, deleteForm,
     addNote, theme, toggleTheme,
@@ -2970,7 +3046,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails,
     getPipelineStats, addClaim, updateClaim, deleteClaim, updateClaimStatus,
     bulkUpdateClaimStatusByIds, bulkUpdateClaims, addAppointment, updateAppointment,
-    deleteAppointment, addDocument, updateDocument, addTemplate, updateTemplate, deleteTemplate,
+    deleteAppointment, addDocument, updateDocument, sendDocument, fetchDocumentTimeline, addTemplate, updateTemplate, deleteTemplate,
     addForm, updateForm, deleteForm, addNote, toggleTheme, fetchCommunications,
     addCommunication, fetchWorkflows, triggerWorkflow, cancelWorkflow, fetchNotes,
     addCRMNote, updateCRMNote, deleteCRMNote, fetchActionLogs, fetchAllActionLogs,

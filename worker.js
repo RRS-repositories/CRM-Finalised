@@ -2475,6 +2475,134 @@ const processPendingCategory3Confirmations = async () => {
     }
 };
 
+// --- DOCUMENT EXPIRY & CHASE PROCESSOR ---
+const processDocumentExpiry = async () => {
+    try {
+        // STEP 1: Expire documents that are 30+ days since sent_at
+        const { rows: toExpire } = await pool.query(
+            `SELECT d.id, d.name, d.contact_id
+             FROM documents d
+             WHERE d.document_status IN ('Sent', 'Viewed')
+               AND d.sent_at IS NOT NULL
+               AND d.sent_at < NOW() - INTERVAL '30 days'`
+        );
+
+        for (const doc of toExpire) {
+            await pool.query(
+                `UPDATE documents SET document_status = 'Expired', updated_at = NOW() WHERE id = $1`,
+                [doc.id]
+            );
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'system', 'system', 'System', 'document_expired', 'documents', $2, $3, NOW())`,
+                [doc.contact_id, `Document "${doc.name}" expired after 30 days without completion`, JSON.stringify({ document_id: doc.id })]
+            );
+            // Cancel any active chase workflow
+            await pool.query(
+                `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW()
+                 WHERE workflow_type = 'document_chase' AND metadata->>'document_id' = $1 AND status = 'active'`,
+                [doc.id.toString()]
+            );
+        }
+
+        if (toExpire.length > 0) {
+            console.log(`[Worker] Expired ${toExpire.length} documents (30+ days)`);
+        }
+
+        // STEP 2: Process due chase emails
+        const { rows: dueChases } = await pool.query(
+            `SELECT wt.id as trigger_id, wt.client_id, wt.current_step, wt.total_steps, wt.metadata,
+                    c.email, c.first_name, c.last_name,
+                    d.id as doc_id, d.name as doc_name, d.document_status, d.tracking_token, d.sent_at
+             FROM workflow_triggers wt
+             JOIN contacts c ON wt.client_id = c.id
+             JOIN documents d ON d.id = (wt.metadata->>'document_id')::int
+             WHERE wt.workflow_type = 'document_chase'
+               AND wt.status = 'active'
+               AND wt.next_action_at <= NOW()
+               AND d.document_status IN ('Sent', 'Viewed')`
+        );
+
+        const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+        const APP_BASE_URL = isProduction
+            ? 'http://rowanroseclaims.co.uk'
+            : 'http://localhost:5000';
+
+        // Chase schedule: Day 3, 10, 17, 24, 30 from sent_at
+        const dayOffsets = [3, 10, 17, 24, 30];
+
+        for (const chase of dueChases) {
+            const step = chase.current_step;
+            const trackingUrl = `${APP_BASE_URL}/api/documents/track/${chase.tracking_token}/view`;
+            const declineUrl = `${APP_BASE_URL}/api/documents/track/${chase.tracking_token}/decline`;
+
+            // Send chase email
+            if (!EMAIL_DRAFT_MODE && chase.email) {
+                try {
+                    await clientEmailTransporter.sendMail({
+                        from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+                        to: chase.email,
+                        subject: `Reminder: Action Required - ${chase.doc_name}`,
+                        html: `
+                            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+                                <div style="background:linear-gradient(135deg,#1E3A5F,#0f172a);padding:24px;text-align:center">
+                                    <span style="color:white;font-size:20px;font-weight:bold">ROWAN ROSE SOLICITORS</span>
+                                </div>
+                                <div style="padding:32px;background:#fff">
+                                    <p>Dear ${chase.first_name},</p>
+                                    <p>This is a friendly reminder that your document <strong>${chase.doc_name}</strong> requires your attention.</p>
+                                    <p>Please click the button below to view and complete it:</p>
+                                    <div style="text-align:center;margin:24px 0">
+                                        <a href="${trackingUrl}" style="display:inline-block;background:#1E3A5F;color:white;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold">View Document</a>
+                                    </div>
+                                    <p style="color:#666;font-size:13px">This document will expire 30 days from when it was first sent to you.</p>
+                                    <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+                                    <p style="color:#999;font-size:12px">If you wish to decline this document, <a href="${declineUrl}" style="color:#be123c">click here</a>.</p>
+                                </div>
+                            </div>
+                        `
+                    });
+                    console.log(`[Worker] Chase email sent (step ${step}/${chase.total_steps}) for doc ${chase.doc_id} to ${chase.email}`);
+                } catch (emailErr) {
+                    console.error(`[Worker] Chase email failed for doc ${chase.doc_id}:`, emailErr.message);
+                }
+            } else {
+                console.log(`[Worker] Chase step ${step} for doc ${chase.doc_id} (DRAFT MODE or no email)`);
+            }
+
+            // Log chase
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                 VALUES ($1, 'system', 'system', 'System', 'document_chase_sent', 'documents', $2, $3, NOW())`,
+                [chase.client_id, `Chase email step ${step} of 5 for document "${chase.doc_name}"`, JSON.stringify({ document_id: chase.doc_id, step })]
+            );
+
+            // Advance to next step or complete
+            const nextStep = step + 1;
+            if (nextStep <= 5) {
+                const nextOffset = dayOffsets[nextStep - 1];
+                const sentAt = chase.sent_at ? new Date(chase.sent_at) : new Date();
+                const nextAt = new Date(sentAt.getTime() + nextOffset * 86400000);
+                await pool.query(
+                    `UPDATE workflow_triggers SET current_step = $1, next_action_at = $2, next_action_description = $3 WHERE id = $4`,
+                    [nextStep, nextAt.toISOString(), `Chase step ${nextStep} - Day ${nextOffset}`, chase.trigger_id]
+                );
+            } else {
+                await pool.query(
+                    `UPDATE workflow_triggers SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+                    [chase.trigger_id]
+                );
+            }
+        }
+
+        if (dueChases.length > 0) {
+            console.log(`[Worker] Processed ${dueChases.length} document chase(s)`);
+        }
+    } catch (err) {
+        console.error('[Worker] Document expiry/chase error:', err);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -2489,6 +2617,8 @@ const runWorkerCycle = async () => {
     await sendOverdueNotifications();
     // Send pending Category 3 confirmation emails
     await processPendingCategory3Confirmations();
+    // Process document expiry (30-day) and chase emails (Day 3, 10, 17, 24, 30)
+    await processDocumentExpiry();
 };
 
 // Run immediately on start (with small delay for DB migration)

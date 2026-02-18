@@ -22,6 +22,11 @@ export const API_ENDPOINTS = {
     documents: `${API_BASE_URL}/api/documents`,
     submitPage1: `${API_BASE_URL}/api/submit-page1`,
     uploadDocument: `${API_BASE_URL}/api/upload-document`,
+    oo: {
+        templates: `${API_BASE_URL}/api/oo/templates`,
+        documents: `${API_BASE_URL}/api/oo/documents`,
+        callback: `${API_BASE_URL}/api/oo/callback`,
+    },
 };
 
 export default API_ENDPOINTS;

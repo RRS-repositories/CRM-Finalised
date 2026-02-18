@@ -1,4 +1,4 @@
-import { Conversation, Contact, Document, Template, Form, KPI, ClaimStatus, EmailAccount, EmailFolder, Email } from './types';
+import { Conversation, Contact, Document, Template, Form, KPI, ClaimStatus, EmailAccount, EmailFolder, Email, DocumentStatus } from './types';
 
 // Pipeline Categories for Kanban board
 export const PIPELINE_CATEGORIES = [
@@ -273,6 +273,84 @@ TEMPLATE_VARIABLES.forEach(group => {
     VARIABLE_LOOKUP[v.key] = { label: v.label, contactField: v.contactField };
   });
 });
+
+// OnlyOffice merge field reference (grouped for MergeFieldPicker UI)
+export const OO_MERGE_FIELDS: Array<{
+  group: string;
+  fields: Array<{ key: string; label: string }>;
+}> = [
+  {
+    group: 'Client',
+    fields: [
+      { key: 'client_name', label: 'Client Name' },
+      { key: 'client_address', label: 'Client Address' },
+      { key: 'client_email', label: 'Client Email' },
+      { key: 'client_phone', label: 'Client Phone' },
+      { key: 'client_dob', label: 'Client Date of Birth' },
+    ],
+  },
+  {
+    group: 'Lender',
+    fields: [
+      { key: 'lender_name', label: 'Lender Name' },
+      { key: 'lender_address', label: 'Lender Address' },
+      { key: 'lender_ref', label: 'Lender Reference' },
+      { key: 'lender_entity', label: 'Lender Entity' },
+    ],
+  },
+  {
+    group: 'Loan',
+    fields: [
+      { key: 'loan_amount', label: 'Loan Amount' },
+      { key: 'loan_date', label: 'Loan Date' },
+      { key: 'loan_type', label: 'Loan Type' },
+      { key: 'interest_rate', label: 'Interest Rate' },
+      { key: 'monthly_repayment', label: 'Monthly Repayment' },
+      { key: 'total_repayable', label: 'Total Repayable' },
+      { key: 'loan_term', label: 'Loan Term' },
+    ],
+  },
+  {
+    group: 'Affordability',
+    fields: [
+      { key: 'dti_ratio', label: 'DTI Ratio' },
+      { key: 'disposable_income', label: 'Disposable Income' },
+      { key: 'monthly_income', label: 'Monthly Income' },
+      { key: 'monthly_expenditure', label: 'Monthly Expenditure' },
+      { key: 'total_debt', label: 'Total Debt' },
+    ],
+  },
+  {
+    group: 'Case',
+    fields: [
+      { key: 'case_ref', label: 'Case Reference' },
+      { key: 'case_status', label: 'Case Status' },
+      { key: 'settlement_amount', label: 'Settlement Amount' },
+    ],
+  },
+  {
+    group: 'Firm',
+    fields: [
+      { key: 'firm_name', label: 'Firm Name' },
+      { key: 'firm_trading_name', label: 'Trading Name' },
+      { key: 'solicitor_name', label: 'Solicitor Name' },
+      { key: 'firm_address', label: 'Firm Address' },
+      { key: 'sra_number', label: 'SRA Number' },
+      { key: 'firm_entity', label: 'Firm Entity' },
+      { key: 'company_number', label: 'Company Number' },
+      { key: 'today_date', label: "Today's Date" },
+    ],
+  },
+];
+
+export const OO_FIRM_DEFAULTS: Record<string, string> = {
+  firm_name: 'Rowan Rose Solicitors',
+  firm_trading_name: 'Fast Action Claims',
+  firm_address: 'Boat Shed, Exchange Quay, Salford M5 3EQ',
+  sra_number: '8000843',
+  firm_entity: 'Rowan Rose Ltd',
+  company_number: '12916452',
+};
 
 export const MOCK_CONVERSATIONS: Conversation[] = [
   {
@@ -776,6 +854,112 @@ export const DOCUMENT_CATEGORIES = [
   'Settlement Agreement',
   'Invoice',
   'Other'
+];
+
+// Document Status Dashboard Configuration
+export const DOCUMENT_STATUS_CONFIG: Array<{
+  status: DocumentStatus;
+  label: string;
+  description: string;
+  bgClass: string;
+  textClass: string;
+  countClass: string;
+  borderClass: string;
+  iconColor: string;
+}> = [
+  // Row 1
+  {
+    status: 'Draft',
+    label: 'Draft',
+    description: 'Documents with missing or incorrect client email',
+    bgClass: 'bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700',
+    textClass: 'text-gray-500 dark:text-gray-400',
+    countClass: 'text-gray-800 dark:text-gray-100',
+    borderClass: 'border-gray-200 dark:border-slate-700',
+    iconColor: '#6b7280',
+  },
+  {
+    status: 'For Approval',
+    label: 'For approval',
+    description: 'Pending internal approval before sending',
+    bgClass: 'bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30',
+    textClass: 'text-orange-600 dark:text-orange-400',
+    countClass: 'text-orange-800 dark:text-orange-100',
+    borderClass: 'border-orange-200 dark:border-orange-800/50',
+    iconColor: '#f97316',
+  },
+  {
+    status: 'Sent',
+    label: 'Sent',
+    description: 'Emailed to client, awaiting action',
+    bgClass: 'bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600',
+    textClass: 'text-blue-100',
+    countClass: 'text-white',
+    borderClass: 'border-blue-500 dark:border-blue-700',
+    iconColor: '#3b82f6',
+  },
+  // Row 2
+  {
+    status: 'Viewed',
+    label: 'Viewed',
+    description: "Client opened but hasn't completed",
+    bgClass: 'bg-purple-500 dark:bg-purple-700 hover:bg-purple-600 dark:hover:bg-purple-600',
+    textClass: 'text-purple-100',
+    countClass: 'text-white',
+    borderClass: 'border-purple-500 dark:border-purple-700',
+    iconColor: '#a855f7',
+  },
+  {
+    status: 'Completed',
+    label: 'Completed',
+    description: 'LOA signed, ID/POA uploaded, or form signed',
+    bgClass: 'bg-emerald-500 dark:bg-emerald-700 hover:bg-emerald-600 dark:hover:bg-emerald-600',
+    textClass: 'text-emerald-100',
+    countClass: 'text-white',
+    borderClass: 'border-emerald-500 dark:border-emerald-700',
+    iconColor: '#10b981',
+  },
+  {
+    status: 'Expired',
+    label: 'Expired',
+    description: '30+ days without completion (chased on Day 3, 10, 17, 24)',
+    bgClass: 'bg-red-400 dark:bg-red-700 hover:bg-red-500 dark:hover:bg-red-600',
+    textClass: 'text-red-100',
+    countClass: 'text-white',
+    borderClass: 'border-red-400 dark:border-red-700',
+    iconColor: '#ef4444',
+  },
+  // Row 3
+  {
+    status: 'Waiting for Payment',
+    label: 'Waiting for payment',
+    description: 'Payment link sent, awaiting client payment',
+    bgClass: 'bg-lime-50 dark:bg-lime-900/20 hover:bg-lime-100 dark:hover:bg-lime-900/30',
+    textClass: 'text-lime-600 dark:text-lime-400',
+    countClass: 'text-lime-800 dark:text-lime-100',
+    borderClass: 'border-lime-200 dark:border-lime-800/50',
+    iconColor: '#84cc16',
+  },
+  {
+    status: 'Paid',
+    label: 'Paid',
+    description: 'Client payment received and confirmed',
+    bgClass: 'bg-teal-600 dark:bg-teal-800 hover:bg-teal-700 dark:hover:bg-teal-700',
+    textClass: 'text-teal-100',
+    countClass: 'text-white',
+    borderClass: 'border-teal-600 dark:border-teal-800',
+    iconColor: '#14b8a6',
+  },
+  {
+    status: 'Declined',
+    label: 'Declined',
+    description: 'Client declined via email link',
+    bgClass: 'bg-rose-800 dark:bg-rose-900 hover:bg-rose-900 dark:hover:bg-rose-800',
+    textClass: 'text-rose-200',
+    countClass: 'text-white',
+    borderClass: 'border-rose-800 dark:border-rose-900',
+    iconColor: '#be123c',
+  },
 ];
 
 // Workflow Types for Chase Sequences

@@ -276,6 +276,17 @@ export interface Conversation {
 }
 
 // Documents & Templates Types
+export type DocumentStatus =
+  | 'Draft'
+  | 'For Approval'
+  | 'Sent'
+  | 'Viewed'
+  | 'Completed'
+  | 'Expired'
+  | 'Waiting for Payment'
+  | 'Paid'
+  | 'Declined';
+
 export interface Document {
   id: string;
   name: string;
@@ -288,6 +299,9 @@ export interface Document {
   version: number;
   content?: string; // HTML content for generated docs
   url?: string; // Base64 Data URL or blob URL for uploaded files
+  documentStatus?: DocumentStatus;
+  trackingToken?: string | null;
+  sentAt?: string | null;
 }
 
 export interface CustomVariable {
@@ -312,6 +326,53 @@ export interface TemplateFolder {
   id: string;
   name: string;
   count: number;
+}
+
+// OnlyOffice Integration Types (Phase 1)
+export interface OOTemplate {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  s3Key: string;
+  mergeFields: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OODocument {
+  id: number;
+  caseId: number;
+  templateId: number;
+  name: string;
+  s3KeyDocx: string;
+  s3KeyPdf: string | null;
+  status: 'draft' | 'final' | 'sent';
+  ooDocKey: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OOEditorConfig {
+  documentType: string;
+  document: {
+    fileType: string;
+    key: string;
+    title: string;
+    url: string;
+    permissions: {
+      download: boolean;
+      edit: boolean;
+      print: boolean;
+    };
+  };
+  editorConfig: {
+    callbackUrl: string;
+    mode: string;
+    user: { id: string; name: string };
+    customization: Record<string, unknown>;
+  };
+  token?: string;
 }
 
 // Forms Module Types

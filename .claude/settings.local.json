@@ -38,7 +38,8 @@
       "Bash(Stop-Process -Id 892 -Force)",
       "Bash(for file in components/*.tsx components/**/*.tsx)",
       "Bash(do wc -l \"$file\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(git pull:*)"
     ]
   }
 }
