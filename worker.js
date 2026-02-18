@@ -1823,18 +1823,17 @@ const processPendingLOAs = async () => {
 
                     console.log(`[Worker] ✅ Cover Letter Generated for Case ${record.case_id} (${record.lender})`);
 
-                    // Just mark LOA as generated - DON'T automatically set to 'DSAR Prepared'
-                    // User must manually change status to 'DSAR Prepared' to trigger draft creation
+                    // Mark LOA as generated and set status to LOA Signed
                     await pool.query(
-                        `UPDATE cases SET loa_generated = true WHERE id = $1`,
+                        `UPDATE cases SET loa_generated = true, status = 'LOA Signed' WHERE id = $1`,
                         [record.case_id]
                     );
-                    console.log(`[Worker] ✅ LOA/Cover Letter ready for Case ${record.case_id} (${record.lender}). Status unchanged - waiting for manual DSAR Prepared.`);
+                    console.log(`[Worker] ✅ LOA/Cover Letter ready for Case ${record.case_id} (${record.lender}). Status changed to LOA Signed.`);
 
                 } catch (coverLetterErr) {
                     console.error(`[Worker] ⚠️ Cover Letter generation failed for Case ${record.case_id}:`, coverLetterErr.message);
-                    // Still mark LOA as generated to prevent re-processing
-                    await pool.query('UPDATE cases SET loa_generated = true WHERE id = $1', [record.case_id]);
+                    // Still mark LOA as generated and set status to LOA Signed
+                    await pool.query(`UPDATE cases SET loa_generated = true, status = 'LOA Signed' WHERE id = $1`, [record.case_id]);
                 }
 
                 console.log(`[Worker] ✅ LOA Generated for Case ${record.case_id} (${record.lender})`);
