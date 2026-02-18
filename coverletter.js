@@ -60,14 +60,9 @@ function getLenderEmail(lenderName) {
     return lenderData?.email || null;
 }
 
-// --- Client ID generator (same as worker.js) ---
-function generateClientId(contactId, createdAt) {
-    const date = createdAt ? new Date(createdAt) : new Date();
-    const yy = String(date.getFullYear()).slice(-2);
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    const idPart = String(contactId).slice(-4).padStart(4, '0');
-    return `RR-${yy}${mm}${dd}-${idPart}`;
+// --- Client ID generator (simple format: RR-contactId) ---
+function generateClientId(contactId) {
+    return `RR-${contactId}`;
 }
 
 // --- Load saved template from templates-store.json ---
@@ -92,7 +87,8 @@ function loadCoverLetterTemplate() {
 // --- Build variable values map from contact + case + lender data ---
 function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
     const fullName = `${contact.first_name} ${contact.last_name}`;
-    const clientId = generateClientId(contact.id, contact.created_at);
+    const clientId = generateClientId(contact.id);
+    const fullReference = `${clientId}/${caseData.id}`;
     const today = new Date().toLocaleDateString('en-GB', {
         day: '2-digit', month: 'long', year: 'numeric'
     });
@@ -122,7 +118,8 @@ function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
         // Claim Details
         'claim.lender': caseData.lender || '',
         'claim.clientId': clientId,
-        'claim.caseRef': `x${contact.id}${caseData.id}`,
+        'claim.reference': fullReference,
+        'claim.caseRef': fullReference,
         'claim.claimValue': caseData.claim_value ? `£${Number(caseData.claim_value).toLocaleString()}` : '',
 
         // Lender Details
@@ -150,7 +147,8 @@ function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
         '{{address}}': clientAddress,
         '{{lender}}': caseData.lender || '',
         '{{clientId}}': clientId,
-        '{{caseRef}}': `x${contact.id}${caseData.id}`,
+        '{{reference}}': fullReference,
+        '{{caseRef}}': fullReference,
         '{{today}}': today,
         '{{lenderCompanyName}}': lenderAddress?.company_name || caseData.lender || '',
         '{{lenderAddress}}': lenderAddress?.first_line_address || '',

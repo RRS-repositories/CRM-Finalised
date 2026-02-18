@@ -1722,14 +1722,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
-   // Generate Client ID (RR-YYMMDD-XXXX format)
-   const generateClientId = () => {
-      const now = new Date();
-      const yy = now.getFullYear().toString().slice(-2);
-      const mm = (now.getMonth() + 1).toString().padStart(2, '0');
-      const dd = now.getDate().toString().padStart(2, '0');
+   // Generate Client ID (RR-contactId format) - unused, kept for compatibility
+   const generateClientIdRandom = () => {
       const xxxx = Math.floor(1000 + Math.random() * 9000).toString();
-      return `RR-${yy}${mm}${dd}-${xxxx}`;
+      return `RR-${xxxx}`;
    };
 
    // Generate LOA Link
@@ -1806,7 +1802,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   <div className="px-3 py-1.5 bg-navy-50 dark:bg-navy-900/30 border-2 border-navy-200 dark:border-navy-700 rounded-lg">
                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Client ID</span>
                      <p className="text-sm font-bold font-mono text-navy-700 dark:text-navy-300">
-                        {contact.clientId || `RR-${new Date(contact.createdAt || Date.now()).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6)}-${contact.id}`}
+                        RR-{contact.id}
                      </p>
                   </div>
                </div>
@@ -5097,17 +5093,9 @@ const Contacts: React.FC = () => {
       navigate('/cases');
    }, [navigate]);
 
-   // Helper function to generate Client ID in RR-YYMMDD-XXX format
+   // Helper function to generate Client ID in RR-contactId format
    const generateClientId = (contact: Contact): string => {
-      if (contact.clientId) return contact.clientId;
-
-      // Generate from createdAt date and contact ID
-      const createdDate = contact.createdAt ? new Date(contact.createdAt) : new Date();
-      const yy = String(createdDate.getFullYear()).slice(-2);
-      const mm = String(createdDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(createdDate.getDate()).padStart(2, '0');
-
-      return `RR-${yy}${mm}${dd}-${contact.id}`;
+      return `RR-${contact.id}`;
    };
 
    // Helper function to get the latest action for a contact

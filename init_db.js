@@ -176,7 +176,7 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS previous_postal_code VARCHAR(20);
     `);
 
-    // Add client_id column (RR-YYMMDD-XXXX format)
+    // Add client_id column (RR-contactId format)
     console.log('Adding client_id column to contacts...');
     await pool.query(`
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_id VARCHAR(20);

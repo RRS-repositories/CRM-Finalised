@@ -178,7 +178,7 @@ Score Interpretation:
         name: "CRM Data Fields Reference",
         content: `
 **CONTACT FIELDS:**
-- Identity: id, clientId (RR-YYMMDD-XXXX), fullName, firstName, lastName
+- Identity: id, clientId (RR-contactId), fullName, firstName, lastName
 - Contact: email, phone, dateOfBirth
 - Address: address (line1, line2, city, state_county, postalCode)
 - Previous Addresses: previousAddresses array, livedLessThan3Years

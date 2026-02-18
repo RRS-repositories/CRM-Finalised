@@ -1066,14 +1066,9 @@ export const TIMELINE_FILTERS = [
   { id: 'system', label: 'System' }
 ];
 
-// Helper to generate Client ID in format RR-YYMMDD-XXXX
-export const generateClientId = (sequenceNumber: number): string => {
-  const now = new Date();
-  const yy = now.getFullYear().toString().slice(-2);
-  const mm = (now.getMonth() + 1).toString().padStart(2, '0');
-  const dd = now.getDate().toString().padStart(2, '0');
-  const seq = sequenceNumber.toString().padStart(4, '0');
-  return `RR-${yy}${mm}${dd}-${seq}`;
+// Helper to generate Client ID in format RR-contactId
+export const generateClientId = (contactId: number | string): string => {
+  return `RR-${contactId}`;
 };
 
 // SMS Templates

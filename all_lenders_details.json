@@ -590,7 +590,7 @@
         }
     },
     {
-        "lender": "FINIO/LIKELY LOANS",
+        "lender": "LIKELY LOANS",
         "email": "privacy@finioloans.com",
         "address": {
             "company_name": "Finio Loans Limited",
@@ -600,7 +600,27 @@
         }
     },
     {
-        "lender": "FINTERN/ABOUND",
+        "lender": "FINIO",
+        "email": "privacy@finioloans.com",
+        "address": {
+            "company_name": "Finio Loans Limited",
+            "first_line_address": "1 Triton Square, Regent's Place",
+            "town_city": "London",
+            "postcode": "NW1 3BF"
+        }
+    },
+    {
+        "lender": "ABOUND",
+        "email": "contact@getabound.com",
+        "address": {
+            "company_name": "Abound Limited (formerly Fintern)",
+            "first_line_address": "16 Berkeley Street",
+            "town_city": "London",
+            "postcode": "W1J 8DZ"
+        }
+    },
+    {
+        "lender": "FINTERN",
         "email": "contact@getabound.com",
         "address": {
             "company_name": "Abound Limited (formerly Fintern)",
@@ -790,7 +810,27 @@
         }
     },
     {
-        "lender": "JD WILLIAMS / SIMPLY BE / JACAMO",
+        "lender": "JACAMO",
+        "email": "informationrequest@nbrown.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "JD WILLIAMS",
+        "email": "informationrequest@nbrown.co.uk",
+        "address": {
+            "company_name": "N Brown Group PLC",
+            "first_line_address": "Griffin House, 40 Lever Street",
+            "town_city": "Manchester",
+            "postcode": "M60 6ES"
+        }
+    },
+    {
+        "lender": "SIMPLY BE",
         "email": "informationrequest@nbrown.co.uk",
         "address": {
             "company_name": "N Brown Group PLC",
@@ -910,7 +950,17 @@
         }
     },
     {
-        "lender": "LITTLEWOODS / GREAT UNIVERSAL",
+        "lender": "LITTLEWOODS",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "GREAT UNIVERSAL",
         "email": "triage1@theverygroup.com",
         "address": {
             "company_name": "Shop Direct Finance Company Limited",
@@ -930,7 +980,27 @@
         }
     },
     {
-        "lender": "LLOYDS BANK / BANK OF SCOTLAND / MBNA",
+        "lender": "LLOYDS BANK",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Lloyds Bank plc",
+            "first_line_address": "25 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7HN"
+        }
+    },
+    {
+        "lender": "MBNA",
+        "email": "DSAR@lloydsbanking.com",
+        "address": {
+            "company_name": "Lloyds Bank plc",
+            "first_line_address": "25 Gresham Street",
+            "town_city": "London",
+            "postcode": "EC2V 7HN"
+        }
+    },
+    {
+        "lender": "BANK OF SCOTLAND",
         "email": "DSAR@lloydsbanking.com",
         "address": {
             "company_name": "Lloyds Bank plc",
@@ -950,7 +1020,7 @@
         }
     },
     {
-        "lender": "LOAN4YOU / NA",
+        "lender": "LOAN4YOU",
         "email": "info@loan4you.uk",
         "address": {
             "company_name": "Loan4You Ltd",
@@ -1050,7 +1120,17 @@
         }
     },
     {
-        "lender": "METRO BANK/RATE SETTER",
+        "lender": "METRO BANK",
+        "email": "DataProtectionOfficer@metrobank.plc.uk",
+        "address": {
+            "company_name": "Metro Bank PLC",
+            "first_line_address": "One Southampton Row",
+            "town_city": "London",
+            "postcode": "WC1B 5HA"
+        }
+    },
+    {
+        "lender": "RATE SETTER",
         "email": "DataProtectionOfficer@metrobank.plc.uk",
         "address": {
             "company_name": "Metro Bank PLC",
@@ -1230,7 +1310,7 @@
         }
     },
     {
-        "lender": "NATWEST / RBS OVERDRAFT",
+        "lender": "NATWEST",
         "email": null,
         "address": {
             "company_name": "National Westminster Bank Plc",
@@ -1240,7 +1320,27 @@
         }
     },
     {
-        "lender": "NATWEST BANK / ROYAL BANK OF SCOTLAND",
+        "lender": "RBS OVERDRAFT",
+        "email": null,
+        "address": {
+            "company_name": "National Westminster Bank Plc",
+            "first_line_address": "250 Bishopsgate",
+            "town_city": "London",
+            "postcode": "EC2M 4AA"
+        }
+    },
+    {
+        "lender": "ROYAL BANK OF SCOTLAND",
+        "email": null,
+        "address": {
+            "company_name": "National Westminster Bank Plc",
+            "first_line_address": "250 Bishopsgate",
+            "town_city": "London",
+            "postcode": "EC2M 4AA"
+        }
+    },
+    {
+        "lender": "NATWEST BANK",
         "email": null,
         "address": {
             "company_name": "National Westminster Bank Plc",
@@ -1260,7 +1360,37 @@
         }
     },
     {
-        "lender": "NEWDAY / OPUS / MARBLES / FLUID / BURTONS",
+        "lender": "NEWDAY",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "OPUS",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "MARBLES",
+        "email": "DSAR@newday.co.uk",
+        "address": {
+            "company_name": "NewDay Cards Ltd",
+            "first_line_address": "7 Handyside Street",
+            "town_city": "London",
+            "postcode": "N1C 4DA"
+        }
+    },
+    {
+        "lender": "FLUID",
         "email": "DSAR@newday.co.uk",
         "address": {
             "company_name": "NewDay Cards Ltd",
@@ -1570,7 +1700,17 @@
         }
     },
     {
-        "lender": "SAINSBURY'S BANK / POST",
+        "lender": "SAINSBURY'S BANK",
+        "email": null,
+        "address": {
+            "company_name": "Sainsbury's Bank plc",
+            "first_line_address": "33 Holborn",
+            "town_city": "London",
+            "postcode": "EC1N 2HT"
+        }
+    },
+    {
+        "lender": "POST",
         "email": null,
         "address": {
             "company_name": "Sainsbury's Bank plc",
@@ -1830,7 +1970,27 @@
         }
     },
     {
-        "lender": "VERY / SHOP DIRECT / G UNIVERSAL",
+        "lender": "SHOP DIRECT",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "G UNIVERSAL",
+        "email": "triage1@theverygroup.com",
+        "address": {
+            "company_name": "Shop Direct Finance Company Limited",
+            "first_line_address": "Skyways House, Speke Road, Speke",
+            "town_city": "Liverpool",
+            "postcode": "L70 1AB"
+        }
+    },
+    {
+        "lender": "VERY",
         "email": "triage1@theverygroup.com",
         "address": {
             "company_name": "Shop Direct Finance Company Limited",

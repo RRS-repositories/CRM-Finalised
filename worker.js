@@ -985,18 +985,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
 
     // Get contact data to generate clientId
     let clientId = null;
-    try {
-        const contactQuery = await pool.query(
-            'SELECT id, created_at FROM contacts WHERE id = $1',
-            [contactId]
-        );
-        if (contactQuery.rows.length > 0) {
-            clientId = generateClientId(contactQuery.rows[0].id, contactQuery.rows[0].created_at);
-        }
-    } catch (err) {
-        console.warn(`[Worker] Could not fetch contact for clientId generation:`, err.message);
-        clientId = contactId; // fallback to just contactId
-    }
+    clientId = generateClientId(contactId);
 
     // Get lender email
     let lenderEmail = getLenderEmail(lenderName);
@@ -1079,8 +1068,8 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         console.log(`[Worker] ID documents not included for this lender category`);
     }
 
-    // Email subject and body - use reference_specified from cases table
-    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: FAC-${referenceSpecified}`;
+    // Email subject and body - use clientId/caseId format
+    const subject = `RE: ${lenderName} DSAR, FULL NAME OF CLIENT: ${clientName}, OUR REFERENCE: ${clientId}/${caseId}`;
     const htmlBody = `
         <!DOCTYPE html>
         <html>
@@ -1093,7 +1082,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
             <p>Email: <a href="mailto:dsar@fastactionclaims.co.uk">Dsar@fastactionclaims.co.uk</a><br>
             Contact no: 0161 533 1706<br>
             Address: 1.03, Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br>
-            Client id: FAC-${referenceSpecified}</p>
+            Client id: ${clientId}/${caseId}</p>
 
             <p>Dear Sirs,</p>
 
@@ -1222,21 +1211,16 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     }
 }
 
-// --- HELPER FUNCTION: GENERATE CLIENT ID (RR-YYMMDD-XXXX format) ---
-function generateClientId(contactId, createdAt) {
-    const date = createdAt ? new Date(createdAt) : new Date();
-    const yy = String(date.getFullYear()).slice(-2);
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    const idPart = String(contactId).slice(-4).padStart(4, '0');
-    return `RR-${yy}${mm}${dd}-${idPart}`;
+// --- HELPER FUNCTION: GENERATE CLIENT ID (simple format: RR-contactId) ---
+function generateClientId(contactId) {
+    return `RR-${contactId}`;
 }
 
 // --- HELPER FUNCTION: GENERATE COVER LETTER HTML ---
 async function generateCoverLetterHTML(contact, lender, caseId, logoBase64) {
-    const { first_name, last_name, id: contactId, created_at: createdAt } = contact;
+    const { first_name, last_name, id: contactId } = contact;
     const fullName = `${first_name} ${last_name}`;
-    const clientId = generateClientId(contactId, createdAt);
+    const clientId = generateClientId(contactId);
 
     // Get today's date
     const today = new Date().toLocaleDateString('en-GB', {

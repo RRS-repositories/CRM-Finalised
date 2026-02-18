@@ -148,7 +148,7 @@ export interface Contact {
   source?: 'Client Filled' | 'Manual Input' | 'Website' | 'Referral' | 'AI Import' | 'Bulk Import';
   customFields?: Record<string, string>; // Flexible field mapping
 
-  // Client ID format: RR-YYMMDD-XXXX
+  // Client ID format: RR-contactId
   clientId?: string;
   createdAt?: string;
   updatedAt?: string;

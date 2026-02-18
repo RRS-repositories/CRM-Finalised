@@ -116,13 +116,9 @@ const getAvatarColor = (name: string): string => {
   return colors[index];
 };
 
-// Generate Client ID (RR-YYMMDD-XXXX format) - same logic as Contacts.tsx
+// Generate Client ID (RR-contactId format) - same logic as Contacts.tsx
 const generateClientId = (contact: { id: string; clientId?: string; createdAt?: string }): string => {
-  if (contact.clientId) return contact.clientId;
-  const dateStr = contact.createdAt || new Date().toISOString();
-  const datePart = new Date(dateStr).toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6);
-  const idPart = contact.id.slice(-4).toUpperCase();
-  return `RR-${datePart}-${idPart}`;
+  return `RR-${contact.id}`;
 };
 
 // Date filter helper function

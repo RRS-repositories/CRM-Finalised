@@ -91,18 +91,9 @@ const Calendar: React.FC = () => {
   const [contactSearch, setContactSearch] = useState('');
   const [showContactDropdown, setShowContactDropdown] = useState(false);
 
-  // Generate RR-YYMMDD-XXXX format reference ID for a contact
+  // Generate RR-contactId format reference ID for a contact
   const getContactRefId = (contact: typeof contacts[0]) => {
-    if (contact.clientId) return contact.clientId;
-
-    // Generate RR-YYMMDD-XXXX format from createdAt and id
-    const date = contact.createdAt ? new Date(contact.createdAt) : new Date();
-    const yy = date.getFullYear().toString().slice(-2);
-    const mm = (date.getMonth() + 1).toString().padStart(2, '0');
-    const dd = date.getDate().toString().padStart(2, '0');
-    const xxxx = contact.id.toString().padStart(4, '0');
-
-    return `RR-${yy}${mm}${dd}-${xxxx}`;
+    return `RR-${contact.id}`;
   };
 
   // Filter contacts based on search (name or reference ID)
