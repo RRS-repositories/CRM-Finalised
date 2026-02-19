@@ -505,20 +505,26 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = n
         for (const obj of response.Contents) {
             const fileName = obj.Key.toLowerCase();
 
-            // Check if file matches docType - STRICT matching to avoid LOA/Cover Letter mix-up
-            // Must end with " - LOA.pdf" or " - LOA (1).pdf" etc
-            // Same for Cover Letter: " - COVER LETTER.pdf" or " - COVER LETTER (1).pdf"
-            const loaPattern = / - loa( \(\d+\))?\.pdf$/i;
-            const coverPattern = / - cover letter( \(\d+\))?\.pdf$/i;
+            // Check if file matches docType - match any file ending with LOA.pdf or COVER LETTER.pdf
+            // Handles: "- LOA.pdf", "-LOA.pdf", "LOA.pdf", "LOA (1).pdf", "LOA(2).pdf" etc
+            const loaPattern = /loa(\s*\(\d+\))?\.pdf$/i;
+            const coverPattern = /cover\s*letter(\s*\(\d+\))?\.pdf$/i;
             const pattern = docTypeLower === 'loa' ? loaPattern : coverPattern;
+
             if (!pattern.test(fileName)) {
                 continue;
             }
 
-            // IMPORTANT: If refSpec is provided, file must contain the case reference to be case-specific
-            if (refSpec && !fileName.includes(refSpec.toLowerCase())) {
+            // Make sure it's NOT a cover letter when looking for LOA (and vice versa)
+            if (docTypeLower === 'loa' && /cover\s*letter/i.test(fileName)) {
                 continue;
             }
+            if (docTypeLower === 'cover letter' && !/cover\s*letter/i.test(fileName)) {
+                continue;
+            }
+
+            // If refSpec provided, prefer files with case reference, but don't require it
+            // (some files don't have the standard naming format)
 
             // Check if any of the lender names/aliases match (strict matching)
             for (const name of namesToMatch) {
@@ -569,23 +575,24 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         return null;
     }
 
-    // 1. LOA PDF - First check documents table, then fall back to filename guessing
-    // IMPORTANT: Must match the specific case (refSpec) AND end with " - LOA.pdf" or " - LOA (1).pdf" etc
+    // 1. LOA PDF - First check documents table for this lender
+    // Match any file ending with LOA.pdf (flexible pattern for various naming formats)
     try {
         const loaQuery = await pool.query(
             `SELECT name FROM documents
              WHERE contact_id = $1
              AND category = 'LOA'
-             AND name LIKE $2
-             AND (LOWER(name) LIKE '% - loa.pdf' OR LOWER(name) ~ ' - loa \\(\\d+\\)\\.pdf$')
+             AND LOWER(name) LIKE $2
+             AND LOWER(name) ~ 'loa(\\s*\\(\\d+\\))?\\.pdf$'
+             AND LOWER(name) NOT LIKE '%cover%letter%'
              ORDER BY created_at DESC
              LIMIT 1`,
-            [contactId, `%${refSpec}%`]
+            [contactId, `%${sanitizedLenderName.toLowerCase()}%`]
         );
 
         if (loaQuery.rows.length > 0) {
             const loaFileName = loaQuery.rows[0].name;
-            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName} (case-specific: ${refSpec})`);
+            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName}`);
             documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
         }
     } catch (err) {
@@ -623,23 +630,23 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         }
     }
 
-    // 2. Cover Letter PDF - First check documents table, then fall back to filename guessing
-    // IMPORTANT: Must match the specific case (refSpec) AND end with " - COVER LETTER.pdf" or " - COVER LETTER (1).pdf" etc
+    // 2. Cover Letter PDF - First check documents table for this lender
+    // Match any file ending with COVER LETTER.pdf (flexible pattern for various naming formats)
     try {
         const coverQuery = await pool.query(
             `SELECT name FROM documents
              WHERE contact_id = $1
              AND category = 'Cover Letter'
-             AND name LIKE $2
-             AND (LOWER(name) LIKE '% - cover letter.pdf' OR LOWER(name) ~ ' - cover letter \\(\\d+\\)\\.pdf$')
+             AND LOWER(name) LIKE $2
+             AND LOWER(name) ~ 'cover\\s*letter(\\s*\\(\\d+\\))?\\.pdf$'
              ORDER BY created_at DESC
              LIMIT 1`,
-            [contactId, `%${refSpec}%`]
+            [contactId, `%${sanitizedLenderName.toLowerCase()}%`]
         );
 
         if (coverQuery.rows.length > 0) {
             const coverFileName = coverQuery.rows[0].name;
-            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName} (case-specific: ${refSpec})`);
+            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName}`);
             documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
         }
     } catch (err) {
