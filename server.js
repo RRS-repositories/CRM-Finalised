@@ -8547,6 +8547,101 @@ app.get('/api/templates/download-url', async (req, res) => {
     }
 });
 
+// --- MASTER TEMPLATES (LOA and Cover Letter stored in S3) ---
+const MASTER_TEMPLATE_KEYS = {
+    'LOA': 'templates/loa-master-template.json',
+    'COVER_LETTER': 'templates/cover-letter-master-template.json'
+};
+
+// GET /api/master-templates - List master templates (LOA and Cover Letter)
+app.get('/api/master-templates', async (req, res) => {
+    try {
+        const templates = [];
+        for (const [type, s3Key] of Object.entries(MASTER_TEMPLATE_KEYS)) {
+            try {
+                const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+                const response = await s3Client.send(command);
+                const chunks = [];
+                for await (const chunk of response.Body) {
+                    chunks.push(chunk);
+                }
+                const content = Buffer.concat(chunks).toString('utf-8');
+                const template = JSON.parse(content);
+                templates.push({ ...template, type, s3Key });
+            } catch (err) {
+                console.warn(`Master template not found: ${s3Key}`);
+            }
+        }
+        res.json({ success: true, templates });
+    } catch (err) {
+        console.error('Error listing master templates:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/master-templates/:type - Get a specific master template (LOA or COVER_LETTER)
+app.get('/api/master-templates/:type', async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        const s3Key = MASTER_TEMPLATE_KEYS[type];
+        if (!s3Key) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const response = await s3Client.send(command);
+        const chunks = [];
+        for await (const chunk of response.Body) {
+            chunks.push(chunk);
+        }
+        const content = Buffer.concat(chunks).toString('utf-8');
+        const template = JSON.parse(content);
+        res.json({ success: true, template: { ...template, type, s3Key } });
+    } catch (err) {
+        console.error(`Error fetching master template ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/master-templates/:type - Update a master template
+app.put('/api/master-templates/:type', async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        const s3Key = MASTER_TEMPLATE_KEYS[type];
+        if (!s3Key) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        const { name, category, description, content } = req.body;
+        if (!content) {
+            return res.status(400).json({ success: false, message: 'content is required' });
+        }
+
+        const template = {
+            id: type === 'LOA' ? 'loa-master-template' : 'cover-letter-master-template',
+            name: name || (type === 'LOA' ? 'Letter of Authority (LOA)' : 'Cover Letter'),
+            category: category || type.replace('_', ' '),
+            description: description || `Master ${type} template`,
+            content: typeof content === 'string' ? JSON.parse(content) : content,
+            updatedAt: new Date().toISOString()
+        };
+
+        const command = new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: JSON.stringify(template, null, 2),
+            ContentType: 'application/json'
+        });
+        await s3Client.send(command);
+
+        console.log(`✅ Master template ${type} updated in S3`);
+        res.json({ success: true, template: { ...template, type, s3Key } });
+    } catch (err) {
+        console.error(`Error updating master template ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // POST /api/templates/generate-pdf - Generate a PDF with overlay fields merged
 // Accepts: { s3Key (original PDF), fields (overlay field definitions), variableValues (resolved values) }
 app.post('/api/templates/generate-pdf', async (req, res) => {

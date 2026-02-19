@@ -1,0 +1,246 @@
+{
+  "id": "loa-master-template",
+  "name": "Letter of Authority (LOA)",
+  "category": "LOA",
+  "description": "Master LOA template for all lenders",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Fast Action Claims" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "1.03 The Boat Shed, 12 Exchange Quay" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "Salford, M5 3EQ" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "Tel: 0161 505 0150" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "SRA No: 8000843" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 1, "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "LETTER OF AUTHORITY" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "In respect of: " },
+          { "type": "variable", "attrs": { "fieldKey": "claim.lender", "label": "Lender Name" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "CLIENT DETAILS" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Full Name: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Address: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.address", "label": "Client Address" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Date of Birth: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.dateOfBirth", "label": "Date of Birth" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Reference: " },
+          { "type": "variable", "attrs": { "fieldKey": "claim.refSpec", "label": "Reference" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "AUTHORISATION" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "I/We hereby Authorise and instruct: You (The Bank/Door Step Lender/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/Pension Provider/Catalogue Loans Provider/Mortgage Broker/HMRC) to:" }
+        ]
+      },
+      {
+        "type": "orderedList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Liaise exclusively with Fast Action Claims in respect of all aspects of my/our potential complaint/claim for compensation as stated above." }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Immediately release to Fast Action Claims any information/documentation relating to all my/our loans/credit cards/overdrafts/Store Cards/Car Finance/Packaged Bank Account/ to include all Broker Commissions, Tax deductions which may be requested. This includes information in response to a request made under Sections 77-78 of the Consumer Credit Act 1974 and/or Section 45 of the Data Protection Act 2018 and Article 15 GDPR." }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Contact Fast Action Claims whenever they need to send me/us information or contact me/us in connection with this matter." }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "I/We authorise Fast Action Claims of 1.03, 12 Exchange Quay, Salford, M5 3EQ as my/our sole representatives to deal with my potential complaint/claim for compensation in relation to all loans/credit cards/car finance/overdrafts/Packaged Bank Accounts/Store Cards. I/We confirm that Fast Action Claims are instructed to pursue all aspects they consider necessary in relation to my/our dealings with your organisation. This letter of authority relates to ALL products and accounts I/We have or have had with you." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "I/We have read, understand and agree to Fast Action Claims' Terms and Conditions. I/We give them full authority, in accordance with the FCA's Dispute Resolution Guidelines, to act on my/our behalf to pursue all aspects they deem necessary in relation to all my/our financial affairs/tax affairs with the aforementioned Provider(s). I/We authorise you to accept any signatures on documents sent to you by Fast Action Claims which have been obtained electronically (e-signed). I/We confirm that in the event that you need to contact a third party to progress my/our case for any reason, I/we hereby give my/our authority and consent for the third party to provide Fast Action Claims with any information they request and may require to pursue my/our claim/complaint." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "I/We understand that, in addition to the present Letter of Authority I/We will need to provide further information when raising an expression of dissatisfaction to you (The Bank/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/HMRC), about the underlying product(s), service(s) and where known, specific account number(s) being complained about. I hereby authorise Fast Action Claims to submit my claim for irresponsible lending." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "SIGNATURE" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "signature",
+        "attrs": { "fieldKey": "signature" }
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Signed: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Date: " },
+          { "type": "variable", "attrs": { "fieldKey": "system.today", "label": "Today's Date" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "horizontalRule"
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "Electronic Signature - Certificate of Completion" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "This document has been electronically signed and is legally binding under the Electronic Communications Act 2000." }
+        ]
+      }
+    ]
+  }
+}

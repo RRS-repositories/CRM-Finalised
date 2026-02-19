@@ -1,0 +1,278 @@
+{
+  "id": "cover-letter-master-template",
+  "name": "Cover Letter",
+  "category": "Cover Letter",
+  "description": "Master Cover Letter template for all lenders",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Fast Action Claims" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "1.03 The Boat Shed, 12 Exchange Quay" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "Salford, M5 3EQ" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "Tel: 0161 505 0150" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [
+          { "type": "text", "text": "SRA No: 8000843" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "variable", "attrs": { "fieldKey": "system.today", "label": "Today's Date" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "TO:" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "variable", "attrs": { "fieldKey": "lender.companyName", "label": "Lender Company Name" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "variable", "attrs": { "fieldKey": "lender.address", "label": "Lender Address" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "variable", "attrs": { "fieldKey": "lender.city", "label": "Lender City" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "variable", "attrs": { "fieldKey": "lender.postcode", "label": "Lender Postcode" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Our Ref: " },
+          { "type": "variable", "attrs": { "fieldKey": "claim.refSpec", "label": "Reference" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Dear Sir/Madam," }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "RE: Complaint - Irresponsible Lending" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Client: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "DOB: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.dateOfBirth", "label": "Date of Birth" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Address: " },
+          { "type": "variable", "attrs": { "fieldKey": "client.address", "label": "Client Address" } }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "We are instructed by the above-named client and enclose a signed Letter of Authority for your records." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Our client instructs us that they have been the victim of irresponsible lending practices. We are therefore writing to formally complain on their behalf." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Our client believes that at the time of the lending, adequate affordability checks were not carried out. Had proper checks been conducted, it would have been apparent that the lending was unaffordable and should not have been provided." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "We request that you:" }
+        ]
+      },
+      {
+        "type": "orderedList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Provide a copy of all credit agreements, statements, and correspondence relating to our client's account(s)." }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Provide details of all affordability assessments conducted prior to lending." }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Refund all interest, charges, and fees paid by our client, plus 8% simple interest." }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  { "type": "text", "text": "Remove any adverse credit file entries relating to this account." }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Please respond within 8 weeks of receiving this complaint. If we do not receive a satisfactory response within this timeframe, we reserve the right to refer the matter to the Financial Ombudsman Service." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Please direct all correspondence to our office address above, quoting the reference number provided." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "Yours faithfully," }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Fast Action Claims" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "On behalf of " },
+          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
+        ]
+      }
+    ]
+  }
+}
