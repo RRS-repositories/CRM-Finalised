@@ -40,7 +40,31 @@
       "Bash(do wc -l \"$file\")",
       "Bash(done)",
       "Bash(git pull:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(aws s3 ls:*)",
+      "Bash(zip:*)",
+      "Bash(docker --version:*)",
+      "Bash(aws s3 cp:*)",
+      "Bash(aws lambda update-function-code:*)",
+      "Bash(aws lambda get-function:*)",
+      "Bash(aws apigatewayv2 create-api:*)",
+      "Bash(aws apigatewayv2 create-integration:*)",
+      "Bash(aws lambda add-permission:*)",
+      "Bash(aws logs tail:*)",
+      "Bash(aws ec2 describe-route-tables:*)",
+      "Bash(aws ec2 describe-subnets:*)",
+      "Bash(aws ec2 describe-security-groups:*)",
+      "Bash(aws ec2 authorize-security-group-egress:*)",
+      "Bash(aws iam attach-role-policy:*)",
+      "Bash(PGPASSWORD='Sajid@123' psql:*)",
+      "Bash(aws ec2 describe-vpc-endpoints:*)",
+      "Bash(aws lambda get-function-configuration:*)",
+      "Bash(aws lambda update-function-configuration:*)",
+      "Bash(pip3 install:*)",
+      "Bash(aws logs:*)",
+      "Bash(npm info:*)",
+      "Bash(PGPASSWORD='admin123' psql -h rowan-rose-solicitors-clients-list.cjme82cqwljz.eu-north-1.rds.amazonaws.com -U postgres -d client_credentials -c \"INSERT INTO cases \\(contact_id, lender, status, created_at\\) VALUES \\(229068, ''VANQUIS'', ''New Lead'', NOW\\(\\)\\) RETURNING id, lender, status;\")",
+      "Bash(aws lambda invoke:*)"
     ]
   }
 }
