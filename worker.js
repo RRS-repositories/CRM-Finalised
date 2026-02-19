@@ -905,32 +905,95 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
     }
 
     const htmlBody = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; }
-            </style>
-        </head>
-        <body>
-            <p>Dear ${firstName},</p>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 30px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">Rowan Rose Solicitors</h1>
+                            <p style="color: #a8c5e2; margin: 8px 0 0 0; font-size: 13px;">Your Trusted Legal Partner</p>
+                        </td>
+                    </tr>
 
-            <p>We've submitted a request to <strong>${lenderName}</strong> to review your lending history and assess whether you may be eligible for a potential refund of interest or charges.</p>
+                    <!-- Main Content -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <h2 style="color: #1e3a5f; margin: 0 0 20px 0; font-size: 20px;">Hello ${firstName},</h2>
 
-            <p>Within the next three working days, you'll receive an email asking you to verify your details and authorise Fast Action Claims to continue the review on your behalf.</p>
+                            <p style="color: #444; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">
+                                We've submitted a request to <strong style="color: #1e3a5f;">${lenderName}</strong> to review your lending history and assess whether you may be eligible for a potential refund of interest or charges.
+                            </p>
 
-            <p><strong>Please complete that authorisation so we can proceed.</strong></p>
+                            <!-- Info Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f7ff; border-left: 4px solid #2d5a87; border-radius: 0 8px 8px 0; margin: 25px 0;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <p style="color: #1e3a5f; font-size: 14px; margin: 0; font-weight: 600;">⏳ What happens next?</p>
+                                        <p style="color: #555; font-size: 14px; margin: 10px 0 0 0; line-height: 1.6;">
+                                            Within the next <strong>3 working days</strong>, you'll receive an email asking you to verify your details and authorise us to continue the review on your behalf.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
 
-            <p>If you have any questions, please don't hesitate to contact us.</p>
+                            <!-- CTA Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #fff8e6; border: 1px solid #ffd54f; border-radius: 8px; margin: 25px 0;">
+                                <tr>
+                                    <td style="padding: 20px; text-align: center;">
+                                        <p style="color: #8d6e00; font-size: 15px; margin: 0; font-weight: 600;">
+                                            ⚡ Please complete that authorisation so we can proceed with your claim.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
 
-            <p>Customer Care Team<br>
-            0161 533 1706</p>
+                            <p style="color: #444; font-size: 15px; line-height: 1.7; margin: 25px 0 0 0;">
+                                If you have any questions, please don't hesitate to contact us.
+                            </p>
+                        </td>
+                    </tr>
 
-            <p style="font-size: 11px; color: #666; margin-top: 20px;">
-            Fast Action Claims | 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
-            </p>
-        </body>
-        </html>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8f9fa; padding: 30px 40px; border-top: 1px solid #e9ecef;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td>
+                                        <p style="color: #1e3a5f; font-size: 15px; font-weight: 600; margin: 0;">Customer Care Team</p>
+                                        <p style="color: #666; font-size: 14px; margin: 8px 0 0 0;">
+                                            📞 0161 533 1706<br>
+                                            ✉️ info@rowanrose.co.uk
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Bottom Bar -->
+                    <tr>
+                        <td style="background-color: #1e3a5f; padding: 20px 40px; text-align: center;">
+                            <p style="color: #a8c5e2; font-size: 11px; margin: 0; line-height: 1.6;">
+                                Rowan Rose Solicitors | SRA No. 8000843<br>
+                                1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
     `;
 
     const subject = `Your ${lenderName} Claim - Action Required`;
