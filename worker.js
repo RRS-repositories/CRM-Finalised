@@ -974,7 +974,7 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
                                     <td>
                                         <p style="color: #1e3a5f; font-size: 15px; font-weight: 600; margin: 0;">Customer Care Team</p>
                                         <p style="color: #666; font-size: 14px; margin: 8px 0 0 0;">
-                                            📞 0161 533 1706<br>
+                                            📞 0161 505 0150<br>
                                             ✉️ info@rowanrose.co.uk
                                         </p>
                                     </td>
@@ -1123,7 +1123,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         </head>
         <body>
             <p>Email: <a href="mailto:dsar@fastactionclaims.co.uk">Dsar@fastactionclaims.co.uk</a><br>
-            Contact no: 0161 533 1706<br>
+            Contact no: 0161 505 0150<br>
             Address: 1.03, Boat Shed, 12 Exchange Quay, Salford, M5 3EQ<br>
             Client id: ${clientId}/${caseId}</p>
 
@@ -1141,7 +1141,7 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
 
             <p><strong>DSAR Team</strong><br>
             <strong>Fast Action Claims</strong><br>
-            T: 0161 533 1706<br>
+            T: 0161 505 0150<br>
             E: <a href="mailto:dsar@fastactionclaims.co.uk">dsar@fastactionclaims.co.uk</a><br>
             A: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
 
