@@ -5180,16 +5180,9 @@ app.post('/api/contacts/:id/generate-loa-link', async (req, res) => {
 });
 
 // Serve LOA (Letter of Authority) form page (GET endpoint)
-// Redirect to React frontend for the new layout
 app.get('/loa-form/:uniqueId', async (req, res) => {
     const { uniqueId } = req.params;
 
-    // Redirect to frontend URL (React app handles the form now)
-    const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
-    const frontendUrl = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
-    return res.redirect(`${frontendUrl}/loa-form/${uniqueId}`);
-
-    // OLD CODE BELOW - kept for reference but not executed due to redirect above
     try {
         // Find contact by unique link
         const contactRes = await pool.query(
@@ -5343,7 +5336,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         }
     </script>
     <style>
-        input[type="checkbox"] { width: 28px !important; height: 28px !important; accent-color: #F18F01; cursor: pointer; }
+        input[type="checkbox"] { width: 40px !important; height: 40px !important; accent-color: #F18F01; cursor: pointer; }
         .lender-row:hover { background: #fff7ed; }
         .lender-row.checked { background: #fff7ed; border-color: #F18F01; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -5738,10 +5731,17 @@ app.post('/api/submit-loa-form', async (req, res) => {
                                  VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP, false, $4) RETURNING id`,
                                 [contactId, standardizedLenderName, initialStatus, dsarSendAfterLender]
                             );
-                            await setReferenceSpecified(pool, contactId, newCaseRes.rows[0].id);
+                            const newCaseId = newCaseRes.rows[0].id;
+                            await setReferenceSpecified(pool, contactId, newCaseId);
 
-                            console.log(`[Background LOA] Created Case for ${lender} with status ${initialStatus} (PDF Generation Pending)`);
-                            return { lender, success: true, status: 'created' };
+                            console.log(`[Background LOA] Created Case ${newCaseId} for ${lender} with status ${initialStatus}`);
+
+                            // Trigger PDF generation for newly created case (skip status update to keep "New Lead")
+                            triggerPdfGenerator(newCaseId, 'LOA', true).catch(err => {
+                                console.error(`❌ LOA generation trigger failed for new case ${newCaseId}:`, err.message);
+                            });
+
+                            return { lender, success: true, status: 'created', caseId: newCaseId };
                         }
                     } catch (error) {
                         console.error(`[Background LOA] ❌ Error processing case for ${lender}:`, error);
