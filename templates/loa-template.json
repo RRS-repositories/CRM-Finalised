@@ -2,49 +2,10 @@
   "id": "loa-master-template",
   "name": "Letter of Authority (LOA)",
   "category": "LOA",
-  "description": "Master LOA template for all lenders",
+  "description": "Master LOA template for all lenders - matches official format",
   "content": {
     "type": "doc",
     "content": [
-      {
-        "type": "paragraph",
-        "attrs": { "textAlign": "right" },
-        "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Fast Action Claims" }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "attrs": { "textAlign": "right" },
-        "content": [
-          { "type": "text", "text": "1.03 The Boat Shed, 12 Exchange Quay" }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "attrs": { "textAlign": "right" },
-        "content": [
-          { "type": "text", "text": "Salford, M5 3EQ" }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "attrs": { "textAlign": "right" },
-        "content": [
-          { "type": "text", "text": "Tel: 0161 505 0150" }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "attrs": { "textAlign": "right" },
-        "content": [
-          { "type": "text", "text": "SRA No: 8000843" }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "content": []
-      },
       {
         "type": "heading",
         "attrs": { "level": 1, "textAlign": "center" },
@@ -59,8 +20,8 @@
       {
         "type": "paragraph",
         "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "In respect of: " },
-          { "type": "variable", "attrs": { "fieldKey": "claim.lender", "label": "Lender Name" } }
+          { "type": "text", "text": "In respect of: " },
+          { "type": "variable", "attrs": { "fieldKey": "claim.lender", "label": "[Lender Name]" } }
         ]
       },
       {
@@ -75,31 +36,43 @@
         ]
       },
       {
-        "type": "paragraph",
+        "type": "table",
         "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Full Name: " },
-          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Address: " },
-          { "type": "variable", "attrs": { "fieldKey": "client.address", "label": "Client Address" } }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Date of Birth: " },
-          { "type": "variable", "attrs": { "fieldKey": "client.dateOfBirth", "label": "Date of Birth" } }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Reference: " },
-          { "type": "variable", "attrs": { "fieldKey": "claim.refSpec", "label": "Reference" } }
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Full Name:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "[Client Full Name]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Address:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.address", "label": "[Client Address]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Postcode:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.postcode", "label": "[Postcode]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Date of Birth:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.dateOfBirth", "label": "[DD/MM/YYYY]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Previous Address:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.previousAddress", "label": "—" } }] }] }
+            ]
+          }
         ]
       },
       {
@@ -209,15 +182,7 @@
       {
         "type": "paragraph",
         "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Signed: " },
-          { "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "Client Full Name" } }
-        ]
-      },
-      {
-        "type": "paragraph",
-        "content": [
-          { "type": "text", "marks": [{ "type": "bold" }], "text": "Date: " },
-          { "type": "variable", "attrs": { "fieldKey": "system.today", "label": "Today's Date" } }
+          { "type": "variable", "attrs": { "fieldKey": "system.today", "label": "[Date]" } }
         ]
       },
       {
@@ -231,14 +196,163 @@
         "type": "paragraph",
         "attrs": { "textAlign": "center" },
         "content": [
-          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "Electronic Signature - Certificate of Completion" }
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Electronic Signature" }
         ]
       },
       {
         "type": "paragraph",
         "attrs": { "textAlign": "center" },
         "content": [
-          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "This document has been electronically signed and is legally binding under the Electronic Communications Act 2000." }
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Certificate of Completion" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold", "type": "textStyle", "attrs": { "color": "#22c55e" } }], "text": "SIGNING COMPLETE" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 3 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "DOCUMENT DETAILS" }
+        ]
+      },
+      {
+        "type": "table",
+        "content": [
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Envelope ID:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "claim.refSpec", "label": "[Envelope ID]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Document Title:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Letter of Authority - Irresponsible Lending Claim" }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Completed:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "system.today", "label": "[Date]" } }] }] }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 3 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "SIGNER DETAILS" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Client (Signatory)" }
+        ]
+      },
+      {
+        "type": "table",
+        "content": [
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Name:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.fullName", "label": "[Client Full Name]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Email:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "variable", "attrs": { "fieldKey": "client.email", "label": "[client@email.com]" } }] }] }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "content": [
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "marks": [{ "type": "bold" }], "text": "Authentication:" }] }] },
+              { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Email Verification + SMS OTP" }] }] }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 3 },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "SECURITY & INTEGRITY" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Tamper-Evident Seal Applied" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "This document is protected by a cryptographic seal. Any modification after the completion timestamp will invalidate the seal and be detectable. The integrity of all signatures can be independently verified against the document hash above." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "horizontalRule"
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "FAST ACTION CLAIMS" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "text": "Certificate of Completion - Audit Trail" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "This Certificate of Completion confirms that all parties identified above have electronically signed the referenced document. Electronic signatures applied through this system are legally binding under the Electronic Communications Act 2000 and the eIDAS Regulation (as retained in UK law post-Brexit)." }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": []
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "center" },
+        "content": [
+          { "type": "text", "marks": [{ "type": "textStyle", "attrs": { "fontSize": "9pt" } }], "text": "Boat Shed, Exchange Quay, Salford M5 3EQ | SRA No: 8000843" }
         ]
       }
     ]
