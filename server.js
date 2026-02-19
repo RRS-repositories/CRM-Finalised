@@ -3599,6 +3599,14 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
             [contactId, case_number, standardizedLender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
         );
         await setReferenceSpecified(pool, contactId, rows[0].id);
+
+        // Trigger LOA generation if status is New Lead (or related statuses)
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            triggerPdfGenerator(rows[0].id, 'LOA').catch(err => {
+                console.error(`❌ LOA generation trigger failed for new case ${rows[0].id}:`, err.message);
+            });
+        }
+
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -6198,6 +6206,18 @@ app.post('/api/submit-loa-form', async (req, res) => {
                         JSON.stringify({ selectedLenders })
                     ]
                 );
+
+                // Trigger Lambda LOA generation for all cases with status "Lender Selection Form Completed"
+                const casesToGenerate = await pool.query(
+                    `SELECT id FROM cases WHERE contact_id = $1 AND status = 'Lender Selection Form Completed' AND loa_generated = false`,
+                    [contactId]
+                );
+                for (const c of casesToGenerate.rows) {
+                    triggerPdfGenerator(c.id, 'LOA').catch(err => {
+                        console.error(`❌ LOA generation trigger failed for case ${c.id}:`, err.message);
+                    });
+                }
+                console.log(`[Background LOA] Triggered Lambda LOA generation for ${casesToGenerate.rows.length} cases`);
 
                 // Auto-complete: Mark any Sent/Viewed LOA documents as Completed
                 const loaCompleted = await pool.query(
@@ -10432,6 +10452,11 @@ app.get('/api/confirm-lender/:token', async (req, res) => {
                     JSON.stringify({ lender: confirmation.lender })
                 ]
             );
+
+            // Trigger Lambda LOA generation for the new case
+            triggerPdfGenerator(newCaseRes.rows[0].id, 'LOA').catch(err => {
+                console.error(`❌ LOA generation trigger failed for case ${newCaseRes.rows[0].id}:`, err.message);
+            });
 
             console.log(`[Category 3] ✅ Client confirmed ${confirmation.lender}, case ${newCaseRes.rows[0].id} created`);
 
