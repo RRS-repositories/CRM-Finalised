@@ -733,16 +733,25 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                     }];
                 }
 
+                // Filter out addresses that have no actual content (all fields empty)
+                addresses = addresses.filter(addr =>
+                    addr.address_line_1?.trim() ||
+                    addr.city?.trim() ||
+                    addr.postal_code?.trim()
+                );
+
                 if (addresses.length > 0) {
                     try {
                         const prevAddrPdf = await generatePreviousAddressPDFForDSAR(contact, addresses);
                         if (prevAddrPdf) {
                             documents.previousAddress = prevAddrPdf;
-                            console.log(`[Worker] ✅ Generated Previous Address PDF from contact data`);
+                            console.log(`[Worker] ✅ Generated Previous Address PDF from contact data (${addresses.length} address(es))`);
                         }
                     } catch (genErr) {
                         console.warn('[Worker] Could not generate previous address PDF:', genErr.message);
                     }
+                } else {
+                    console.log(`[Worker] ℹ️ No previous address data - skipping Previous_Addresses.pdf`);
                 }
             }
         }
