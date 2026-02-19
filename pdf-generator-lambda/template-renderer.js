@@ -492,7 +492,18 @@ export function renderTemplate(template, variableMap) {
     );
 
     // Convert to HTML
-    const bodyHtml = tiptapJsonToHtml(resolvedDoc, logoBase64);
+    let bodyHtml = tiptapJsonToHtml(resolvedDoc, logoBase64);
+
+    // Inject page break after "affordability assessments conducted prior to lending" in cover letters
+    // This prevents the numbered list from overlapping with the footer
+    const affordabilityPattern = /(affordability assessments conducted prior to lending\.?<\/li>)/i;
+    if (affordabilityPattern.test(bodyHtml)) {
+        bodyHtml = bodyHtml.replace(
+            affordabilityPattern,
+            '$1</ol><div class="page-break"></div><ol start="3">'
+        );
+    }
+
     const fullHtml = wrapInDocument(bodyHtml);
 
     return fullHtml;
