@@ -832,12 +832,16 @@ async function createDraftEmailWithGraph(lenderEmail, subject, htmlBody, attachm
 
     try {
         // Prepare attachments for Microsoft Graph API (needs base64 encoding)
-        const graphAttachments = attachments.map(att => ({
-            '@odata.type': '#microsoft.graph.fileAttachment',
-            name: att.filename,
-            contentType: att.contentType,
-            contentBytes: att.content.toString('base64')
-        }));
+        const graphAttachments = attachments.map(att => {
+            // Ensure content is a proper Buffer before encoding
+            const contentBuffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content);
+            return {
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: att.filename,
+                contentType: att.contentType,
+                contentBytes: contentBuffer.toString('base64')
+            };
+        });
 
         // Create draft message
         const draft = {
