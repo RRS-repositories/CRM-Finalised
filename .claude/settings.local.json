@@ -39,7 +39,8 @@
       "Bash(for file in components/*.tsx components/**/*.tsx)",
       "Bash(do wc -l \"$file\")",
       "Bash(done)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(python:*)"
     ]
   }
 }

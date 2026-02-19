@@ -95,6 +95,7 @@ export interface Claim {
   accountNumber?: string;
   startDate?: string;
   daysInStage?: number;
+  contactName?: string;
 }
 
 export interface PreviousAddressEntry {

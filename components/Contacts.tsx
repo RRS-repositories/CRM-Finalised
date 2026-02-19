@@ -356,9 +356,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [claimProgress, setClaimProgress] = useState(0);
    const [claimProgressTotal, setClaimProgressTotal] = useState(0);
    const [isDeletingClaim, setIsDeletingClaim] = useState(false);
+   const [deleteProgress, setDeleteProgress] = useState(0);
    const [lenderSearchQuery, setLenderSearchQuery] = useState('');
    const dropdownRef = useRef<HTMLDivElement>(null);
    const lenderSearchRef = useRef<HTMLInputElement>(null);
+   const handleOpenClaimFileRef = useRef<((claimId: string) => void) | null>(null);
 
    // LOA Link Generation State
    const [loaLink, setLoaLink] = useState<string | null>(null);
@@ -562,7 +564,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // Set Context for AI on Mount
    useEffect(() => {
       if (contact) {
-         setActiveContext({ type: 'contact', id: contact.id, name: contact.fullName, data: contact });
+         setActiveContext({ type: 'contact', id: contact.id, name: contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unnamed', data: contact });
       }
       return () => setActiveContext(null);
    }, [contact]);
@@ -602,9 +604,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
    // Auto-open claim file when navigating from Pipeline with initialClaimId
    useEffect(() => {
-      if (initialClaimId && activeTab === 'claims') {
-         // Automatically open the claim file view for the specified claim
-         handleOpenClaimFile(initialClaimId);
+      if (initialClaimId && activeTab === 'claims' && handleOpenClaimFileRef.current) {
+         handleOpenClaimFileRef.current(initialClaimId);
       }
    }, [initialClaimId, activeTab]);
 
@@ -741,8 +742,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    }, [activeTab, fetchContactDocuments]);
 
-   if (isLoadingContact) return <div className="p-6 flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading contact...</div>;
-   if (!contact) return <div className="p-6">Contact not found. <button onClick={onBack} className="text-blue-600 underline ml-2">Back</button></div>;
+   // Note: Loading/not-found early returns moved to just before JSX to preserve hook call order
 
    // Filter documents for this contact, only hiding signature.png and signature2.png
    // Uses per-contact fetched docs (localContactDocs) instead of global documents state
@@ -1574,6 +1574,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          });
       }
    };
+   handleOpenClaimFileRef.current = handleOpenClaimFile;
 
    // Close claim file view and go back to list (or Pipeline if came from there)
    const handleCloseClaimFile = () => {
@@ -1710,7 +1711,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    };
 
    // Delete claim handler with progressive %
-   const [deleteProgress, setDeleteProgress] = useState(0);
    const handleDeleteClaim = async () => {
       if (!viewingClaimId) return;
       setIsDeletingClaim(true);
@@ -1860,6 +1860,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
+   if (isLoadingContact) return <div className="p-6 flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading contact...</div>;
+   if (!contact) return <div className="p-6">Contact not found. <button onClick={onBack} className="text-blue-600 underline ml-2">Back</button></div>;
+
    return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 animate-in fade-in duration-200 relative transition-colors">
          {/* CRM Specification Header - Client ID (left) + Name (center) + Quick Actions (right) */}
@@ -1882,7 +1885,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                {/* Center Section: Client Name - Large, bold typography */}
                <div className="flex-1 text-center">
                   <h1 className="text-2xl font-bold text-navy-900 dark:text-white tracking-tight">
-                     {contact.firstName || ''} {contact.lastName || contact.fullName}
+                     {contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unnamed'}
                   </h1>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                      {contact.email} {contact.phone ? `• ${contact.phone}` : ''}
@@ -5606,9 +5609,9 @@ const Contacts: React.FC = () => {
                            <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
                                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
-                                    {contact.fullName.charAt(0).toUpperCase()}
+                                    {(contact.fullName || contact.firstName || '?').charAt(0).toUpperCase()}
                                  </div>
-                                 <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName}</div>
+                                 <div className="font-semibold text-gray-900 dark:text-white text-sm">{contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unnamed'}</div>
                               </div>
                            </td>
                            {/* Email */}

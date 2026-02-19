@@ -4692,9 +4692,11 @@ app.get('/api/contacts/:id/full', async (req, res) => {
 app.get('/api/cases', async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, contact_id, lender, status, claim_value, product_type, account_number, start_date
-             FROM cases
-             ORDER BY created_at DESC`
+            `SELECT c.id, c.contact_id, c.lender, c.status, c.claim_value, c.product_type, c.account_number, c.start_date, c.created_at,
+                    con.first_name AS contact_first_name, con.last_name AS contact_last_name, con.full_name AS contact_full_name
+             FROM cases c
+             LEFT JOIN contacts con ON c.contact_id = con.id
+             ORDER BY c.created_at DESC`
         );
         res.json(rows);
     } catch (err) {

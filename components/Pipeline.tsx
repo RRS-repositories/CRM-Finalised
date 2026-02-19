@@ -304,8 +304,9 @@ const KanbanColumn = memo<{
   onDrop: (e: React.DragEvent, categoryId: string, categoryStatuses: ClaimStatus[]) => void;
   onDragStart: (e: React.DragEvent, claimId: string) => void;
   onToggleSelection: (claimId: string) => void;
+  onSelectAll: (claimIds: string[], select: boolean) => void;
   onNavigateToContact: (contactId: string, claimId: string) => void;
-}>(({ cat, items, filterKey, isDragOver, isCollapsed, selectedClaims, draggedClaimId, onToggleColumn, onDragOver, onDragLeave, onDrop, onDragStart, onToggleSelection, onNavigateToContact }) => {
+}>(({ cat, items, filterKey, isDragOver, isCollapsed, selectedClaims, draggedClaimId, onToggleColumn, onDragOver, onDragLeave, onDrop, onDragStart, onToggleSelection, onSelectAll, onNavigateToContact }) => {
   const gradientConfig = columnGradients[cat.id] || columnGradients['lead-generation'];
   // === PERFORMANCE: Progressive rendering - only render limited cards initially ===
   const INITIAL_RENDER_LIMIT = 20;
@@ -318,6 +319,12 @@ const KanbanColumn = memo<{
 
   const visibleItems = items.slice(0, renderLimit);
   const hiddenCount = items.length - renderLimit;
+
+  // Select all logic for this column
+  const columnItemIds = items.map(c => c.id);
+  const selectedInColumn = columnItemIds.filter(id => selectedClaims.has(id)).length;
+  const allSelectedInColumn = items.length > 0 && selectedInColumn === items.length;
+  const someSelectedInColumn = selectedInColumn > 0 && !allSelectedInColumn;
 
   if (isCollapsed) {
     return (
@@ -350,6 +357,17 @@ const KanbanColumn = memo<{
 
         <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center space-x-1.5">
+            {items.length > 0 && (
+              <input
+                type="checkbox"
+                checked={allSelectedInColumn}
+                ref={(el) => { if (el) el.indeterminate = someSelectedInColumn; }}
+                onChange={() => onSelectAll(columnItemIds, !allSelectedInColumn)}
+                className="w-4 h-4 rounded border-white/50 text-white bg-white/20 focus:ring-white/50 cursor-pointer"
+                title={allSelectedInColumn ? 'Deselect all' : 'Select all'}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
             <h3 className="font-semibold text-white text-sm truncate" title={cat.title}>{cat.title}</h3>
             <span className={`${gradientConfig.countBg} text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold`}>
               {items.length}
@@ -499,7 +517,7 @@ const Pipeline: React.FC = () => {
 
     for (const claim of claims) {
       const contact = contactMap.get(claim.contactId);
-      const contactName = contact ? contact.fullName : 'Unknown Client';
+      const contactName = claim.contactName || (contact ? contact.fullName : null) || 'Unknown Client';
 
       // Apply common filters
       const specificStatusMatch = statusFilter === '' || claim.status === statusFilter;
@@ -583,6 +601,19 @@ const Pipeline: React.FC = () => {
 
   const clearSelection = useCallback(() => {
     setSelectedClaims(new Set());
+  }, []);
+
+  // Select/deselect all claims in a specific column
+  const handleSelectAll = useCallback((claimIds: string[], select: boolean) => {
+    setSelectedClaims(prev => {
+      const newSet = new Set(prev);
+      if (select) {
+        for (const id of claimIds) newSet.add(id);
+      } else {
+        for (const id of claimIds) newSet.delete(id);
+      }
+      return newSet;
+    });
   }, []);
 
   // Bulk update status for selected claims - optimized single API call
@@ -1200,6 +1231,7 @@ const Pipeline: React.FC = () => {
                  onDrop={handleDrop}
                  onDragStart={handleDragStart}
                  onToggleSelection={toggleClaimSelection}
+                 onSelectAll={handleSelectAll}
                  onNavigateToContact={handleNavigateToContact}
                />
             ))}
