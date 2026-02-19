@@ -484,7 +484,7 @@ const LENDER_ALIASES = {
 };
 
 // --- HELPER FUNCTION: FIND FILE IN S3 FOLDER BY PATTERN ---
-async function findFileInS3Folder(folderPrefix, lenderName, docType) {
+async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = null) {
     try {
         const command = new ListObjectsV2Command({
             Bucket: BUCKET_NAME,
@@ -510,6 +510,11 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType) {
                 continue;
             }
 
+            // IMPORTANT: If refSpec is provided, file must contain the case reference to be case-specific
+            if (refSpec && !fileName.includes(refSpec.toLowerCase())) {
+                continue;
+            }
+
             // Check if any of the lender names/aliases match (strict matching)
             for (const name of namesToMatch) {
                 const nameLower = name.toLowerCase();
@@ -518,7 +523,7 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType) {
 
                 if (fileNameNoSpaces.includes(nameNoSpaces) ||
                     obj.Key.toLowerCase().includes(`/lenders/${nameLower.replace(/\s+/g, '_')}/`)) {
-                    console.log(`[Worker] 🔍 Found ${docType} via S3 listing: ${obj.Key}`);
+                    console.log(`[Worker] 🔍 Found ${docType} via S3 listing: ${obj.Key}${refSpec ? ` (case-specific: ${refSpec})` : ''}`);
                     return await fetchPdfFromS3(obj.Key);
                 }
             }
@@ -560,6 +565,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     }
 
     // 1. LOA PDF - First check documents table, then fall back to filename guessing
+    // IMPORTANT: Must match the specific case (refSpec = contactId + caseId) to avoid picking up wrong LOA
     try {
         const loaQuery = await pool.query(
             `SELECT name FROM documents
@@ -568,12 +574,12 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
              AND LOWER(name) LIKE $2
              ORDER BY created_at DESC
              LIMIT 1`,
-            [contactId, `%${lenderName.toLowerCase()}%loa%`]
+            [contactId, `%${refSpec}%loa%`]
         );
 
         if (loaQuery.rows.length > 0) {
             const loaFileName = loaQuery.rows[0].name;
-            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName}`);
+            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName} (case-specific match with ${refSpec})`);
             documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
         }
     } catch (err) {
@@ -601,10 +607,10 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                 break;
             }
         }
-        // Last resort: search S3 Lenders folder for any file matching lender + LOA pattern
+        // Last resort: search S3 Lenders folder for file matching lender + LOA + case reference
         if (!documents.loa) {
-            console.log(`[Worker] 🔍 Searching S3 Lenders folder for LOA...`);
-            documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA');
+            console.log(`[Worker] 🔍 Searching S3 Lenders folder for LOA (case-specific: ${refSpec})...`);
+            documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA', refSpec);
         }
         if (!documents.loa) {
             console.log(`[Worker] ❌ LOA not found`);
@@ -612,6 +618,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     }
 
     // 2. Cover Letter PDF - First check documents table, then fall back to filename guessing
+    // IMPORTANT: Must match the specific case (refSpec = contactId + caseId) to avoid picking up wrong Cover Letter
     try {
         const coverQuery = await pool.query(
             `SELECT name FROM documents
@@ -620,12 +627,12 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
              AND LOWER(name) LIKE $2
              ORDER BY created_at DESC
              LIMIT 1`,
-            [contactId, `%${lenderName.toLowerCase()}%`]
+            [contactId, `%${refSpec}%cover%`]
         );
 
         if (coverQuery.rows.length > 0) {
             const coverFileName = coverQuery.rows[0].name;
-            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName}`);
+            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName} (case-specific match with ${refSpec})`);
             documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
         }
     } catch (err) {
@@ -653,10 +660,10 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                 break;
             }
         }
-        // Last resort: search S3 Lenders folder for any file matching lender + COVER LETTER pattern
+        // Last resort: search S3 Lenders folder for file matching lender + COVER LETTER + case reference
         if (!documents.coverLetter) {
-            console.log(`[Worker] 🔍 Searching S3 Lenders folder for Cover Letter...`);
-            documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER');
+            console.log(`[Worker] 🔍 Searching S3 Lenders folder for Cover Letter (case-specific: ${refSpec})...`);
+            documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER', refSpec);
         }
         if (!documents.coverLetter) {
             console.log(`[Worker] ❌ Cover Letter not found`);
