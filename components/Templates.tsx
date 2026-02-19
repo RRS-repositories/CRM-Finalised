@@ -1218,7 +1218,7 @@ const Templates: React.FC = () => {
 
   // ========== Save Template ==========
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const timestamp = new Date().toISOString().split('T')[0];
 
     let contentToSave: string;
@@ -1266,8 +1266,9 @@ const Templates: React.FC = () => {
       defaultValue: v.defaultValue,
     }));
 
+    let result;
     if (currentTemplate) {
-      updateTemplate({
+      result = await updateTemplate({
         ...currentTemplate,
         name: editorName,
         category: editorCategory,
@@ -1277,7 +1278,7 @@ const Templates: React.FC = () => {
         customVariables: customVarsForSave,
       });
     } else {
-      addTemplate({
+      result = await addTemplate({
         name: editorName,
         category: editorCategory,
         description: editorDescription,
@@ -1286,7 +1287,9 @@ const Templates: React.FC = () => {
       });
     }
 
-    setViewMode('library');
+    if (result.success) {
+      setViewMode('library');
+    }
   };
 
   // ========== Generate PDF (merge overlay fields with original PDF via backend) ==========

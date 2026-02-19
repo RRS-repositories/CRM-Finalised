@@ -96,9 +96,9 @@ interface CRMContextType {
   fetchDocumentTimeline: (docId: string) => Promise<any[]>;
 
   // Template Methods
-  addTemplate: (tpl: Partial<Template>) => { success: boolean; message: string; id?: string };
-  updateTemplate: (tpl: Template) => { success: boolean; message: string };
-  deleteTemplate: (id: string) => { success: boolean; message: string };
+  addTemplate: (tpl: Partial<Template>) => Promise<{ success: boolean; message: string; id?: string }>;
+  updateTemplate: (tpl: Template) => Promise<{ success: boolean; message: string }>;
+  deleteTemplate: (id: string) => Promise<{ success: boolean; message: string }>;
 
   // Form Methods
   addForm: (frm: Partial<Form>) => { success: boolean; message: string; id?: string };
@@ -1974,7 +1974,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Template Logic ---
-  const addTemplate = (tplData: Partial<Template>) => {
+  const addTemplate = async (tplData: Partial<Template>): Promise<{ success: boolean; message: string; id?: string }> => {
     const newTpl: Template = {
       id: `t${Date.now()}`,
       name: tplData.name || 'Untitled Template',
@@ -1984,38 +1984,65 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastModified: new Date().toISOString().split('T')[0],
       customVariables: tplData.customVariables || [],
     };
-    setTemplates(prev => [newTpl, ...prev]);
-    addNotification('success', `Template '${newTpl.name}' created`);
-    // Persist to backend
-    fetch(`${API_BASE_URL}/templates`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newTpl),
-    }).catch(err => console.error('Error saving template:', err));
-    return { success: true, message: `Created template: ${newTpl.name}`, id: newTpl.id };
+    try {
+      const res = await fetch(`${API_BASE_URL}/templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTpl),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to save template');
+      }
+      setTemplates(prev => [newTpl, ...prev]);
+      addNotification('success', `Template '${newTpl.name}' created`);
+      return { success: true, message: `Created template: ${newTpl.name}`, id: newTpl.id };
+    } catch (err) {
+      console.error('Error saving template:', err);
+      addNotification('error', 'Failed to save template to server');
+      return { success: false, message: 'Failed to save template' };
+    }
   };
 
-  const updateTemplate = (tpl: Template) => {
-    setTemplates(prev => prev.map(t => t.id === tpl.id ? tpl : t));
-    addNotification('success', 'Template updated successfully');
-    // Persist to backend
-    fetch(`${API_BASE_URL}/templates/${tpl.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(tpl),
-    }).catch(err => console.error('Error updating template:', err));
-    return { success: true, message: `Updated template: ${tpl.name}` };
+  const updateTemplate = async (tpl: Template): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/templates/${tpl.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tpl),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to update template');
+      }
+      setTemplates(prev => prev.map(t => t.id === tpl.id ? tpl : t));
+      addNotification('success', 'Template updated successfully');
+      return { success: true, message: `Updated template: ${tpl.name}` };
+    } catch (err) {
+      console.error('Error updating template:', err);
+      addNotification('error', 'Failed to save template — changes may be lost');
+      return { success: false, message: 'Failed to update template' };
+    }
   };
 
-  const deleteTemplate = (id: string) => {
+  const deleteTemplate = async (id: string): Promise<{ success: boolean; message: string }> => {
     const tpl = templates.find(t => t.id === id);
-    setTemplates(prev => prev.filter(t => t.id !== id));
-    addNotification('success', `Template deleted`);
-    // Delete from backend
-    fetch(`${API_BASE_URL}/templates/${id}`, {
-      method: 'DELETE',
-    }).catch(err => console.error('Error deleting template:', err));
-    return { success: true, message: `Deleted template: ${tpl?.name || id}` };
+    try {
+      const res = await fetch(`${API_BASE_URL}/templates/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to delete template');
+      }
+      setTemplates(prev => prev.filter(t => t.id !== id));
+      addNotification('success', `Template deleted`);
+      return { success: true, message: `Deleted template: ${tpl?.name || id}` };
+    } catch (err) {
+      console.error('Error deleting template:', err);
+      addNotification('error', 'Failed to delete template');
+      return { success: false, message: 'Failed to delete template' };
+    }
   };
 
   // --- Form Logic ---

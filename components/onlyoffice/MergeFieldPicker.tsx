@@ -3,10 +3,11 @@ import { ChevronRight, ChevronDown, Copy, ClipboardCheck } from 'lucide-react';
 import { OO_MERGE_FIELDS } from '../../constants';
 
 interface MergeFieldPickerProps {
+  onFieldSelect?: (fieldKey: string) => void;
   onCopied?: (field: string) => void;
 }
 
-const MergeFieldPicker: React.FC<MergeFieldPickerProps> = ({ onCopied }) => {
+const MergeFieldPicker: React.FC<MergeFieldPickerProps> = ({ onFieldSelect, onCopied }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -31,7 +32,15 @@ const MergeFieldPicker: React.FC<MergeFieldPickerProps> = ({ onCopied }) => {
     });
   };
 
-  const copyField = async (key: string) => {
+  const handleFieldClick = async (key: string) => {
+    if (onFieldSelect) {
+      setCopiedField(key);
+      await onFieldSelect(key);
+      setTimeout(() => setCopiedField(null), 2000);
+      return;
+    }
+
+    // Legacy clipboard fallback
     const text = `{{${key}}}`;
     try {
       await navigator.clipboard.writeText(text);
@@ -39,7 +48,6 @@ const MergeFieldPicker: React.FC<MergeFieldPickerProps> = ({ onCopied }) => {
       onCopied?.(text);
       setTimeout(() => setCopiedField(null), 2000);
     } catch {
-      // Fallback for non-secure contexts
       const ta = document.createElement('textarea');
       ta.value = text;
       document.body.appendChild(ta);
@@ -85,7 +93,7 @@ const MergeFieldPicker: React.FC<MergeFieldPickerProps> = ({ onCopied }) => {
                   {group.fields.map((field) => (
                     <button
                       key={field.key}
-                      onClick={() => copyField(field.key)}
+                      onClick={() => handleFieldClick(field.key)}
                       className="w-full flex items-center justify-between px-3 py-1.5 pl-9 text-sm text-gray-600 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors"
                     >
                       <span className="font-mono text-xs">

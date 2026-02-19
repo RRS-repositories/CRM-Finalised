@@ -281,74 +281,63 @@ export const OO_MERGE_FIELDS: Array<{
   {
     group: 'Client',
     fields: [
-      { key: 'client_name', label: 'Client Name' },
-      { key: 'client_address', label: 'Client Address' },
-      { key: 'client_email', label: 'Client Email' },
-      { key: 'client_phone', label: 'Client Phone' },
-      { key: 'client_dob', label: 'Client Date of Birth' },
+      { key: 'client.fullName', label: 'Full Name' },
+      { key: 'client.firstName', label: 'First Name' },
+      { key: 'client.lastName', label: 'Last Name' },
+      { key: 'client.email', label: 'Email' },
+      { key: 'client.phone', label: 'Phone' },
+      { key: 'client.address', label: 'Address' },
+      { key: 'client.dateOfBirth', label: 'Date of Birth' },
+    ],
+  },
+  {
+    group: 'Claim',
+    fields: [
+      { key: 'claim.lender', label: 'Lender' },
+      { key: 'claim.clientId', label: 'Client ID' },
+      { key: 'claim.caseRef', label: 'Case Reference' },
+      { key: 'claim.claimValue', label: 'Claim Value' },
     ],
   },
   {
     group: 'Lender',
     fields: [
-      { key: 'lender_name', label: 'Lender Name' },
-      { key: 'lender_address', label: 'Lender Address' },
-      { key: 'lender_ref', label: 'Lender Reference' },
-      { key: 'lender_entity', label: 'Lender Entity' },
-    ],
-  },
-  {
-    group: 'Loan',
-    fields: [
-      { key: 'loan_amount', label: 'Loan Amount' },
-      { key: 'loan_date', label: 'Loan Date' },
-      { key: 'loan_type', label: 'Loan Type' },
-      { key: 'interest_rate', label: 'Interest Rate' },
-      { key: 'monthly_repayment', label: 'Monthly Repayment' },
-      { key: 'total_repayable', label: 'Total Repayable' },
-      { key: 'loan_term', label: 'Loan Term' },
-    ],
-  },
-  {
-    group: 'Affordability',
-    fields: [
-      { key: 'dti_ratio', label: 'DTI Ratio' },
-      { key: 'disposable_income', label: 'Disposable Income' },
-      { key: 'monthly_income', label: 'Monthly Income' },
-      { key: 'monthly_expenditure', label: 'Monthly Expenditure' },
-      { key: 'total_debt', label: 'Total Debt' },
-    ],
-  },
-  {
-    group: 'Case',
-    fields: [
-      { key: 'case_ref', label: 'Case Reference' },
-      { key: 'case_status', label: 'Case Status' },
-      { key: 'settlement_amount', label: 'Settlement Amount' },
+      { key: 'lender.companyName', label: 'Lender Company Name' },
+      { key: 'lender.address', label: 'Lender Address' },
+      { key: 'lender.city', label: 'Lender City' },
+      { key: 'lender.postcode', label: 'Lender Postcode' },
+      { key: 'lender.email', label: 'Lender Email' },
     ],
   },
   {
     group: 'Firm',
     fields: [
-      { key: 'firm_name', label: 'Firm Name' },
-      { key: 'firm_trading_name', label: 'Trading Name' },
-      { key: 'solicitor_name', label: 'Solicitor Name' },
-      { key: 'firm_address', label: 'Firm Address' },
-      { key: 'sra_number', label: 'SRA Number' },
-      { key: 'firm_entity', label: 'Firm Entity' },
-      { key: 'company_number', label: 'Company Number' },
-      { key: 'today_date', label: "Today's Date" },
+      { key: 'firm.name', label: 'Firm Name' },
+      { key: 'firm.tradingName', label: 'Trading Name' },
+      { key: 'firm.address', label: 'Firm Address' },
+      { key: 'firm.phone', label: 'Firm Phone' },
+      { key: 'firm.sraNumber', label: 'SRA Number' },
+      { key: 'firm.entity', label: 'Firm Entity' },
+      { key: 'firm.companyNumber', label: 'Company Number' },
+    ],
+  },
+  {
+    group: 'System',
+    fields: [
+      { key: 'system.today', label: "Today's Date" },
+      { key: 'system.year', label: 'Current Year' },
     ],
   },
 ];
 
 export const OO_FIRM_DEFAULTS: Record<string, string> = {
-  firm_name: 'Rowan Rose Solicitors',
-  firm_trading_name: 'Fast Action Claims',
-  firm_address: 'Boat Shed, Exchange Quay, Salford M5 3EQ',
-  sra_number: '8000843',
-  firm_entity: 'Rowan Rose Ltd',
-  company_number: '12916452',
+  'firm.name': 'Rowan Rose Solicitors',
+  'firm.tradingName': 'Fast Action Claims',
+  'firm.address': '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+  'firm.phone': '0161 505 0150',
+  'firm.sraNumber': '8000843',
+  'firm.entity': 'Rowan Rose Ltd',
+  'firm.companyNumber': '12916452',
 };
 
 export const MOCK_CONVERSATIONS: Conversation[] = [

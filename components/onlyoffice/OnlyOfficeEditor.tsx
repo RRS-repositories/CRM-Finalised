@@ -17,10 +17,21 @@ interface EditorConfigResponse {
   message?: string;
 }
 
+interface OOConnector {
+  executeMethod(method: string, args: unknown[], callback?: (returnValue: unknown) => void): void;
+  callCommand(command: () => void, isNoCalc?: boolean, isRecalc?: boolean): void;
+  disconnect(): void;
+}
+
+interface OODocEditor {
+  destroyEditor: () => void;
+  createConnector: () => OOConnector;
+}
+
 declare global {
   interface Window {
     DocsAPI?: {
-      DocEditor: new (containerId: string, config: Record<string, unknown>) => { destroyEditor: () => void };
+      DocEditor: new (containerId: string, config: Record<string, unknown>) => OODocEditor;
     };
   }
 }
@@ -31,7 +42,8 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
   const [downloadUrl, setDownloadUrl] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [editorConfig, setEditorConfig] = useState<Record<string, unknown> | null>(null);
-  const editorRef = useRef<{ destroyEditor: () => void } | null>(null);
+  const editorRef = useRef<OODocEditor | null>(null);
+  const connectorRef = useRef<OOConnector | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -85,6 +97,10 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
   useEffect(() => {
     fetchConfig();
     return () => {
+      if (connectorRef.current) {
+        try { connectorRef.current.disconnect(); } catch { /* noop */ }
+        connectorRef.current = null;
+      }
       if (editorRef.current) {
         try { editorRef.current.destroyEditor(); } catch { /* noop */ }
       }
@@ -115,7 +131,23 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
   useEffect(() => {
     if (state === 'editor' && editorConfig && window.DocsAPI && !editorRef.current) {
       try {
-        editorRef.current = new window.DocsAPI.DocEditor('oo-editor-container', editorConfig);
+        const configWithEvents = {
+          ...editorConfig,
+          events: {
+            ...((editorConfig.events as Record<string, unknown>) || {}),
+            onDocumentReady: () => {
+              try {
+                if (editorRef.current) {
+                  connectorRef.current = editorRef.current.createConnector();
+                  console.log('[OO] Connector created successfully');
+                }
+              } catch (err) {
+                console.warn('[OO] Failed to create connector (clipboard fallback active):', err);
+              }
+            },
+          },
+        };
+        editorRef.current = new window.DocsAPI.DocEditor('oo-editor-container', configWithEvents);
       } catch (err) {
         console.error('[OO Editor] Failed to initialize:', err);
         setState('fallback');
@@ -123,10 +155,43 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
     }
   }, [state, editorConfig]);
 
-  const handleFieldCopied = (field: string) => {
-    setToastMsg(`Copied ${field}`);
-    setTimeout(() => setToastMsg(''), 2000);
-  };
+  const insertFieldAtCursor = useCallback(async (fieldKey: string): Promise<'inserted' | 'copied'> => {
+    const text = `{{${fieldKey}}}`;
+
+    if (connectorRef.current) {
+      return new Promise((resolve) => {
+        let resolved = false;
+        connectorRef.current!.executeMethod('InputText', [text], () => {
+          if (!resolved) { resolved = true; resolve('inserted'); }
+        });
+        // Timeout: some OO versions don't fire the callback reliably
+        setTimeout(() => { if (!resolved) { resolved = true; resolve('inserted'); } }, 2000);
+      });
+    }
+
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    return 'copied';
+  }, []);
+
+  const handleFieldInsert = useCallback(async (fieldKey: string) => {
+    const result = await insertFieldAtCursor(fieldKey);
+    if (result === 'inserted') {
+      setToastMsg(`Inserted {{${fieldKey}}}`);
+    } else {
+      setToastMsg(`Copied {{${fieldKey}}} — paste with Ctrl+V`);
+    }
+    setTimeout(() => setToastMsg(''), 2500);
+  }, [insertFieldAtCursor]);
 
   return (
     <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col">
@@ -152,7 +217,7 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
         </div>
 
         <div className="flex items-center gap-2">
-          {type === 'template' && <MergeFieldPicker onCopied={handleFieldCopied} />}
+          {type === 'template' && <MergeFieldPicker onFieldSelect={handleFieldInsert} />}
           {downloadUrl && (
             <a
               href={downloadUrl}

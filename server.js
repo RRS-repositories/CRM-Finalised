@@ -449,42 +449,40 @@ let ooTemplateIdCounter = 1;
 let ooDocumentIdCounter = 1;
 
 const OO_FIRM_DEFAULTS = {
-    firm_name: 'Rowan Rose Solicitors',
-    firm_trading_name: 'Fast Action Claims',
-    firm_address: 'Boat Shed, Exchange Quay, Salford M5 3EQ',
-    sra_number: '8000843',
-    firm_entity: 'Rowan Rose Ltd',
-    company_number: '12916452',
+    'firm.name': 'Rowan Rose Solicitors',
+    'firm.tradingName': 'Fast Action Claims',
+    'firm.address': '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+    'firm.phone': '0161 505 0150',
+    'firm.sraNumber': '8000843',
+    'firm.entity': 'Rowan Rose Ltd',
+    'firm.companyNumber': '12916452',
 };
 
 const OO_MOCK_CASE_DATA = {
-    client_name: 'John Smith',
-    client_address: '123 Test Street, Manchester M1 1AA',
-    client_email: 'john@example.com',
-    client_phone: '07700 900000',
-    client_dob: '01/01/1980',
-    lender_name: 'Vanquis Bank',
-    lender_address: '1 Godwin Street, Bradford BD1 2SU',
-    lender_ref: 'VB-2024-12345',
-    lender_entity: 'Vanquis Banking Group plc',
-    loan_amount: '2,500.00',
-    loan_date: '15 March 2023',
-    loan_type: 'Credit Card',
-    interest_rate: '39.9',
-    monthly_repayment: '125.00',
-    total_repayable: '4,500.00',
-    loan_term: '48 months',
-    dti_ratio: '58',
-    disposable_income: '-120.45',
-    monthly_income: '1,800.00',
-    monthly_expenditure: '1,920.45',
-    total_debt: '15,000.00',
-    case_ref: 'RR-2024-0001',
-    case_status: 'Active',
-    settlement_amount: '1,250.00',
+    // Client
+    'client.fullName': 'John Smith',
+    'client.firstName': 'John',
+    'client.lastName': 'Smith',
+    'client.email': 'john@example.com',
+    'client.phone': '07700 900000',
+    'client.address': '123 Test Street, Manchester M1 1AA',
+    'client.dateOfBirth': '01/01/1980',
+    // Claim
+    'claim.lender': 'Vanquis Bank',
+    'claim.clientId': 'RR-1',
+    'claim.caseRef': 'RR-2024-0001',
+    'claim.claimValue': '£2,500.00',
+    // Lender
+    'lender.companyName': 'Vanquis Banking Group plc',
+    'lender.address': '1 Godwin Street, Bradford BD1 2SU',
+    'lender.city': 'Bradford',
+    'lender.postcode': 'BD1 2SU',
+    'lender.email': '',
+    // Firm
     ...OO_FIRM_DEFAULTS,
-    solicitor_name: 'Brad',
-    today_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    // System
+    'system.today': new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    'system.year': String(new Date().getFullYear()),
 };
 
 // Helper: Download S3 object as Buffer
@@ -8398,19 +8396,37 @@ app.post('/api/templates', (req, res) => {
     }
 });
 
-// PUT /api/templates/:id - Update a template
+// PUT /api/templates/:id - Update (or upsert) a template
 app.put('/api/templates/:id', (req, res) => {
     try {
         const templates = readTemplatesStore();
         const idx = templates.findIndex(t => t.id === req.params.id);
-        if (idx === -1) return res.status(404).json({ success: false, message: 'Template not found' });
+        const now = new Date().toISOString().split('T')[0];
+
+        if (idx === -1) {
+            // Upsert: template not in store yet (e.g. was only in-memory), create it
+            const newTpl = {
+                id: req.params.id,
+                name: req.body.name || 'Untitled Template',
+                category: req.body.category || 'General',
+                description: req.body.description || '',
+                content: req.body.content || '',
+                lastModified: now,
+                customVariables: req.body.customVariables || [],
+            };
+            templates.push(newTpl);
+            writeTemplatesStore(templates);
+            console.log(`[Templates] Upserted new template ${req.params.id}`);
+            return res.json({ success: true, template: newTpl });
+        }
+
         templates[idx] = {
             ...templates[idx],
             name: req.body.name ?? templates[idx].name,
             category: req.body.category ?? templates[idx].category,
             description: req.body.description ?? templates[idx].description,
             content: req.body.content ?? templates[idx].content,
-            lastModified: new Date().toISOString().split('T')[0],
+            lastModified: now,
             customVariables: req.body.customVariables ?? templates[idx].customVariables,
         };
         writeTemplatesStore(templates);
@@ -9803,8 +9819,8 @@ app.post('/api/oo/documents/generate', async (req, res) => {
         // Use provided merge data or fall back to mock data
         const data = mergeData || {
             ...OO_MOCK_CASE_DATA,
-            case_ref: `RR-2024-${String(caseId || 1).padStart(4, '0')}`,
-            today_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            'claim.caseRef': `RR-2024-${String(caseId || 1).padStart(4, '0')}`,
+            'system.today': new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
         };
 
         // Merge with docxtemplater

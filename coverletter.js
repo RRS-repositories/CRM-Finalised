@@ -131,8 +131,12 @@ function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
 
         // Firm Details
         'firm.name': 'Fast Action Claims',
+        'firm.tradingName': 'Fast Action Claims',
         'firm.address': '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
-        'firm.phone': '0161 5331706',
+        'firm.phone': '0161 505 0150',
+        'firm.sraNumber': '8000843',
+        'firm.entity': 'Rowan Rose Ltd',
+        'firm.companyNumber': '12916452',
 
         // System
         'system.today': today,
