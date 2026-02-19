@@ -1921,7 +1921,7 @@ const processPendingDSAREmails = async () => {
                 // Category 1 & 2: Send DSAR with appropriate documents
                 const includeIdDocuments = (lenderCategory === 2); // Only include ID for Category 2
                 const requireIdDocuments = (lenderCategory === 2); // Category 2 requires ID
-                const includePreviousAddress = false; // Previous Address is optional for all - skip to avoid Graph API issues
+                const includePreviousAddress = true; // Include if available, skip if not
 
                 const emailResult = await sendDocumentsToLender(
                     record.lender,
