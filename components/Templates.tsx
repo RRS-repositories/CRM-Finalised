@@ -3295,11 +3295,12 @@ const Templates: React.FC = () => {
                     <strong>Available Variables:</strong> {'{{clientFullName}}'}, {'{{clientAddress}}'}, {'{{clientPostcode}}'}, {'{{clientDOB}}'}, {'{{lenderName}}'}, {'{{lenderAddress}}'}, {'{{lenderEmail}}'}, {'{{today}}'}, {'{{refSpec}}'}, {'{{signatureImage}}'}
                   </div>
                 </div>
-                <div className="flex-1 p-4">
+                <div className="flex-1 p-4 overflow-auto">
                   <textarea
                     value={htmlEditorContent}
                     onChange={(e) => setHtmlEditorContent(e.target.value)}
-                    className="w-full h-full min-h-[500px] p-4 font-mono text-sm bg-gray-900 text-green-400 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    className="w-full p-4 font-mono text-sm bg-gray-900 text-green-400 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                    style={{ minHeight: '70vh', height: 'auto' }}
                     placeholder="Enter HTML template code here..."
                     spellCheck={false}
                   />
@@ -3313,7 +3314,7 @@ const Templates: React.FC = () => {
                     HTML Templates for Lambda PDF Generation
                   </h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    These templates are used by the Lambda function to generate LOA and Cover Letter PDFs.
+                    LOA uses HTML template below. Cover Letter uses TipTap template from Letter Templates.
                   </p>
                 </div>
 
@@ -3366,47 +3367,13 @@ const Templates: React.FC = () => {
                       );
                     })()}
 
-                    {/* Cover Letter Template */}
-                    {(() => {
-                      const clTemplate = htmlTemplates.find(t => t.template_type === 'COVER_LETTER');
-                      return clTemplate ? (
-                        <div className="flex items-center justify-between px-5 py-4 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
-                              <FileText size={18} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-navy-700 dark:text-navy-300">{clTemplate.name}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">Type: COVER_LETTER | Updated: {new Date(clTemplate.updated_at).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleEditHtmlTemplate(clTemplate)}
-                            className="px-4 py-1.5 text-sm font-medium border-2 border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
-                          >
-                            Edit HTML
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between px-5 py-4 bg-gray-50/50 dark:bg-slate-700/50">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400">
-                              <FileText size={18} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Cover Letter Template (Not Created)</p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500">Click to create a default template</p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleCreateHtmlTemplate('COVER_LETTER')}
-                            className="px-4 py-1.5 text-sm font-medium border-2 border-green-600 dark:border-green-400 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
-                          >
-                            Create Template
-                          </button>
-                        </div>
-                      );
-                    })()}
+                    {/* Note: Cover Letter uses TipTap template from Letter Templates tab */}
+                    <div className="px-5 py-4 bg-gray-50/50 dark:bg-slate-700/50">
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        <strong>Cover Letter:</strong> Uses TipTap template from Letter Templates tab
+                        <span className="text-xs ml-1">(x22904060229 - test test - VANQUIS - COVER LETTER)</span>
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
