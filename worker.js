@@ -1028,7 +1028,7 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
 // --- HELPER FUNCTION: SEND DOCUMENTS TO LENDER (or create draft) ---
 // includeIdDocuments: whether to include ID documents in attachments
 // requireIdDocuments: if true, will fail if no ID documents found
-async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified, includeIdDocuments = false, requireIdDocuments = false, includePreviousAddress = true) {
+async function sendDocumentsToLender(lenderName, clientName, contactId, folderName, caseId, referenceSpecified, includeIdDocuments = false, requireIdDocuments = false, includePreviousAddress = true, requireCoverLetter = false) {
     console.log(`[Worker] Preparing to ${EMAIL_DRAFT_MODE ? 'create draft for' : 'send documents to'} lender: ${lenderName} (Include ID: ${includeIdDocuments}, Require ID: ${requireIdDocuments})`);
 
     // Get contact data to generate clientId
@@ -1057,10 +1057,16 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     // Gather all available documents
     const documents = await gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName);
 
-    // Must have at least LOA (Cover Letter, Previous Address, ID are optional)
+    // Must have at least LOA
     if (!documents.loa) {
         console.log(`[Worker] ⚠️ Missing required document (LOA). Skipping.`);
         return { success: false, reason: 'missing_required_docs' };
+    }
+
+    // Category 1 lenders require Cover Letter as well
+    if (requireCoverLetter && !documents.coverLetter) {
+        console.log(`[Worker] ⚠️ Missing required document (Cover Letter). Skipping.`);
+        return { success: false, reason: 'missing_cover_letter' };
     }
 
     // Build attachments array
@@ -1967,6 +1973,7 @@ const processPendingDSAREmails = async () => {
                 const includeIdDocuments = (lenderCategory === 2); // Only include ID for Category 2
                 const requireIdDocuments = (lenderCategory === 2); // Category 2 requires ID
                 const includePreviousAddress = true; // Include if available, skip if not
+                const requireCoverLetter = (lenderCategory === 1); // Category 1 requires Cover Letter
 
                 const emailResult = await sendDocumentsToLender(
                     record.lender,
@@ -1977,7 +1984,8 @@ const processPendingDSAREmails = async () => {
                     record.reference_specified,
                     includeIdDocuments,
                     requireIdDocuments,
-                    includePreviousAddress
+                    includePreviousAddress,
+                    requireCoverLetter
                 );
 
                 console.log(`[Worker] 📧 DSAR result for Case ${record.case_id}:`, JSON.stringify(emailResult));
@@ -2055,6 +2063,19 @@ const processPendingDSAREmails = async () => {
                             [record.contact_id, record.case_id, `⚠️ No ID document available - cannot send DSAR for ${record.lender}. Please upload ID document in Documents or Claim Documents section.`]
                         );
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing ID documents (required for ${record.lender})`);
+                    } else if (emailResult.reason === 'missing_cover_letter') {
+                        // Category 1 lenders require Cover Letter - fail and log
+                        await pool.query(
+                            `UPDATE cases SET status = 'LOA Signed' WHERE id = $1`,
+                            [record.case_id]
+                        );
+                        // Log to action timeline with clear message
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `⚠️ Missing Cover Letter - cannot send DSAR for ${record.lender}. Both LOA and Cover Letter are required.`]
+                        );
+                        console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing Cover Letter (required for ${record.lender})`);
                     }
                 }
             } catch (err) {
