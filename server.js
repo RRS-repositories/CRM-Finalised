@@ -6,7 +6,7 @@ import cors from 'cors';
 import multer from 'multer';
 import pkg from 'pg';
 const { Pool } = pkg;
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import PDFDocument from 'pdfkit';
 import nodemailer from 'nodemailer';
@@ -8638,6 +8638,114 @@ app.put('/api/master-templates/:type', async (req, res) => {
         res.json({ success: true, template: { ...template, type, s3Key } });
     } catch (err) {
         console.error(`Error updating master template ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// --- DOCX TEMPLATES (Word documents for LOA and Cover Letter) ---
+const DOCX_TEMPLATE_KEYS = {
+    'LOA': 'templates/loa-template.docx',
+    'COVER_LETTER': 'templates/cover-letter-template.docx'
+};
+
+// GET /api/docx-templates - List DOCX templates with download URLs
+app.get('/api/docx-templates', async (req, res) => {
+    try {
+        const templates = [];
+        for (const [type, s3Key] of Object.entries(DOCX_TEMPLATE_KEYS)) {
+            try {
+                // Check if template exists
+                await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }));
+
+                // Generate presigned download URL
+                const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: s3Key
+                }), { expiresIn: 3600 }); // 1 hour
+
+                templates.push({
+                    type,
+                    s3Key,
+                    fileName: s3Key.split('/').pop(),
+                    downloadUrl,
+                    exists: true
+                });
+            } catch (err) {
+                templates.push({
+                    type,
+                    s3Key,
+                    fileName: s3Key.split('/').pop(),
+                    downloadUrl: null,
+                    exists: false
+                });
+            }
+        }
+        res.json({ success: true, templates });
+    } catch (err) {
+        console.error('Error listing DOCX templates:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/docx-templates/:type/download - Get presigned URL to download DOCX template
+app.get('/api/docx-templates/:type/download', async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        const s3Key = DOCX_TEMPLATE_KEYS[type];
+        if (!s3Key) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        // Check if template exists
+        try {
+            await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }));
+        } catch (err) {
+            return res.status(404).json({ success: false, message: `DOCX template not found: ${s3Key}` });
+        }
+
+        // Generate presigned download URL
+        const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key
+        }), { expiresIn: 3600 }); // 1 hour
+
+        res.json({ success: true, downloadUrl, fileName: s3Key.split('/').pop() });
+    } catch (err) {
+        console.error(`Error getting DOCX template download URL ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/docx-templates/:type - Upload new DOCX template (accepts multipart/form-data)
+app.put('/api/docx-templates/:type', upload.single('file'), async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        const s3Key = DOCX_TEMPLATE_KEYS[type];
+        if (!s3Key) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        // Verify it's a DOCX file
+        if (!req.file.originalname.endsWith('.docx')) {
+            return res.status(400).json({ success: false, message: 'Only .docx files are allowed' });
+        }
+
+        // Upload to S3
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: req.file.buffer,
+            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        }));
+
+        console.log(`✅ DOCX template ${type} uploaded to S3: ${s3Key}`);
+        res.json({ success: true, message: `${type} template uploaded successfully`, s3Key });
+    } catch (err) {
+        console.error(`Error uploading DOCX template ${req.params.type}:`, err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
