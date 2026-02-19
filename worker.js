@@ -1866,17 +1866,8 @@ const processPendingDSAREmails = async () => {
 
                 console.log(`[Worker] 📧 Processing DSAR for Case ${record.case_id}, Lender: ${record.lender} (Category ${lenderCategory}), Client: ${clientName}`);
 
-                // Handle Category 3: Confirmation Required - Should not reach here (handled at claim creation)
-                if (lenderCategory === 3) {
-                    console.log(`[Worker] ⚠️ Category 3 lender ${record.lender} should be handled at claim creation. Skipping.`);
-                    await pool.query(
-                        `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
-                         VALUES ($1, $2, 'system', 'worker', 'dsar_skipped', 'claims', $3)`,
-                        [record.contact_id, record.case_id, `DSAR skipped for ${record.lender} - requires confirmation email to client first`]
-                    );
-                    await pool.query(`UPDATE cases SET status = 'LOA Signed' WHERE id = $1`, [record.case_id]);
-                    continue;
-                }
+                // Handle Category 3: Confirmation Required - confirmation email sent at claim creation, now create DSAR draft
+                // Category 3 is processed the same as Category 1 (no ID documents required)
 
                 // Handle Category 4: Special Email Lenders (send verification email to client, not DSAR to lender)
                 if (lenderCategory === 4) {
