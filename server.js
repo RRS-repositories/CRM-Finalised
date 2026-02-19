@@ -2696,6 +2696,79 @@ app.put('/api/documents/:id/status', async (req, res) => {
     }
 });
 
+// --- DOCUMENT DELETE (delete from DB and S3) ---
+app.delete('/api/documents/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. Get document details
+        const { rows } = await pool.query(
+            'SELECT id, name, url, contact_id FROM documents WHERE id = $1',
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        const doc = rows[0];
+
+        // 2. Delete from S3
+        if (doc.url) {
+            try {
+                const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+                const bucketName = process.env.S3_BUCKET_NAME;
+
+                // Extract Key from full URL
+                let key = doc.url;
+                if (doc.url.startsWith('http')) {
+                    try {
+                        const urlObj = new URL(doc.url);
+                        key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+                        key = decodeURIComponent(key);
+                        // Handle path-style URLs: strip bucket name if present
+                        if (key.startsWith(bucketName + '/')) {
+                            key = key.substring(bucketName.length + 1);
+                        }
+                    } catch (e) {
+                        console.warn('URL parsing failed, using raw string');
+                    }
+                }
+
+                console.log(`🗑️  Deleting document from S3: ${key}`);
+                await s3Client.send(new DeleteObjectCommand({
+                    Bucket: bucketName,
+                    Key: key
+                }));
+                console.log(`✅ Deleted document from S3: ${key}`);
+            } catch (s3Error) {
+                console.error('⚠️  S3 deletion error:', s3Error.message);
+                // Continue with database deletion even if S3 fails
+            }
+        }
+
+        // 3. Delete from database
+        await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+
+        // 4. Log the deletion
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+             VALUES ($1, 'agent', 'system', 'document_deleted', 'documents', $2, $3)`,
+            [
+                doc.contact_id,
+                `Document "${doc.name}" deleted`,
+                JSON.stringify({ document_id: id, name: doc.name })
+            ]
+        );
+
+        console.log(`✅ Document ${id} deleted successfully`);
+        res.json({ success: true, message: 'Document deleted successfully', deletedDocument: doc.name });
+    } catch (err) {
+        console.error('❌ Error deleting document:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // --- DOCUMENT SEND (mark as Sent + generate tracking token) ---
 app.post('/api/documents/:id/send', async (req, res) => {
     const { id } = req.params;
@@ -4972,8 +5045,7 @@ app.delete('/api/cases/:id', async (req, res) => {
         res.json({
             success: true,
             message: 'Claim deleted successfully',
-            deletedLender: claim.lender,
-            deletedLoaPath: loaPath
+            deletedLender: claim.lender
         });
 
     } catch (error) {

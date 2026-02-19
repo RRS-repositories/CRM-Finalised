@@ -552,6 +552,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [isUploadingClaimDoc, setIsUploadingClaimDoc] = useState(false);
    const [claimDocUploadProgress, setClaimDocUploadProgress] = useState(0);
 
+   // Document delete state
+   const [showDeleteDocConfirm, setShowDeleteDocConfirm] = useState(false);
+   const [docToDelete, setDocToDelete] = useState<{ id: number; name: string } | null>(null);
+   const [isDeletingDoc, setIsDeletingDoc] = useState(false);
+   const [deleteDocProgress, setDeleteDocProgress] = useState(0);
+   const [deleteDocConfirmText, setDeleteDocConfirmText] = useState('');
+
    // Set Context for AI on Mount
    useEffect(() => {
       if (contact) {
@@ -832,6 +839,56 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       } catch (err) {
          console.error('Download error:', err);
          addNotification('error', 'Failed to download file');
+      }
+   };
+
+   // Handle document delete - removes from DB and S3
+   const handleDeleteDocument = async () => {
+      if (!docToDelete || deleteDocConfirmText !== 'DELETE') return;
+
+      setIsDeletingDoc(true);
+      setDeleteDocProgress(0);
+
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+         setDeleteDocProgress(prev => {
+            if (prev >= 90) return prev;
+            return prev + Math.random() * 15;
+         });
+      }, 200);
+
+      try {
+         const res = await fetch(`${API_BASE_URL}/api/documents/${docToDelete.id}`, {
+            method: 'DELETE'
+         });
+
+         clearInterval(progressInterval);
+
+         if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to delete document');
+         }
+
+         setDeleteDocProgress(100);
+         await new Promise(resolve => setTimeout(resolve, 500));
+
+         addNotification('success', `Document "${docToDelete.name}" deleted successfully`);
+
+         // Refresh documents list
+         await fetchContactDocuments();
+
+         // Close modal
+         setShowDeleteDocConfirm(false);
+         setDocToDelete(null);
+         setDeleteDocConfirmText('');
+      } catch (err: unknown) {
+         clearInterval(progressInterval);
+         const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
+         console.error('Delete document error:', err);
+         addNotification('error', errorMessage);
+      } finally {
+         setIsDeletingDoc(false);
+         setDeleteDocProgress(0);
       }
    };
 
@@ -3542,12 +3599,23 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                    </p>
                                                 </div>
                                              </div>
-                                             <button
-                                                onClick={() => handleDocumentPreview(doc)}
-                                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                                             >
-                                                View
-                                             </button>
+                                             <div className="flex items-center gap-2">
+                                                <button
+                                                   onClick={() => {
+                                                      setDocToDelete({ id: doc.id, name: doc.name });
+                                                      setShowDeleteDocConfirm(true);
+                                                   }}
+                                                   className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                                                >
+                                                   Delete
+                                                </button>
+                                                <button
+                                                   onClick={() => handleDocumentPreview(doc)}
+                                                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                                >
+                                                   View
+                                                </button>
+                                             </div>
                                           </div>
                                        ))
                                     ) : (
@@ -3612,6 +3680,82 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     >
                                        {isDeletingClaim && <Loader2 size={14} className="animate-spin" />}
                                        {isDeletingClaim ? 'Deleting...' : 'Delete Claim'}
+                                    </button>
+                                 </div>
+                              </div>
+                           </div>
+                        )}
+
+                        {/* Document Delete Confirmation Modal */}
+                        {showDeleteDocConfirm && docToDelete && (
+                           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 relative">
+                                 {/* Deleting Progress Overlay */}
+                                 {isDeletingDoc && (
+                                    <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                                       <div className="relative w-24 h-24">
+                                          <svg className="w-full h-full transform -rotate-90">
+                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
+                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
+                                                strokeDasharray={251.2}
+                                                strokeDashoffset={251.2 - (251.2 * deleteDocProgress) / 100}
+                                                className="text-green-500 transition-all duration-300 ease-out"
+                                                strokeLinecap="round"
+                                             />
+                                          </svg>
+                                          <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-green-600 dark:text-green-400">
+                                             {Math.round(deleteDocProgress)}%
+                                          </div>
+                                       </div>
+                                       <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
+                                          {deleteDocProgress < 100 ? 'Deleting document from S3...' : 'Done!'}
+                                       </p>
+                                    </div>
+                                 )}
+                                 <div className="flex items-center gap-3 mb-4">
+                                    <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                                       <Trash2 size={20} className="text-red-600" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Delete Document?</h3>
+                                 </div>
+                                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                                    Are you sure you want to delete <strong>"{docToDelete.name}"</strong>?
+                                 </p>
+                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                                    This will permanently remove the file from storage. This action cannot be undone.
+                                 </p>
+                                 <div className="mb-6">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                       Type <span className="font-bold text-red-600">DELETE</span> to confirm:
+                                    </label>
+                                    <input
+                                       type="text"
+                                       value={deleteDocConfirmText}
+                                       onChange={(e) => setDeleteDocConfirmText(e.target.value.toUpperCase())}
+                                       className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                       placeholder="DELETE"
+                                       disabled={isDeletingDoc}
+                                    />
+                                 </div>
+                                 <div className="flex justify-end gap-3">
+                                    <button
+                                       onClick={() => {
+                                          setShowDeleteDocConfirm(false);
+                                          setDocToDelete(null);
+                                          setDeleteDocConfirmText('');
+                                       }}
+                                       className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+                                       disabled={isDeletingDoc}
+                                    >
+                                       Cancel
+                                    </button>
+                                    <button
+                                       onClick={handleDeleteDocument}
+                                       className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                       disabled={isDeletingDoc || deleteDocConfirmText !== 'DELETE'}
+                                    >
+                                       {isDeletingDoc && <Loader2 size={14} className="animate-spin" />}
+                                       {isDeletingDoc ? 'Deleting...' : 'Delete Document'}
                                     </button>
                                  </div>
                               </div>
@@ -4068,6 +4212,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     </td>
                                     <td className="py-4 px-5 text-right">
                                        <div className="flex items-center justify-end gap-2">
+                                          <button
+                                             onClick={() => {
+                                                setDocToDelete({ id: doc.id, name: doc.name });
+                                                setShowDeleteDocConfirm(true);
+                                             }}
+                                             className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/50 transition-colors"
+                                             title="Delete"
+                                          >
+                                             <Trash2 size={16} />
+                                          </button>
                                           <button
                                              onClick={() => handleDocumentPreview(doc)}
                                              className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors"
