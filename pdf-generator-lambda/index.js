@@ -45,6 +45,49 @@ function getPool() {
 }
 
 /**
+ * Format previous address from individual columns or JSONB array
+ * Shows first address, adds "......" if more addresses exist
+ */
+function formatPreviousAddress(row) {
+    // Try individual columns first
+    const addr1 = row.previous_address_line_1;
+    const city = row.previous_city;
+    const postcode = row.previous_postal_code;
+    const addressesJson = row.previous_addresses;
+
+    // Build first address from individual columns
+    if (addr1) {
+        const parts = [addr1, city, postcode].filter(Boolean);
+        const firstAddr = parts.join(', ');
+
+        // Check if there are more addresses in JSONB
+        if (Array.isArray(addressesJson) && addressesJson.length > 1) {
+            return firstAddr + ' ......';
+        }
+        return firstAddr;
+    }
+
+    // Fallback to JSONB array if individual columns are empty
+    if (Array.isArray(addressesJson) && addressesJson.length > 0) {
+        const first = addressesJson[0];
+        // Handle both formats: {line1, city, county, postalCode} and {address_line_1, city, postal_code}
+        const line1 = first.line1 || first.address_line_1 || '';
+        const city = first.city || '';
+        const county = first.county || '';
+        const postcode = first.postalCode || first.postal_code || '';
+        const parts = [line1, city, county, postcode].filter(Boolean);
+        const firstAddr = parts.join(', ');
+
+        if (addressesJson.length > 1) {
+            return firstAddr + ' ......';
+        }
+        return firstAddr;
+    }
+
+    return '';
+}
+
+/**
  * Check if signature exists in S3
  */
 async function checkSignatureExists(contact) {
@@ -124,7 +167,10 @@ async function fetchCaseData(caseId) {
             con.signature_url,
             con.signature_2_url,
             con.previous_address_line_1,
-            con.previous_address_line_2
+            con.previous_city as previous_city,
+            con.previous_postal_code,
+            con.previous_addresses,
+            con.ip_address
         FROM cases c
         JOIN contacts con ON c.contact_id = con.id
         WHERE c.id = $1
@@ -157,7 +203,8 @@ async function fetchCaseData(caseId) {
             dob: row.dob,
             signature_url: row.signature_url,
             signature_2_url: row.signature_2_url,
-            previous_address: [row.previous_address_line_1, row.previous_address_line_2].filter(Boolean).join(', ') || '—',
+            previous_address: formatPreviousAddress(row),
+            ip_address: row.ip_address || '',
         }
     };
 }
@@ -354,7 +401,8 @@ function renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lend
         clientCity: contact.city || '',
         clientCounty: contact.state_county || '',
         clientPostcode: contact.postal_code || '',
-        clientPreviousAddress: contact.previous_address || '—',
+        clientPreviousAddress: contact.previous_address || '',
+        clientIpAddress: contact.ip_address || '',
         clientDateOfBirth: dob,
         clientDOB: dob,
 
@@ -414,17 +462,19 @@ export const handler = async (event) => {
     console.log('Event received:', JSON.stringify(event));
 
     // Parse event (supports both direct invocation and API Gateway)
-    let caseId, documentType;
+    let caseId, documentType, skipStatusUpdate;
 
     if (event.body) {
         // API Gateway event
         const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
         caseId = body.caseId;
         documentType = body.documentType;
+        skipStatusUpdate = body.skipStatusUpdate || false;
     } else {
         // Direct invocation
         caseId = event.caseId;
         documentType = event.documentType;
+        skipStatusUpdate = event.skipStatusUpdate || false;
     }
 
     if (!caseId || !documentType) {
@@ -528,11 +578,16 @@ export const handler = async (event) => {
         const category = documentType === 'LOA' ? 'LOA' : 'Cover Letter';
         await upsertDocumentRecord(contact, fileName, signedUrl, category, caseData.lender);
 
-        // 10. Update case status
-        const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
-        const setLoaGenerated = documentType === 'LOA';
-        await updateCaseStatus(caseId, newStatus, setLoaGenerated);
-        console.log(`Case ${caseId} status updated to "${newStatus}"`);
+        // 10. Update case status (skip if requested)
+        let newStatus = caseData.status; // Keep current status by default
+        if (!skipStatusUpdate) {
+            newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
+            const setLoaGenerated = documentType === 'LOA';
+            await updateCaseStatus(caseId, newStatus, setLoaGenerated);
+            console.log(`Case ${caseId} status updated to "${newStatus}"`);
+        } else {
+            console.log(`Case ${caseId} status NOT updated (skipStatusUpdate=true), keeping "${caseData.status}"`);
+        }
 
         // 11. Log action
         await logAction(contact.id, caseId, documentType, {
@@ -549,7 +604,8 @@ export const handler = async (event) => {
             // Recursive call within the same Lambda invocation
             const coverLetterResult = await handler({
                 caseId,
-                documentType: 'COVER_LETTER'
+                documentType: 'COVER_LETTER',
+                skipStatusUpdate: skipStatusUpdate // Pass through the flag
             });
             console.log('Cover Letter result:', coverLetterResult);
         }

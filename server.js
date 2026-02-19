@@ -449,14 +449,15 @@ const PDF_GENERATOR_API_URL = process.env.PDF_GENERATOR_API_URL || 'https://n778
  * Trigger Lambda to generate LOA or Cover Letter PDF
  * @param {number} caseId - The case ID
  * @param {string} documentType - 'LOA' or 'COVER_LETTER'
+ * @param {boolean} skipStatusUpdate - If true, Lambda won't change case status
  */
-async function triggerPdfGenerator(caseId, documentType) {
+async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = false) {
     try {
-        console.log(`🚀 Triggering PDF generator Lambda for case ${caseId}, type: ${documentType}`);
+        console.log(`🚀 Triggering PDF generator Lambda for case ${caseId}, type: ${documentType}, skipStatusUpdate: ${skipStatusUpdate}`);
         const response = await fetch(PDF_GENERATOR_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caseId, documentType })
+            body: JSON.stringify({ caseId, documentType, skipStatusUpdate })
         });
         const result = await response.json();
         if (result.status === 'SUCCESS') {
@@ -3613,7 +3614,9 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
 
         // Trigger LOA generation if status is New Lead (or related statuses)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            triggerPdfGenerator(rows[0].id, 'LOA').catch(err => {
+            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(rows[0].id, 'LOA', skipStatusUpdate).catch(err => {
                 console.error(`❌ LOA generation trigger failed for new case ${rows[0].id}:`, err.message);
             });
         }
@@ -4946,7 +4949,9 @@ app.patch('/api/cases/:id', async (req, res) => {
 
         // If status = "New Lead", trigger LOA generation via Lambda (async)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            triggerPdfGenerator(parseInt(id), 'LOA').catch(err => {
+            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(parseInt(id), 'LOA', skipStatusUpdate).catch(err => {
                 console.error(`❌ LOA generation trigger failed for case ${id}:`, err.message);
             });
         }
@@ -4996,8 +5001,10 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
 
         // If status = "New Lead", trigger LOA generation for each case via Lambda (async)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
             for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'LOA').catch(err => {
+                triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
                     console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
                 });
             }
