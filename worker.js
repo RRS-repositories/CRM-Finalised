@@ -1869,39 +1869,7 @@ const processPendingDSAREmails = async () => {
                 // Handle Category 3: Confirmation Required - confirmation email sent at claim creation, now create DSAR draft
                 // Category 3 is processed the same as Category 1 (no ID documents required)
 
-                // Handle Category 4: Special Email Lenders (send verification email to client, not DSAR to lender)
-                if (lenderCategory === 4) {
-                    console.log(`[Worker] 📬 Category 4 lender: Sending verification email to client for ${record.lender}`);
-                    const specialEmailResult = await sendCategory4ClientEmail(
-                        record.lender,
-                        clientName,
-                        record.first_name,
-                        record.client_email,
-                        record.contact_id,
-                        record.case_id
-                    );
-
-                    if (specialEmailResult.success) {
-                        await pool.query(
-                            `UPDATE cases SET status = 'DSAR Sent to Lender', dsar_sent = true, dsar_sent_at = NOW() WHERE id = $1`,
-                            [record.case_id]
-                        );
-                        await pool.query(
-                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
-                             VALUES ($1, $2, 'system', 'worker', 'client_email_sent', 'claims', $3)`,
-                            [record.contact_id, record.case_id, `Verification email sent to client for ${record.lender} - client will receive lender authorization request`]
-                        );
-                        console.log(`[Worker] ✅ Category 4 email sent for ${record.lender}`);
-                    } else {
-                        await pool.query(`UPDATE cases SET status = 'LOA Signed' WHERE id = $1`, [record.case_id]);
-                        await pool.query(
-                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
-                             VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
-                            [record.contact_id, record.case_id, `Failed to send verification email to client for ${record.lender}: ${specialEmailResult.error}`]
-                        );
-                    }
-                    continue;
-                }
+                // Category 4: Client verification email sent at claim creation, now create DSAR draft like other categories
 
                 // Handle Category 5: DSAR Not Allowed
                 if (lenderCategory === 5) {
