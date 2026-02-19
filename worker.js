@@ -936,41 +936,17 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
     const subject = `Your ${lenderName} Claim - Action Required`;
 
     try {
-        if (EMAIL_DRAFT_MODE && graphClient) {
-            // Create draft in Outlook
-            const draft = {
-                subject: subject,
-                body: {
-                    contentType: 'HTML',
-                    content: htmlBody
-                },
-                toRecipients: [{
-                    emailAddress: { address: clientEmail }
-                }],
-                from: {
-                    emailAddress: { address: INFO_MAILBOX }
-                }
-            };
+        // Always send directly to client (no drafts) via irlEmailTransporter (irl@rowanrose.co.uk)
+        const mailOptions = {
+            from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+            to: LENDER_EMAIL_TEST_MODE ? TEST_EMAIL_ADDRESS : clientEmail,
+            subject: subject,
+            html: htmlBody
+        };
 
-            const createdDraft = await graphClient
-                .api(`/users/${INFO_MAILBOX}/messages`)
-                .post(draft);
-
-            console.log(`[Worker] ✅ Category 4 draft created for ${clientEmail}, Draft ID: ${createdDraft.id}`);
-            return { success: true, draft: true, draftId: createdDraft.id, email: clientEmail };
-        } else {
-            // Send via irlEmailTransporter (irl@rowanrose.co.uk)
-            const mailOptions = {
-                from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
-                to: LENDER_EMAIL_TEST_MODE ? TEST_EMAIL_ADDRESS : clientEmail,
-                subject: subject,
-                html: htmlBody
-            };
-
-            const info = await irlEmailTransporter.sendMail(mailOptions);
-            console.log(`[Worker] ✅ Category 4 email sent to ${clientEmail}, Message ID: ${info.messageId}`);
-            return { success: true, messageId: info.messageId, email: clientEmail };
-        }
+        const info = await irlEmailTransporter.sendMail(mailOptions);
+        console.log(`[Worker] ✅ Category 4 email sent to ${clientEmail}, Message ID: ${info.messageId}`);
+        return { success: true, messageId: info.messageId, email: clientEmail };
     } catch (error) {
         console.error(`[Worker] ❌ Failed to send Category 4 email:`, error);
         return { success: false, error: error.message };
