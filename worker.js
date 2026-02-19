@@ -2205,37 +2205,80 @@ const sendOverdueNotifications = async () => {
 </html>
                     `;
 
-                    try {
-                        const draftMessage = {
-                            subject: `Final Notice – Outstanding Data Subject Access Request (DSAR) – ${referenceNo}`,
-                            body: {
-                                contentType: 'HTML',
-                                content: lenderHtml
-                            },
-                            toRecipients: [{
-                                emailAddress: {
-                                    address: lenderEmail
-                                }
-                            }]
-                        };
+                    // Check if this lender should send directly (bypass draft mode)
+                    const shouldSendDirectly = DIRECT_SEND_LENDERS.has(normalizeLenderName(lenderName));
+                    const overdueSubject = `Final Notice – Outstanding Data Subject Access Request (DSAR) – ${referenceNo}`;
 
-                        await graphClient
-                            .api(`/users/${DSAR_MAILBOX}/messages`)
-                            .post(draftMessage);
+                    if (shouldSendDirectly) {
+                        // DIRECT SEND for LOANS 2 GO, TEST, etc.
+                        console.log(`[Worker] 📧 DIRECT SEND OVERDUE: ${lenderName} is in direct send list - sending immediately`);
+                        try {
+                            const mailOptions = {
+                                from: '"DSAR Team - Fast Action Claims" <DSAR@fastactionclaims.co.uk>',
+                                to: lenderEmail,
+                                subject: overdueSubject,
+                                html: lenderHtml
+                            };
 
-                        console.log(`[Worker] ✅ Lender overdue draft created for Case ${record.case_id} to ${lenderEmail}`);
-                    } catch (draftErr) {
-                        console.error(`[Worker] ❌ Failed to create lender draft for Case ${record.case_id}:`, draftErr.message);
-                        // Log failure to action timeline
-                        const failTimestamp = new Date().toLocaleString('en-GB', {
-                            day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit', hour12: false
-                        });
-                        await pool.query(
-                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
-                             VALUES ($1, $2, 'system', 'worker', 'overdue_draft_failed', 'claims', $3)`,
-                            [record.contact_id, record.case_id, `[${failTimestamp}] Failed to create overdue lender draft for ${lenderName}: ${draftErr.message}`]
-                        );
+                            const info = await lenderEmailTransporter.sendMail(mailOptions);
+                            console.log(`[Worker] ✅ Overdue email SENT directly to ${lenderName} (${lenderEmail}). MessageId: ${info.messageId}`);
+
+                            // Log success
+                            const successTimestamp = new Date().toLocaleString('en-GB', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit', hour12: false
+                            });
+                            await pool.query(
+                                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                                 VALUES ($1, $2, 'system', 'worker', 'overdue_email_sent', 'claims', $3)`,
+                                [record.contact_id, record.case_id, `[${successTimestamp}] DSAR Overdue email sent directly to ${lenderName} (${lenderEmail})`]
+                            );
+                        } catch (sendErr) {
+                            console.error(`[Worker] ❌ Failed to send overdue email for Case ${record.case_id}:`, sendErr.message);
+                            const failTimestamp = new Date().toLocaleString('en-GB', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit', hour12: false
+                            });
+                            await pool.query(
+                                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                                 VALUES ($1, $2, 'system', 'worker', 'overdue_send_failed', 'claims', $3)`,
+                                [record.contact_id, record.case_id, `[${failTimestamp}] Failed to send overdue email to ${lenderName}: ${sendErr.message}`]
+                            );
+                        }
+                    } else {
+                        // DRAFT MODE for other lenders
+                        try {
+                            const draftMessage = {
+                                subject: overdueSubject,
+                                body: {
+                                    contentType: 'HTML',
+                                    content: lenderHtml
+                                },
+                                toRecipients: [{
+                                    emailAddress: {
+                                        address: lenderEmail
+                                    }
+                                }]
+                            };
+
+                            await graphClient
+                                .api(`/users/${DSAR_MAILBOX}/messages`)
+                                .post(draftMessage);
+
+                            console.log(`[Worker] ✅ Lender overdue draft created for Case ${record.case_id} to ${lenderEmail}`);
+                        } catch (draftErr) {
+                            console.error(`[Worker] ❌ Failed to create lender draft for Case ${record.case_id}:`, draftErr.message);
+                            // Log failure to action timeline
+                            const failTimestamp = new Date().toLocaleString('en-GB', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit', hour12: false
+                            });
+                            await pool.query(
+                                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                                 VALUES ($1, $2, 'system', 'worker', 'overdue_draft_failed', 'claims', $3)`,
+                                [record.contact_id, record.case_id, `[${failTimestamp}] Failed to create overdue lender draft for ${lenderName}: ${draftErr.message}`]
+                            );
+                        }
                     }
                 } else {
                     console.log(`[Worker] ⚠️ No lender email found for ${lenderName} - skipping lender draft`);
