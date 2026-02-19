@@ -3686,82 +3686,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            </div>
                         )}
 
-                        {/* Document Delete Confirmation Modal */}
-                        {showDeleteDocConfirm && docToDelete && (
-                           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 relative">
-                                 {/* Deleting Progress Overlay */}
-                                 {isDeletingDoc && (
-                                    <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
-                                       <div className="relative w-24 h-24">
-                                          <svg className="w-full h-full transform -rotate-90">
-                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
-                                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
-                                                strokeDasharray={251.2}
-                                                strokeDashoffset={251.2 - (251.2 * deleteDocProgress) / 100}
-                                                className="text-green-500 transition-all duration-300 ease-out"
-                                                strokeLinecap="round"
-                                             />
-                                          </svg>
-                                          <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-green-600 dark:text-green-400">
-                                             {Math.round(deleteDocProgress)}%
-                                          </div>
-                                       </div>
-                                       <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
-                                          {deleteDocProgress < 100 ? 'Deleting document from S3...' : 'Done!'}
-                                       </p>
-                                    </div>
-                                 )}
-                                 <div className="flex items-center gap-3 mb-4">
-                                    <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
-                                       <Trash2 size={20} className="text-red-600" />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Delete Document?</h3>
-                                 </div>
-                                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                                    Are you sure you want to delete <strong>"{docToDelete.name}"</strong>?
-                                 </p>
-                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    This will permanently remove the file from storage. This action cannot be undone.
-                                 </p>
-                                 <div className="mb-6">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                       Type <span className="font-bold text-red-600">DELETE</span> to confirm:
-                                    </label>
-                                    <input
-                                       type="text"
-                                       value={deleteDocConfirmText}
-                                       onChange={(e) => setDeleteDocConfirmText(e.target.value.toUpperCase())}
-                                       className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                                       placeholder="DELETE"
-                                       disabled={isDeletingDoc}
-                                    />
-                                 </div>
-                                 <div className="flex justify-end gap-3">
-                                    <button
-                                       onClick={() => {
-                                          setShowDeleteDocConfirm(false);
-                                          setDocToDelete(null);
-                                          setDeleteDocConfirmText('');
-                                       }}
-                                       className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
-                                       disabled={isDeletingDoc}
-                                    >
-                                       Cancel
-                                    </button>
-                                    <button
-                                       onClick={handleDeleteDocument}
-                                       className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                       disabled={isDeletingDoc || deleteDocConfirmText !== 'DELETE'}
-                                    >
-                                       {isDeletingDoc && <Loader2 size={14} className="animate-spin" />}
-                                       {isDeletingDoc ? 'Deleting...' : 'Delete Document'}
-                                    </button>
-                                 </div>
-                              </div>
-                           </div>
-                        )}
-
                         {/* Claim Document Upload Modal */}
                         {showClaimDocUpload && (
                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -6013,6 +5937,82 @@ const Contacts: React.FC = () => {
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                      >
                         <Send size={14} /> Log Email
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* Document Delete Confirmation Modal - Top Level */}
+         {showDeleteDocConfirm && docToDelete && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 relative">
+                  {/* Deleting Progress Overlay */}
+                  {isDeletingDoc && (
+                     <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                        <div className="relative w-24 h-24">
+                           <svg className="w-full h-full transform -rotate-90">
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
+                                 strokeDasharray={251.2}
+                                 strokeDashoffset={251.2 - (251.2 * deleteDocProgress) / 100}
+                                 className="text-green-500 transition-all duration-300 ease-out"
+                                 strokeLinecap="round"
+                              />
+                           </svg>
+                           <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-green-600 dark:text-green-400">
+                              {Math.round(deleteDocProgress)}%
+                           </div>
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
+                           {deleteDocProgress < 100 ? 'Deleting document from S3...' : 'Done!'}
+                        </p>
+                     </div>
+                  )}
+                  <div className="flex items-center gap-3 mb-4">
+                     <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                        <Trash2 size={20} className="text-red-600" />
+                     </div>
+                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Delete Document?</h3>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                     Are you sure you want to delete <strong>"{docToDelete.name}"</strong>?
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                     This will permanently remove the file from storage. This action cannot be undone.
+                  </p>
+                  <div className="mb-6">
+                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Type <span className="font-bold text-red-600">DELETE</span> to confirm:
+                     </label>
+                     <input
+                        type="text"
+                        value={deleteDocConfirmText}
+                        onChange={(e) => setDeleteDocConfirmText(e.target.value.toUpperCase())}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                        placeholder="DELETE"
+                        disabled={isDeletingDoc}
+                     />
+                  </div>
+                  <div className="flex justify-end gap-3">
+                     <button
+                        onClick={() => {
+                           setShowDeleteDocConfirm(false);
+                           setDocToDelete(null);
+                           setDeleteDocConfirmText('');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+                        disabled={isDeletingDoc}
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={handleDeleteDocument}
+                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        disabled={isDeletingDoc || deleteDocConfirmText !== 'DELETE'}
+                     >
+                        {isDeletingDoc && <Loader2 size={14} className="animate-spin" />}
+                        {isDeletingDoc ? 'Deleting...' : 'Delete Document'}
                      </button>
                   </div>
                </div>

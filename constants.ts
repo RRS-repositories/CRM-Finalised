@@ -815,6 +815,7 @@ export const SPEC_LENDERS = [
   'ZEMPLER BANK',
   'ZILCH',
   'ZOPA',
+  'TEST',
   'Other (specify)'
 ];
 

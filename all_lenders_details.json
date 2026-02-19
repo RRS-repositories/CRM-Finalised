@@ -2088,5 +2088,15 @@
             "town_city": "London",
             "postcode": "E14 5GX"
         }
+    },
+    {
+        "lender": "TEST",
+        "email": "tezanyaniw@gmail.com",
+        "address": {
+            "company_name": "Test Company Ltd",
+            "first_line_address": "123 Test Street",
+            "town_city": "Test City",
+            "postcode": "TE5 7ST"
+        }
     }
 ]
