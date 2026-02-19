@@ -295,6 +295,22 @@ async function fetchHtmlTemplateFromDb(documentType) {
 }
 
 /**
+ * Generate a document hash for certificate
+ */
+function generateDocumentHash(contact, caseData) {
+    const data = `${contact.id}-${caseData.id}-${caseData.lender}-${Date.now()}`;
+    // Simple hash for display purposes
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+        const char = data.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    const hex = Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+    return `FAC-${hex}-${contact.id}${caseData.id}`;
+}
+
+/**
  * Render HTML template by replacing variables
  */
 function renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lenderEmail, signatureBase64) {
@@ -320,6 +336,9 @@ function renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lend
     const dob = contact.dob
         ? new Date(contact.dob).toLocaleDateString('en-GB')
         : '';
+
+    // Generate document hash for certificate
+    const documentHash = generateDocumentHash(contact, caseData);
 
     // Build variable map
     const variables = {
@@ -367,6 +386,9 @@ function renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lend
         today: today,
         date: today,
         year: String(new Date().getFullYear()),
+
+        // Document Certificate
+        documentHash: documentHash,
 
         // Signature
         signatureImage: signatureBase64
@@ -447,42 +469,50 @@ export const handler = async (event) => {
         const lenderAddress = getLenderAddress(caseData.lender);
         const lenderEmail = getLenderEmail(caseData.lender);
 
-        // 4. Try to load HTML template from database first
+        // 4. Generate HTML based on document type
         let html;
         let templateName = 'unknown';
 
-        // Try HTML template from database first
-        const htmlTemplate = await fetchHtmlTemplateFromDb(documentType);
+        if (documentType === 'LOA') {
+            // LOA: Use HTML template from database
+            console.log('Loading LOA HTML template from database...');
+            const htmlTemplate = await fetchHtmlTemplateFromDb('LOA');
 
-        if (htmlTemplate) {
-            console.log(`Using HTML template from database: ${documentType}`);
-            templateName = `HTML Template (${documentType})`;
-            html = renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lenderEmail, signatureBase64);
-        } else {
-            // Fall back to DOCX template
-            const docxKey = documentType === 'LOA'
-                ? 'templates/loa-template.docx'
-                : 'templates/cover-letter-template.docx';
-
-            const docxExists = await fetchDocxFromS3(docxKey);
-
-            if (docxExists) {
-                // Use DOCX template
-                console.log(`Using DOCX template: ${docxKey}`);
-                templateName = docxKey;
-                const variables = buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
-                html = await renderDocxTemplate(documentType, variables, signatureBase64);
+            if (htmlTemplate) {
+                console.log('Using HTML template from database for LOA');
+                templateName = 'HTML Template (LOA)';
+                html = renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lenderEmail, signatureBase64);
             } else {
-                // Fall back to JSON/TipTap template
-                console.log(`DOCX not found, using JSON template for ${documentType}...`);
-                const template = await loadTemplate(documentType);
-                if (!template) {
-                    throw new Error(`No ${documentType} template found`);
+                // Fall back to bundled HTML file
+                console.log('No HTML template in DB, using bundled loa-template.html...');
+                const fs = await import('fs');
+                const path = await import('path');
+                const { fileURLToPath } = await import('url');
+                const __filename = fileURLToPath(import.meta.url);
+                const __dirname = path.dirname(__filename);
+                const loaTemplatePath = path.join(__dirname, 'loa-template.html');
+
+                if (fs.existsSync(loaTemplatePath)) {
+                    const htmlContent = fs.readFileSync(loaTemplatePath, 'utf-8');
+                    templateName = 'Bundled HTML (loa-template.html)';
+                    html = renderHtmlTemplate(htmlContent, contact, caseData, lenderAddress, lenderEmail, signatureBase64);
+                } else {
+                    throw new Error('No LOA HTML template found in database or bundle');
                 }
-                templateName = template.name || 'JSON Template';
-                const variableMap = buildVariableMap(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
-                html = renderTemplate(template, variableMap);
             }
+        } else {
+            // COVER_LETTER: Use TipTap template from templates-store.json
+            console.log('Loading Cover Letter TipTap template...');
+            const template = await loadTemplate('COVER_LETTER');
+
+            if (!template) {
+                throw new Error('No COVER_LETTER template found in templates-store.json');
+            }
+
+            templateName = template.name || 'TipTap Template (Cover Letter)';
+            console.log(`Using TipTap template: ${templateName}`);
+            const variableMap = buildVariableMap(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
+            html = renderTemplate(template, variableMap);
         }
 
         // 7. Generate PDF
