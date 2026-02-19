@@ -5317,668 +5317,241 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             console.warn('Could not load mail_top.png:', e.message);
         }
 
-        // Return HTML form page
-        res.send(`
-                                <!DOCTYPE html>
-                                <html lang="en">
-                                    <head>
-                                        <meta charset="UTF-8">
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                                <title>LOA Form - ${contactName}</title>
-                                                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-                                                    <style>
-                                                        * {margin: 0; padding: 0; box-sizing: border-box; }
-                                                        body {
-                                                            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                                                            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-                                                            padding: 20px;
-                                                            line-height: 1.8;
-                                                            font-size: 17px;
-                                                            min-height: 100vh;
-                                                        }
-                                                        .container {
-                                                            max-width: 960px;
-                                                            margin: 0 auto;
-                                                            background: white;
-                                                            padding: 0;
-                                                            border-radius: 24px;
-                                                            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.05);
-                                                            overflow: hidden;
-                                                        }
-                                                        .header {
-                                                            background: #ffffff;
-                                                            padding: 0;
-                                                            margin-bottom: 0;
-                                                        }
-                                                        .header-image {
-                                                            width: 100%;
-                                                            display: block;
-                                                            height: auto;
-                                                        }
-                                                        .content-wrapper {
-                                                            padding: 45px 50px;
-                                                        }
-                                                        .greeting {
-                                                            font-size: 36px;
-                                                            font-weight: 800;
-                                                            color: #0f172a;
-                                                            margin: 0 0 28px 0;
-                                                            text-align: left;
-                                                            letter-spacing: -0.5px;
-                                                        }
-                                                        .intro {
-                                                            font-size: 22px;
-                                                            color: #334155;
-                                                            line-height: 1.8;
-                                                            margin-bottom: 36px;
-                                                            text-align: left;
-                                                        }
-                                                        .intro strong {
-                                                            font-weight: 700;
-                                                            color: #0f172a;
-                                                        }
-                                                        .intro p {
-                                                            margin-bottom: 18px;
-                                                            font-size: 22px;
-                                                        }
-                                                        .good-news-banner {
-                                                            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-                                                            padding: 26px 32px;
-                                                            border-radius: 16px;
-                                                            display: flex;
-                                                            align-items: center;
-                                                            gap: 16px;
-                                                            font-size: 26px;
-                                                            font-weight: 700;
-                                                            color: #047857;
-                                                            border: 3px solid #34d399;
-                                                            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.12);
-                                                        }
-                                                        .good-news-icon {
-                                                            font-size: 36px;
-                                                        }
-                                                        .friendly-note {
-                                                            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-                                                            padding: 28px 32px;
-                                                            border-radius: 16px;
-                                                            margin-top: 32px;
-                                                            border: 3px solid #7dd3fc;
-                                                            text-align: center;
-                                                            box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1);
-                                                        }
-                                                        .friendly-note p {
-                                                            font-size: 22px;
-                                                            color: #0369a1;
-                                                            font-weight: 600;
-                                                            margin: 0;
-                                                            line-height: 1.7;
-                                                        }
-                                                        .category {
-                                                            margin: 40px 0;
-                                                            padding: 32px;
-                                                            border-radius: 18px;
-                                                            border: 2px solid #e2e8f0;
-                                                            transition: box-shadow 0.2s;
-                                                        }
-                                                        .category:hover {
-                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
-                                                        }
-                                                        .category:nth-child(odd) {
-                                                            background: #ffffff;
-                                                        }
-                                                        .category:nth-child(even) {
-                                                            background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
-                                                        }
-                                                        .category-title {
-                                                            font-size: 20px;
-                                                            font-weight: 700;
-                                                            color: #0f172a;
-                                                            margin-bottom: 24px;
-                                                            text-transform: uppercase;
-                                                            letter-spacing: 0.8px;
-                                                            padding-bottom: 14px;
-                                                            border-bottom: 3px solid #f97316;
-                                                            display: inline-block;
-                                                        }
-                                                        .lender-item {
-                                                            display: flex;
-                                                            align-items: center;
-                                                            padding: 20px 22px;
-                                                            margin: 10px 0;
-                                                            border-radius: 14px;
-                                                            transition: all 0.2s;
-                                                            min-height: 72px;
-                                                            border: 2px solid transparent;
-                                                            background: #fafafa;
-                                                        }
-                                                        .lender-item:hover {
-                                                            background: #fff7ed;
-                                                            border-color: #fdba74;
-                                                        }
-                                                        .lender-item input[type="checkbox"] {
-                                                            width: 44px;
-                                                            height: 44px;
-                                                            margin-right: 20px;
-                                                            cursor: pointer;
-                                                            accent-color: #f97316;
-                                                            flex-shrink: 0;
-                                                            border-radius: 8px;
-                                                        }
-                                                        .lender-item label {
-                                                            font-size: 22px;
-                                                            color: #1e293b;
-                                                            cursor: pointer;
-                                                            user-select: none;
-                                                            font-weight: 600;
-                                                            line-height: 1.5;
-                                                        }
-                                                        .questions {
-                                                            margin: 48px 0;
-                                                            padding: 36px;
-                                                            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-                                                            border-radius: 18px;
-                                                            border: 3px solid #fbbf24;
-                                                            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.15);
-                                                        }
-                                                        .question-item {
-                                                            display: flex;
-                                                            align-items: center;
-                                                            margin: 24px 0;
-                                                            min-height: 72px;
-                                                        }
-                                                        .question-item input[type="checkbox"] {
-                                                            width: 44px;
-                                                            height: 44px;
-                                                            margin-right: 20px;
-                                                            cursor: pointer;
-                                                            accent-color: #f59e0b;
-                                                            flex-shrink: 0;
-                                                        }
-                                                        .question-item label {
-                                                            font-size: 22px;
-                                                            font-weight: 700;
-                                                            color: #92400e;
-                                                            cursor: pointer;
-                                                            line-height: 1.6;
-                                                        }
-                                                        .signature-section {
-                                                            margin: 48px 0;
-                                                            background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
-                                                            padding: 40px;
-                                                            border-radius: 22px;
-                                                            border: 3px solid #1e3a5f;
-                                                            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
-                                                        }
-                                                        .authorization-text {
-                                                            font-size: 22px;
-                                                            color: #334155;
-                                                            line-height: 1.75;
-                                                            padding: 28px 32px;
-                                                            background: #ffffff;
-                                                            border-radius: 16px;
-                                                            border: 2px solid #e2e8f0;
-                                                            margin-bottom: 28px;
-                                                            text-align: center;
-                                                        }
-                                                        .authorization-text strong {
-                                                            color: #f97316;
-                                                            font-weight: 700;
-                                                        }
-                                                        .signature-title {
-                                                            font-size: 26px;
-                                                            font-weight: 700;
-                                                            color: #0f172a;
-                                                            margin-bottom: 8px;
-                                                        }
-                                                        .signature-subtitle {
-                                                            font-size: 18px;
-                                                            color: #64748b;
-                                                            margin-bottom: 20px;
-                                                        }
-                                                        .signature-container {
-                                                            position: relative;
-                                                            width: 100%;
-                                                            background: white;
-                                                            border: 3px solid #e2e8f0;
-                                                            border-radius: 16px;
-                                                            overflow: hidden;
-                                                            transition: all 0.2s;
-                                                        }
-                                                        .signature-container:hover {
-                                                            border-color: #f97316;
-                                                            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1);
-                                                        }
-                                                        .signature-canvas {
-                                                            cursor: crosshair;
-                                                            display: block;
-                                                            width: 100%;
-                                                            height: 200px;
-                                                            touch-action: none;
-                                                        }
-                                                        .signature-placeholder {
-                                                            position: absolute;
-                                                            top: 50%;
-                                                            left: 50%;
-                                                            transform: translate(-50%, -50%);
-                                                            color: #cbd5e1;
-                                                            font-size: 32px;
-                                                            font-style: italic;
-                                                            font-family: serif;
-                                                            pointer-events: none;
-                                                        }
-                                                        .signature-footer {
-                                                            display: flex;
-                                                            justify-content: space-between;
-                                                            align-items: center;
-                                                            margin-top: 16px;
-                                                            padding: 0 4px;
-                                                        }
-                                                        .signature-hint {
-                                                            font-size: 16px;
-                                                            font-weight: 700;
-                                                            text-transform: uppercase;
-                                                            letter-spacing: 0.5px;
-                                                            color: #94a3b8;
-                                                        }
-                                                        .signature-buttons {
-                                                            display: flex;
-                                                            gap: 15px;
-                                                        }
-                                                        .btn {
-                                                            padding: 20px 34px;
-                                                            border: none;
-                                                            border-radius: 14px;
-                                                            font-size: 20px;
-                                                            font-weight: 700;
-                                                            cursor: pointer;
-                                                            transition: all 0.2s;
-                                                            font-family: 'Inter', sans-serif;
-                                                            min-height: 64px;
-                                                        }
-                                                        .btn-clear {
-                                                            background: transparent;
-                                                            color: #64748b;
-                                                            padding: 0;
-                                                            min-height: auto;
-                                                            font-size: 18px;
-                                                            text-transform: uppercase;
-                                                            letter-spacing: 0.5px;
-                                                            transition: color 0.2s;
-                                                        }
-                                                        .btn-clear:hover {
-                                                            color: #ef4444;
-                                                        }
-                                                        .btn-submit {
-                                                            background: linear-gradient(145deg, #f97316 0%, #ea580c 100%);
-                                                            color: white;
-                                                            padding: 26px 60px;
-                                                            font-size: 26px;
-                                                            font-weight: 700;
-                                                            width: 100%;
-                                                            margin-top: 44px;
-                                                            min-height: 80px;
-                                                            border-radius: 16px;
-                                                            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.35);
-                                                            text-transform: uppercase;
-                                                            letter-spacing: 1.5px;
-                                                        }
-                                                        .btn-submit:hover {
-                                                            background: linear-gradient(145deg, #ea580c 0%, #c2410c 100%);
-                                                            transform: translateY(-3px);
-                                                            box-shadow: 0 8px 26px rgba(249, 115, 22, 0.5);
-                                                        }
-                                                        .btn-submit:disabled {
-                                                            background: #9ca3af;
-                                                            cursor: not-allowed;
-                                                            transform: none;
-                                                            box-shadow: none;
-                                                        }
-                                                        .disclaimer {
-                                                            font-size: 18px;
-                                                            color: #64748b;
-                                                            margin-top: 28px;
-                                                            padding: 24px 28px;
-                                                            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-                                                            border-radius: 14px;
-                                                            line-height: 1.75;
-                                                            border: 1px solid #e2e8f0;
-                                                        }
-                                                        .loading {
-                                                            display: none;
-                                                            text-align: center;
-                                                            padding: 60px;
-                                                            font-size: 24px;
-                                                            color: #64748b;
-                                                        }
-                                                        .loading p {
-                                                            margin-top: 20px;
-                                                        }
-                                                        .success-message {
-                                                            display: none;
-                                                            text-align: center;
-                                                            padding: 70px 50px;
-                                                        }
-                                                        .success-message h2 {
-                                                            color: #059669;
-                                                            margin-bottom: 20px;
-                                                            font-size: 36px;
-                                                            font-weight: 800;
-                                                        }
-                                                        .success-message p {
-                                                            font-size: 22px;
-                                                            color: #475569;
-                                                            line-height: 1.7;
-                                                        }
-                                                        .error-message {
-                                                            display: none;
-                                                            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-                                                            color: #b91c1c;
-                                                            padding: 18px 22px;
-                                                            margin: 20px 0;
-                                                            border-radius: 12px;
-                                                            border: 1px solid #fca5a5;
-                                                            font-size: 16px;
-                                                            font-weight: 600;
-                                                            text-align: center;
-                                                        }
+        // Return HTML form page - 2-column layout matching VanquisIntake design
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOA Form - ${contactName}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Inter"', '"Lato"', 'sans-serif'],
+                        serif: ['"Playfair Display"', 'serif'],
+                    },
+                    colors: {
+                        brand: { orange: '#F18F01' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        input[type="checkbox"] { width: 28px !important; height: 28px !important; accent-color: #F18F01; cursor: pointer; }
+        .lender-row:hover { background: #fff7ed; }
+        .lender-row.checked { background: #fff7ed; border-color: #F18F01; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen w-full bg-slate-50 font-sans flex flex-col md:flex-row">
 
-                                                        /* Mobile Responsiveness */
-                                                        @media (max-width: 768px) {
-                                                            body {
-                                                                padding: 12px;
-                                                                font-size: 16px;
-                                                            }
-                                                            .container {
-                                                                border-radius: 16px;
-                                                            }
-                                                            .content-wrapper {
-                                                                padding: 28px 24px;
-                                                            }
-                                                            .header-info-row {
-                                                                padding: 16px 20px;
-                                                                flex-direction: column;
-                                                                text-align: center;
-                                                            }
-                                                            .header-address, .header-contact {
-                                                                text-align: center;
-                                                            }
-                                                            .greeting {
-                                                                font-size: 26px;
-                                                            }
-                                                            .intro {
-                                                                font-size: 16px;
-                                                            }
-                                                            .good-news-banner {
-                                                                font-size: 18px;
-                                                                padding: 16px 20px;
-                                                            }
-                                                            .friendly-note {
-                                                                padding: 18px 20px;
-                                                            }
-                                                            .friendly-note p {
-                                                                font-size: 15px;
-                                                            }
-                                                            .category {
-                                                                padding: 20px 18px;
-                                                                margin: 24px 0;
-                                                            }
-                                                            .category-title {
-                                                                font-size: 14px;
-                                                            }
-                                                            .lender-item {
-                                                                padding: 12px 14px;
-                                                                min-height: 48px;
-                                                            }
-                                                            .lender-item label {
-                                                                font-size: 15px;
-                                                            }
-                                                            .question-item {
-                                                                min-height: 48px;
-                                                            }
-                                                            .question-item label {
-                                                                font-size: 14px;
-                                                            }
-                                                            .signature-section {
-                                                                padding: 24px 20px;
-                                                            }
-                                                            .signature-canvas {
-                                                                height: 150px;
-                                                            }
-                                                            .btn {
-                                                                font-size: 16px;
-                                                                padding: 14px 24px;
-                                                            }
-                                                            .btn-submit {
-                                                                font-size: 17px;
-                                                                padding: 18px 36px;
-                                                            }
-                                                        }
+        <!-- MOBILE HEADER -->
+        <div class="md:hidden bg-[#0f172a] p-6 flex items-center gap-3 shrink-0">
+            <img src="/rr-logo.png" alt="Logo" class="w-12 h-12 rounded-full shadow-lg" />
+            <h1 class="font-serif text-2xl tracking-wide text-white">Rowan Rose Solicitors</h1>
+        </div>
 
-                                                        @media (max-width: 480px) {
-                                                            .container {
-                                                                border-radius: 12px;
-                                                            }
-                                                            .content-wrapper {
-                                                                padding: 24px 18px;
-                                                            }
-                                                            .greeting {
-                                                                font-size: 22px;
-                                                            }
-                                                            .intro {
-                                                                font-size: 15px;
-                                                            }
-                                                            .good-news-banner {
-                                                                font-size: 16px;
-                                                                padding: 14px 16px;
-                                                                flex-direction: column;
-                                                                text-align: center;
-                                                            }
-                                                            .good-news-icon {
-                                                                font-size: 22px;
-                                                            }
-                                                            .friendly-note {
-                                                                padding: 14px 16px;
-                                                            }
-                                                            .friendly-note p {
-                                                                font-size: 14px;
-                                                            }
-                                                            .category-title {
-                                                                font-size: 13px;
-                                                            }
-                                                            .lender-item label,
-                                                            .question-item label {
-                                                                font-size: 14px;
-                                                            }
-                                                            .signature-title {
-                                                                font-size: 18px;
-                                                            }
-                                                            .btn-submit {
-                                                                font-size: 16px;
-                                                                padding: 16px 28px;
-                                                            }
-                                                        }
-                                                    </style>
-                                                </head>
-                                                <body>
-                                                    <div class="container">
-                                                        <div class="header">
-                                                            ${mailTopBase64
-                ? `<img src="${mailTopBase64}" alt="Rowan Rose Solicitors" class="header-image">`
-                : `<div style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 40px; text-align: center;"><span style="font-size: 32px; font-weight: 800; color: white; letter-spacing: 2px;">ROWAN ROSE SOLICITORS</span></div>`}
-                                                        </div>
+        <!-- LEFT PANEL -->
+        <div class="order-3 md:order-1 md:w-5/12 lg:w-1/3 bg-[#0f172a] text-white flex flex-col justify-between shrink-0 shadow-2xl z-20 relative overflow-y-auto">
+            <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
+            <div class="absolute bottom-0 left-0 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
 
-                                                        <div class="content-wrapper">
-                                                            <div class="greeting">Hi ${contactName},</div>
-                                                            <div class="intro">
-                                                                <div class="good-news-banner">
-                                                                    <span class="good-news-icon">&#127881;</span>
-                                                                    <span>Great news — your claim is progressing smoothly!</span>
-                                                                </div>
-                                                                <p style="margin-top: 24px; font-size: 22px;">We're reaching out because <strong>millions of pounds have already been repaid to consumers</strong> just like you from lenders for irresponsible lending practices.</p>
-                                                                <p style="margin-top: 18px; font-size: 22px;">To help maximise your potential refund, please take a quick look at the list below and <strong>tick any lenders you've used in the last 15 years</strong>.</p>
-                                                                <p style="margin-top: 18px; font-size: 22px; color: #059669; font-weight: 600;">It only takes a minute and could make a real difference to your claim!</p>
-                                                                <p style="margin-top: 18px; font-size: 20px; color: #64748b;">Questions? We're here to help — just get in touch.</p>
-                                                            </div>
-                                                                                <div id="errorMessage" class="error-message"></div>
-                                                                                <form id="lenderForm">
-                                                                                    <div id="lenderCategories"></div>
-                                                                                    <div class="questions">
-                                                                                        <div class="question-item"><input type="checkbox" id="ccj" name="ccj"><label for="ccj">HAVE YOU EVER HAD A CCJ IN THE LAST 6 YEARS?</label></div>
-                                                                                        <div class="question-item"><input type="checkbox" id="scam" name="scam"><label for="scam">HAVE YOU BEEN A VICTIM OF A SCAM IN THE LAST 6 YEARS?</label></div>
-                                                                                        <div class="question-item"><input type="checkbox" id="gambling" name="gambling"><label for="gambling">HAVE YOU EXPERIENCED PERIODS OF EXCESSIVE OR PROBLEMATIC GAMBLING WITHIN THE LAST 10 YEARS?</label></div>
-                                                                                    </div>
-                                                                                    <div class="friendly-note">
-                                                                                        <p>Thank you for taking the time to complete this form. Your responses help us build the strongest possible case for your claim. We're committed to getting you the best outcome!</p>
-                                                                                    </div>
-                                                                                    <div class="signature-section">
-                                                                                        <div class="authorization-text">
-                                                                                            I, <strong>${contactName}</strong>, authorise Rowan Rose Solicitors to investigate and pursue any case or claim against the lender(s) I have selected within this form.
-                                                                                        </div>
-                                                                                        <div class="signature-title">Digital Signature</div>
-                                                                                        <div class="signature-subtitle">By signing below, you confirm the above authorisation and agree to our terms of service.</div>
-                                                                                        <div class="signature-container">
-                                                                                            <canvas id="signatureCanvas" class="signature-canvas"></canvas>
-                                                                                            <div class="signature-placeholder" id="signaturePlaceholder">Sign here</div>
-                                                                                        </div>
-                                                                                        <div class="signature-footer">
-                                                                                            <span class="signature-hint">Draw with finger or mouse</span>
-                                                                                            <button type="button" class="btn btn-clear" onclick="clearSignature()">Clear</button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <button type="submit" class="btn btn-submit" id="submitBtn">Submit Your Selection</button>
-                                                                                </form>
-                                                                                <div class="loading" id="loading">
-                                                                                    <div style="width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#f97316;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
-                                                                                    <p style="margin-top:16px;color:#475569;font-weight:500;">Submitting your form...</p>
-                                                                                </div>
-                                                                                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-                                                                                <div class="success-message" id="success">
-                                                                                    <div style="width:64px;height:64px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px auto;">
-                                                                                        <span style="font-size:32px;color:#059669;">✓</span>
-                                                                                    </div>
-                                                                                    <h2>Form Submitted Successfully!</h2>
-                                                                                    <p>Thank you for completing the lender selection form. We will process your information and be in touch shortly.</p>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                            <script>
-                                                                                const lenderCategories = ${JSON.stringify(filteredCategories)};
-                                                                                const container = document.getElementById('lenderCategories');
+            <div class="relative z-10 h-full flex flex-col p-8 md:p-12">
+                <div class="hidden md:flex items-center gap-3 mb-8 shrink-0">
+                    <img src="/rr-logo.png" alt="Logo" class="w-16 h-16 rounded-full shadow-lg" />
+                    <h1 class="font-serif text-3xl tracking-wide">Rowan Rose Solicitors</h1>
+                </div>
+
+                <div class="flex-1">
+                    <h2 class="text-2xl font-serif font-light leading-tight mb-4 text-brand-orange">Multi Discipline Law Firm in the Heart of Manchester</h2>
+                    <p class="text-slate-300 font-light leading-relaxed text-sm mb-8 border-l-2 border-slate-700 pl-4">Rowan Rose is a high-end boutique law firm committed to delivering the highest quality of service and advice.</p>
+
+                    <h3 class="text-lg font-serif text-white mb-6 border-b border-slate-700 pb-2">Why Choose Us</h3>
+
+                    <div class="space-y-4">
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-scale-balanced text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Expertise</h4><p class="text-slate-400 text-xs leading-relaxed">We have the expertise to handle a wide range of legal matters.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-bullseye text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Accuracy</h4><p class="text-slate-400 text-xs leading-relaxed">Accurate, comprehensive and detailed legal advice.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-shield-halved text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Reliability</h4><p class="text-slate-400 text-xs leading-relaxed">Well-versed in providing reliable legal advice.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-sterling-sign text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Cost Effective</h4><p class="text-slate-400 text-xs leading-relaxed">Best value services without compromising quality.</p></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-10 border-t border-slate-700 pt-7">
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-4"><div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700"><i class="fas fa-envelope text-brand-orange text-lg"></i></div><a href="mailto:info@rowanrose.co.uk" class="text-white hover:text-brand-orange text-sm">info@rowanrose.co.uk</a></div>
+                            <div class="flex items-center gap-4"><div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700"><i class="fas fa-phone text-brand-orange text-lg"></i></div><a href="tel:01615330444" class="text-white hover:text-brand-orange text-sm">0161 533 0444</a></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL -->
+        <div class="order-2 md:order-2 flex-1 bg-white relative overflow-y-auto">
+            <div class="max-w-4xl mx-auto p-6 md:p-12 lg:p-16">
+                <h1 class="text-3xl md:text-4xl font-serif text-slate-800 mb-2">Hi ${contactName},</h1>
+                <p class="text-slate-600 text-lg mb-8">Please <span class="text-brand-orange font-semibold">tick any lenders you've used in the last 15 years</span>. This helps us maximise your potential refund!</p>
+
+                <div id="errorMessage" class="hidden bg-red-50 text-red-700 p-4 rounded-xl border border-red-200 mb-6 font-medium"></div>
+
+                <form id="lenderForm">
+                    <div id="lenderCategories" class="space-y-8"></div>
+
+                    <div class="mt-10 p-6 bg-amber-50 rounded-xl border-2 border-amber-200">
+                        <h3 class="text-lg font-semibold text-amber-800 mb-4">Additional Questions</h3>
+                        <div class="space-y-3">
+                            <label class="flex items-center gap-4 p-3 rounded-lg hover:bg-amber-100 cursor-pointer"><input type="checkbox" id="ccj" name="ccj" class="shrink-0"><span class="text-amber-900 font-medium">Have you had a CCJ in the last 6 years?</span></label>
+                            <label class="flex items-center gap-4 p-3 rounded-lg hover:bg-amber-100 cursor-pointer"><input type="checkbox" id="scam" name="scam" class="shrink-0"><span class="text-amber-900 font-medium">Have you been a victim of a scam in the last 6 years?</span></label>
+                            <label class="flex items-center gap-4 p-3 rounded-lg hover:bg-amber-100 cursor-pointer"><input type="checkbox" id="gambling" name="gambling" class="shrink-0"><span class="text-amber-900 font-medium">Have you experienced problematic gambling in the last 10 years?</span></label>
+                        </div>
+                    </div>
+
+                    <div class="mt-10 p-6 bg-slate-50 rounded-xl border-2 border-slate-300">
+                        <div class="text-center p-4 bg-white rounded-lg border border-slate-200 mb-4">
+                            <p class="text-slate-700">I, <span class="font-bold text-brand-orange">${contactName}</span>, authorise Rowan Rose Solicitors to investigate and pursue claims against the lenders I have selected.</p>
+                        </div>
+                        <h3 class="text-lg font-semibold text-slate-800 mb-1">Your Signature</h3>
+                        <p class="text-slate-500 text-sm mb-4">Sign below to confirm your authorisation</p>
+                        <div class="relative bg-white border-2 border-slate-300 rounded-xl overflow-hidden">
+                            <canvas id="signatureCanvas" class="w-full cursor-crosshair" style="height:180px;touch-action:none;"></canvas>
+                            <div id="signaturePlaceholder" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-300 text-2xl italic pointer-events-none">Sign here</div>
+                        </div>
+                        <div class="flex justify-between items-center mt-3">
+                            <span class="text-slate-400 text-sm">Draw with finger or mouse</span>
+                            <button type="button" onclick="clearSignature()" class="text-slate-500 hover:text-red-500 text-sm font-semibold uppercase">Clear</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="w-full mt-8 py-5 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl shadow-lg hover:shadow-xl transition-all uppercase tracking-wide">Submit Your Selection</button>
+                </form>
+
+                <div id="loading" class="hidden text-center py-16">
+                    <div class="w-12 h-12 border-4 border-slate-200 border-t-brand-orange rounded-full mx-auto" style="animation:spin 1s linear infinite;"></div>
+                    <p class="mt-4 text-slate-600">Submitting your form...</p>
+                </div>
+
+                <div id="success" class="hidden text-center py-16">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-check text-3xl text-green-600"></i></div>
+                    <h2 class="text-2xl font-bold text-green-700 mb-2">Form Submitted Successfully!</h2>
+                    <p class="text-slate-600">Thank you. We will process your information and be in touch shortly.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const lenderCategories = ${JSON.stringify(filteredCategories)};
+        const container = document.getElementById('lenderCategories');
+
         lenderCategories.forEach((category, catIndex) => {
-            const categoryDiv = document.createElement('div');
-                                                                                categoryDiv.className = 'category';
-                                                                                const title = document.createElement('div');
-                                                                                title.className = 'category-title';
-                                                                                title.textContent = category.title;
-                                                                                categoryDiv.appendChild(title);
+            const section = document.createElement('div');
+            const title = category.title.replace('TICK THE ', '').replace(' WHICH APPLY TO YOU :', '');
+            section.innerHTML = '<h3 class="text-lg font-semibold text-slate-700 mb-3 pb-2 border-b-2 border-brand-orange inline-block">' + title + '</h3>';
+            const list = document.createElement('div');
+            list.className = 'space-y-2';
             category.lenders.forEach((lender, lenderIndex) => {
-                const lenderDiv = document.createElement('div');
-                                                                                lenderDiv.className = 'lender-item';
-                                                                                const checkbox = document.createElement('input');
-                                                                                checkbox.type = 'checkbox';
-                                                                                checkbox.id = \`lender_\${catIndex}_\${lenderIndex}\`;
-                                                                                checkbox.name = 'lenders';
-                                                                                checkbox.value = lender;
-                                                                                const label = document.createElement('label');
-                                                                                label.htmlFor = checkbox.id;
-                                                                                label.textContent = lender;
-                                                                                lenderDiv.appendChild(checkbox);
-                                                                                lenderDiv.appendChild(label);
-                                                                                categoryDiv.appendChild(lenderDiv);
+                const id = 'lender_' + catIndex + '_' + lenderIndex;
+                const row = document.createElement('label');
+                row.className = 'lender-row flex items-center gap-4 p-3 rounded-lg border border-transparent hover:border-orange-200 cursor-pointer transition-all';
+                row.innerHTML = '<input type="checkbox" id="' + id + '" name="lenders" value="' + lender + '" class="shrink-0"><span class="text-slate-700 font-medium">' + lender + '</span>';
+                row.querySelector('input').addEventListener('change', function() { row.classList.toggle('checked', this.checked); });
+                list.appendChild(row);
             });
-                                                                                container.appendChild(categoryDiv);
+            section.appendChild(list);
+            container.appendChild(section);
         });
-                                                                                const canvas = document.getElementById('signatureCanvas');
-                                                                                const ctx = canvas.getContext('2d');
-                                                                                const placeholder = document.getElementById('signaturePlaceholder');
-                                                                                let isDrawing = false;
-                                                                                let hasSignature = false;
 
-                                                                                // Resize canvas to fit container
-                                                                                function resizeCanvas() {
-                                                                                    const container = canvas.parentElement;
-                                                                                    const ratio = window.devicePixelRatio || 1;
-                                                                                    const width = container.clientWidth;
-                                                                                    const height = 200;
-                                                                                    canvas.width = width * ratio;
-                                                                                    canvas.height = height * ratio;
-                                                                                    canvas.style.width = width + 'px';
-                                                                                    canvas.style.height = height + 'px';
-                                                                                    ctx.scale(ratio, ratio);
-                                                                                    ctx.strokeStyle = '#0f172a';
-                                                                                    ctx.lineWidth = 2.5;
-                                                                                    ctx.lineCap = 'round';
-                                                                                    ctx.lineJoin = 'round';
-                                                                                }
-                                                                                resizeCanvas();
-                                                                                window.addEventListener('resize', resizeCanvas);
+        const canvas = document.getElementById('signatureCanvas');
+        const ctx = canvas.getContext('2d');
+        const placeholder = document.getElementById('signaturePlaceholder');
+        let isDrawing = false, hasSignature = false;
 
-                                                                                function hidePlaceholder() {
-                                                                                    if (placeholder) placeholder.style.display = 'none';
-                                                                                    hasSignature = true;
-                                                                                }
+        function resizeCanvas() {
+            const ratio = window.devicePixelRatio || 1;
+            const width = canvas.parentElement.clientWidth;
+            canvas.width = width * ratio; canvas.height = 180 * ratio;
+            canvas.style.width = width + 'px'; canvas.style.height = '180px';
+            ctx.scale(ratio, ratio); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
 
-        canvas.addEventListener('mousedown', (e) => {isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
-        canvas.addEventListener('mousemove', (e) => { if (!isDrawing) return; const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); hidePlaceholder(); });
-        canvas.addEventListener('mouseup', () => {isDrawing = false; });
-        canvas.addEventListener('mouseout', () => {isDrawing = false; });
-        canvas.addEventListener('touchstart', (e) => {e.preventDefault(); const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.beginPath(); ctx.moveTo(x, y); isDrawing = true; });
-        canvas.addEventListener('touchmove', (e) => {e.preventDefault(); if (!isDrawing) return; const touch = e.touches[0]; const rect = canvas.getBoundingClientRect(); const x = touch.clientX - rect.left; const y = touch.clientY - rect.top; ctx.lineTo(x, y); ctx.stroke(); hidePlaceholder(); });
-        canvas.addEventListener('touchend', (e) => {e.preventDefault(); isDrawing = false; });
-                                                                                function clearSignature() {
-                                                                                    const ratio = window.devicePixelRatio || 1;
-                                                                                    ctx.setTransform(1, 0, 0, 1, 0, 0);
-                                                                                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                                                                                    ctx.scale(ratio, ratio);
-                                                                                    ctx.strokeStyle = '#0f172a';
-                                                                                    ctx.lineWidth = 2.5;
-                                                                                    ctx.lineCap = 'round';
-                                                                                    ctx.lineJoin = 'round';
-                                                                                    hasSignature = false;
-                                                                                    if (placeholder) placeholder.style.display = 'block';
-                                                                                }
-        document.getElementById('lenderForm').addEventListener('submit', async (e) => {
-                                                                                    e.preventDefault();
+        function hidePlaceholder() { placeholder.style.display = 'none'; hasSignature = true; }
+
+        canvas.addEventListener('mousedown', e => { isDrawing = true; const r = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); });
+        canvas.addEventListener('mousemove', e => { if (!isDrawing) return; const r = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - r.left, e.clientY - r.top); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('mouseout', () => isDrawing = false);
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0], r = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); isDrawing = true; });
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!isDrawing) return; const t = e.touches[0], r = canvas.getBoundingClientRect(); ctx.lineTo(t.clientX - r.left, t.clientY - r.top); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('touchend', e => { e.preventDefault(); isDrawing = false; });
+
+        function clearSignature() {
+            const ratio = window.devicePixelRatio || 1;
+            ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.scale(ratio, ratio); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            hasSignature = false; placeholder.style.display = 'block';
+        }
+
+        document.getElementById('lenderForm').addEventListener('submit', async e => {
+            e.preventDefault();
             const selectedLenders = Array.from(document.querySelectorAll('input[name="lenders"]:checked')).map(cb => cb.value);
-                                                                                if (selectedLenders.length === 0) {alert('Please select at least one lender.'); return; }
-                                                                                if (!hasSignature) {alert('Please provide your signature.'); return; }
-                                                                                const signatureData = canvas.toDataURL('image/png');
-                                                                                const hadCCJ = document.getElementById('ccj').checked;
-                                                                                const victimOfScam = document.getElementById('scam').checked;
-                                                                                const problematicGambling = document.getElementById('gambling').checked;
-                                                                                document.getElementById('lenderForm').style.display = 'none';
-                                                                                document.getElementById('loading').style.display = 'block';
-                                                                                try {
+            if (selectedLenders.length === 0) { alert('Please select at least one lender.'); return; }
+            if (!hasSignature) { alert('Please provide your signature.'); return; }
+
+            document.getElementById('lenderForm').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+
+            try {
                 const response = await fetch('/api/submit-loa-form', {
-                                                                                    method: 'POST',
-                                                                                headers: {'Content-Type': 'application/json' },
-                                                                                body: JSON.stringify({uniqueId: '${uniqueId}', selectedLenders, signature2Data: signatureData, hadCCJ, victimOfScam, problematicGambling })
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uniqueId: '${uniqueId}',
+                        selectedLenders,
+                        signature2Data: canvas.toDataURL('image/png'),
+                        hadCCJ: document.getElementById('ccj').checked,
+                        victimOfScam: document.getElementById('scam').checked,
+                        problematicGambling: document.getElementById('gambling').checked
+                    })
                 });
-                                                                                const result = await response.json();
-                                                                                if (result.success) {
-                                                                                    document.getElementById('loading').style.display = 'none';
-                                                                                document.getElementById('success').style.display = 'block';
+                const result = await response.json();
+                document.getElementById('loading').style.display = 'none';
+                if (result.success) {
+                    document.getElementById('success').style.display = 'block';
                 } else {
-                    const errorDiv = document.getElementById('errorMessage');
-                                                                                errorDiv.textContent = result.message;
-                                                                                errorDiv.style.display = 'block';
-                                                                                document.getElementById('lenderForm').style.display = 'block';
-                                                                                document.getElementById('loading').style.display = 'none';
-                                                                                // Scroll to error message
-                                                                                errorDiv.scrollIntoView({behavior: 'smooth' });
+                    document.getElementById('errorMessage').textContent = result.message;
+                    document.getElementById('errorMessage').classList.remove('hidden');
+                    document.getElementById('lenderForm').style.display = 'block';
                 }
             } catch (error) {
-                const errorDiv = document.getElementById('errorMessage');
-                                                                                errorDiv.textContent = 'Error submitting form. Please try again.';
-                                                                                errorDiv.style.display = 'block';
-                                                                                document.getElementById('lenderForm').style.display = 'block';
-                                                                                document.getElementById('loading').style.display = 'none';
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('errorMessage').textContent = 'Error submitting form. Please try again.';
+                document.getElementById('errorMessage').classList.remove('hidden');
+                document.getElementById('lenderForm').style.display = 'block';
             }
         });
-                                                                            </script>
-                                                                        </body>
-                                                                        </html>
-                                                                        `);
+    </script>
+</body>
+</html>`);
     } catch (error) {
         console.error('Error serving lender form:', error);
         res.status(500).send('Server error');
