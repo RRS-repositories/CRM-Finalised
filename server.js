@@ -319,6 +319,17 @@ pool.on('error', (err, client) => {
                         sent_at TIMESTAMP
                     );
 
+                    -- Create html_templates table for LOA/Cover Letter HTML templates
+                    CREATE TABLE IF NOT EXISTS html_templates (
+                        id SERIAL PRIMARY KEY,
+                        template_type VARCHAR(50) UNIQUE NOT NULL,
+                        name VARCHAR(255) NOT NULL,
+                        html_content TEXT NOT NULL,
+                        variables TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_by VARCHAR(255)
+                    );
+
                     -- Create persistent_notifications table
                     CREATE TABLE IF NOT EXISTS persistent_notifications (
                         id SERIAL PRIMARY KEY,
@@ -8766,6 +8777,105 @@ app.put('/api/docx-templates/:type', upload.single('file'), async (req, res) => 
         res.json({ success: true, message: `${type} template uploaded successfully`, s3Key });
     } catch (err) {
         console.error(`Error uploading DOCX template ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// --- HTML TEMPLATES (LOA and Cover Letter stored in database) ---
+
+// GET /api/html-templates - List all HTML templates
+app.get('/api/html-templates', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT template_type, name, html_content, variables, updated_at, updated_by FROM html_templates ORDER BY template_type`
+        );
+        res.json({ success: true, templates: result.rows });
+    } catch (err) {
+        console.error('Error listing HTML templates:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/html-templates/:type - Get specific HTML template
+app.get('/api/html-templates/:type', async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        if (!['LOA', 'COVER_LETTER'].includes(type)) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        const result = await pool.query(
+            `SELECT template_type, name, html_content, variables, updated_at, updated_by FROM html_templates WHERE template_type = $1`,
+            [type]
+        );
+
+        if (result.rows.length === 0) {
+            // Return default template from file
+            const fs = await import('fs');
+            const path = await import('path');
+            const templatePath = type === 'LOA'
+                ? path.join(process.cwd(), 'templates', 'loa-template.html')
+                : path.join(process.cwd(), 'templates', 'cover-letter-template.html');
+
+            try {
+                const htmlContent = fs.readFileSync(templatePath, 'utf-8');
+                return res.json({
+                    success: true,
+                    template: {
+                        template_type: type,
+                        name: type === 'LOA' ? 'Letter of Authority' : 'Cover Letter',
+                        html_content: htmlContent,
+                        variables: '{{clientFullName}}, {{clientAddress}}, {{clientPostcode}}, {{clientDOB}}, {{clientPreviousAddress}}, {{clientEmail}}, {{lenderName}}, {{lenderCompanyName}}, {{lenderAddress}}, {{lenderCity}}, {{lenderPostcode}}, {{signatureImage}}, {{today}}, {{refSpec}}, {{documentHash}}',
+                        updated_at: null,
+                        updated_by: 'system',
+                        isDefault: true
+                    }
+                });
+            } catch (fileErr) {
+                return res.status(404).json({ success: false, message: `Template ${type} not found` });
+            }
+        }
+
+        res.json({ success: true, template: result.rows[0] });
+    } catch (err) {
+        console.error(`Error fetching HTML template ${req.params.type}:`, err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/html-templates/:type - Create or update HTML template
+app.put('/api/html-templates/:type', async (req, res) => {
+    try {
+        const type = req.params.type.toUpperCase();
+        if (!['LOA', 'COVER_LETTER'].includes(type)) {
+            return res.status(400).json({ success: false, message: 'Invalid template type. Use LOA or COVER_LETTER' });
+        }
+
+        const { name, html_content, variables } = req.body;
+        if (!html_content) {
+            return res.status(400).json({ success: false, message: 'html_content is required' });
+        }
+
+        const templateName = name || (type === 'LOA' ? 'Letter of Authority' : 'Cover Letter');
+
+        // Upsert the template
+        const result = await pool.query(
+            `INSERT INTO html_templates (template_type, name, html_content, variables, updated_at, updated_by)
+             VALUES ($1, $2, $3, $4, NOW(), $5)
+             ON CONFLICT (template_type) DO UPDATE SET
+                name = EXCLUDED.name,
+                html_content = EXCLUDED.html_content,
+                variables = EXCLUDED.variables,
+                updated_at = NOW(),
+                updated_by = EXCLUDED.updated_by
+             RETURNING *`,
+            [type, templateName, html_content, variables || '', req.body.updated_by || 'admin']
+        );
+
+        console.log(`✅ HTML template ${type} saved to database`);
+        res.json({ success: true, template: result.rows[0] });
+    } catch (err) {
+        console.error(`Error saving HTML template ${req.params.type}:`, err);
         res.status(500).json({ success: false, message: err.message });
     }
 });

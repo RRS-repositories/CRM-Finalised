@@ -142,7 +142,21 @@ const Templates: React.FC = () => {
   // View state
   const [viewMode, setViewMode] = useState<'library' | 'editor'>('library');
   const [searchQuery, setSearchQuery] = useState('');
-  const [templateTypeFilter, setTemplateTypeFilter] = useState<'all' | 'email' | 'sms' | 'letter'>('email');
+  const [templateTypeFilter, setTemplateTypeFilter] = useState<'all' | 'email' | 'sms' | 'letter' | 'master-docx' | 'html'>('email');
+
+  // Master DOCX Templates state
+  const [docxTemplates, setDocxTemplates] = useState<Array<{type: string, s3Key: string, fileName: string, downloadUrl: string | null, exists: boolean}>>([]);
+
+  // HTML Templates state (for Lambda PDF generation)
+  const [htmlTemplates, setHtmlTemplates] = useState<Array<{template_type: string, name: string, html_content: string, updated_at: string}>>([]);
+  const [htmlTemplatesLoading, setHtmlTemplatesLoading] = useState(false);
+  const [editingHtmlTemplate, setEditingHtmlTemplate] = useState<{template_type: string, name: string, html_content: string} | null>(null);
+  const [htmlEditorContent, setHtmlEditorContent] = useState('');
+  const [htmlSaving, setHtmlSaving] = useState(false);
+  const [docxLoading, setDocxLoading] = useState(false);
+  const [docxUploading, setDocxUploading] = useState<string | null>(null);
+  const docxFileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedDocxType, setSelectedDocxType] = useState<string | null>(null);
 
   // Editor State
   const [currentTemplate, setCurrentTemplate] = useState<Template | null>(null);
@@ -500,6 +514,153 @@ const Templates: React.FC = () => {
       editor?.off('update', onUpdate);
     };
   }, [editor, viewMode, editorSourceType]);
+
+  // ========== HTML Templates (for Lambda PDF generation) ==========
+
+  const fetchHtmlTemplates = useCallback(async () => {
+    setHtmlTemplatesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/html-templates`);
+      if (res.ok) {
+        const data = await res.json();
+        setHtmlTemplates(data.templates || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch HTML templates:', err);
+    } finally {
+      setHtmlTemplatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (templateTypeFilter === 'html') {
+      fetchHtmlTemplates();
+    }
+  }, [templateTypeFilter, fetchHtmlTemplates]);
+
+  const handleEditHtmlTemplate = (template: {template_type: string, name: string, html_content: string}) => {
+    setEditingHtmlTemplate(template);
+    setHtmlEditorContent(template.html_content);
+  };
+
+  const handleSaveHtmlTemplate = async () => {
+    if (!editingHtmlTemplate) return;
+    setHtmlSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/html-templates/${editingHtmlTemplate.template_type}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingHtmlTemplate.name,
+          html_content: htmlEditorContent
+        })
+      });
+      if (res.ok) {
+        setEditingHtmlTemplate(null);
+        setHtmlEditorContent('');
+        fetchHtmlTemplates();
+      } else {
+        const err = await res.json();
+        alert('Failed to save: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Failed to save HTML template:', err);
+      alert('Failed to save template');
+    } finally {
+      setHtmlSaving(false);
+    }
+  };
+
+  const handleCreateHtmlTemplate = async (templateType: 'LOA' | 'COVER_LETTER') => {
+    const defaultContent = templateType === 'LOA'
+      ? `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11pt; margin: 25px; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .header h1 { color: #1a365d; margin: 0; }
+    .section { margin-bottom: 15px; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>FAST ACTION CLAIMS</h1>
+    <p>info@fastactionclaims.co.uk | 0161 533 1706</p>
+  </div>
+
+  <h2>LETTER OF AUTHORITY</h2>
+
+  <div class="section">
+    <p class="label">Client:</p>
+    <p>{{clientFullName}}</p>
+    <p>{{clientAddress}}</p>
+  </div>
+
+  <div class="section">
+    <p class="label">Lender:</p>
+    <p>{{lenderName}}</p>
+  </div>
+
+  <div class="section">
+    <p class="label">Date:</p>
+    <p>{{today}}</p>
+  </div>
+
+  <div class="section">
+    <p class="label">Signature:</p>
+    {{signatureImage}}
+  </div>
+</body>
+</html>`
+      : `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11pt; margin: 25px; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .header h1 { color: #1a365d; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>FAST ACTION CLAIMS</h1>
+    <p>info@fastactionclaims.co.uk | 0161 533 1706</p>
+  </div>
+
+  <h2>COVER LETTER</h2>
+
+  <p>Date: {{today}}</p>
+  <p>Reference: {{refSpec}}</p>
+
+  <p>Dear Sir/Madam,</p>
+
+  <p>Re: {{clientFullName}} - {{lenderName}}</p>
+
+  <p>Please find enclosed the Letter of Authority for the above named client.</p>
+
+  <p>Yours faithfully,</p>
+  <p>Fast Action Claims</p>
+</body>
+</html>`;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/html-templates/${templateType}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: templateType === 'LOA' ? 'Letter of Authority' : 'Cover Letter',
+          html_content: defaultContent
+        })
+      });
+      if (res.ok) {
+        fetchHtmlTemplates();
+      }
+    } catch (err) {
+      console.error('Failed to create HTML template:', err);
+    }
+  };
 
   // ========== File Upload Handlers ==========
 
@@ -3078,6 +3239,16 @@ const Templates: React.FC = () => {
             >
               Letter Templates
             </button>
+            <button
+              onClick={() => setTemplateTypeFilter('html')}
+              className={`px-6 py-2.5 rounded-lg text-sm font-bold border-2 transition-all ${
+                templateTypeFilter === 'html'
+                  ? 'bg-orange-600 border-orange-600 text-white'
+                  : 'bg-white dark:bg-slate-700 border-orange-600 dark:border-orange-500 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+              }`}
+            >
+              HTML Templates (Lambda)
+            </button>
           </div>
           <button
             onClick={() => setShowAddTemplateModal(true)}
@@ -3087,64 +3258,220 @@ const Templates: React.FC = () => {
           </button>
         </div>
 
-        {/* Templates Table */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
-            <div className="divide-y divide-gray-100 dark:divide-slate-700">
-              {typeFilteredTemplates.length > 0 ? (
-                typeFilteredTemplates.map((template, index) => (
-                  <div
-                    key={template.id}
-                    className={`flex items-center justify-between px-5 py-4 ${
-                      index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/50 dark:bg-slate-700/50'
-                    } hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
-                        <FileText size={18} />
-                      </div>
-                      <button
-                        onClick={() => handlePreview(template)}
-                        className="text-sm font-semibold text-navy-700 dark:text-navy-300 hover:text-navy-900 dark:hover:text-navy-100 hover:underline transition-colors cursor-pointer"
-                      >
-                        {template.name}
-                      </button>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleEdit(template)}
-                        className="px-4 py-1.5 text-sm font-medium border-2 border-navy-600 dark:border-navy-400 text-navy-600 dark:text-navy-400 rounded-lg hover:bg-navy-50 dark:hover:bg-navy-900/30 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleUseTemplate(template)}
-                        className="px-4 py-1.5 text-sm font-medium border-2 border-green-600 dark:border-green-400 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
-                      >
-                        Generate
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Delete template "${template.name}"?`)) {
-                            deleteTemplate(template.id);
-                          }
-                        }}
-                        className="px-4 py-1.5 text-sm font-medium border-2 border-red-500 dark:border-red-400 text-red-500 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
+        {/* Templates Table or HTML Templates View */}
+        {templateTypeFilter === 'html' ? (
+          /* HTML Templates Section */
+          <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
+            {editingHtmlTemplate ? (
+              /* HTML Editor */
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden h-full flex flex-col">
+                <div className="px-5 py-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-xs font-bold">
+                      {editingHtmlTemplate.template_type}
+                    </span>
+                    <h3 className="font-bold text-lg text-navy-900 dark:text-white">
+                      {editingHtmlTemplate.name}
+                    </h3>
                   </div>
-                ))
-              ) : (
-                <div className="px-5 py-16 text-center">
-                  <File size={48} className="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-                  <p className="text-gray-400 dark:text-gray-500">No templates found matching your filters.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setEditingHtmlTemplate(null); setHtmlEditorContent(''); }}
+                      className="px-4 py-2 text-sm font-medium border-2 border-gray-400 dark:border-gray-500 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveHtmlTemplate}
+                      disabled={htmlSaving}
+                      className="px-4 py-2 text-sm font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                    >
+                      {htmlSaving ? 'Saving...' : 'Save Template'}
+                    </button>
+                  </div>
                 </div>
-              )}
+                <div className="p-4 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    <strong>Available Variables:</strong> {'{{clientFullName}}'}, {'{{clientAddress}}'}, {'{{clientPostcode}}'}, {'{{clientDOB}}'}, {'{{lenderName}}'}, {'{{lenderAddress}}'}, {'{{lenderEmail}}'}, {'{{today}}'}, {'{{refSpec}}'}, {'{{signatureImage}}'}
+                  </div>
+                </div>
+                <div className="flex-1 p-4">
+                  <textarea
+                    value={htmlEditorContent}
+                    onChange={(e) => setHtmlEditorContent(e.target.value)}
+                    className="w-full h-full min-h-[500px] p-4 font-mono text-sm bg-gray-900 text-green-400 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    placeholder="Enter HTML template code here..."
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              /* HTML Templates List */
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg text-navy-900 dark:text-white">
+                    HTML Templates for Lambda PDF Generation
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    These templates are used by the Lambda function to generate LOA and Cover Letter PDFs.
+                  </p>
+                </div>
+
+                {htmlTemplatesLoading ? (
+                  <div className="px-5 py-16 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-orange-600 border-t-transparent mx-auto mb-4"></div>
+                    <p className="text-gray-500 dark:text-gray-400">Loading templates...</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                    {/* LOA Template */}
+                    {(() => {
+                      const loaTemplate = htmlTemplates.find(t => t.template_type === 'LOA');
+                      return loaTemplate ? (
+                        <div className="flex items-center justify-between px-5 py-4 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                              <FileText size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-navy-700 dark:text-navy-300">{loaTemplate.name}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Type: LOA | Updated: {new Date(loaTemplate.updated_at).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleEditHtmlTemplate(loaTemplate)}
+                            className="px-4 py-1.5 text-sm font-medium border-2 border-orange-600 dark:border-orange-400 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors"
+                          >
+                            Edit HTML
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between px-5 py-4 bg-gray-50/50 dark:bg-slate-700/50">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400">
+                              <FileText size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">LOA Template (Not Created)</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500">Click to create a default template</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleCreateHtmlTemplate('LOA')}
+                            className="px-4 py-1.5 text-sm font-medium border-2 border-green-600 dark:border-green-400 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+                          >
+                            Create Template
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Cover Letter Template */}
+                    {(() => {
+                      const clTemplate = htmlTemplates.find(t => t.template_type === 'COVER_LETTER');
+                      return clTemplate ? (
+                        <div className="flex items-center justify-between px-5 py-4 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                              <FileText size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-navy-700 dark:text-navy-300">{clTemplate.name}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Type: COVER_LETTER | Updated: {new Date(clTemplate.updated_at).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleEditHtmlTemplate(clTemplate)}
+                            className="px-4 py-1.5 text-sm font-medium border-2 border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                          >
+                            Edit HTML
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between px-5 py-4 bg-gray-50/50 dark:bg-slate-700/50">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400">
+                              <FileText size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Cover Letter Template (Not Created)</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500">Click to create a default template</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleCreateHtmlTemplate('COVER_LETTER')}
+                            className="px-4 py-1.5 text-sm font-medium border-2 border-green-600 dark:border-green-400 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+                          >
+                            Create Template
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Regular Templates Table */
+          <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                {typeFilteredTemplates.length > 0 ? (
+                  typeFilteredTemplates.map((template, index) => (
+                    <div
+                      key={template.id}
+                      className={`flex items-center justify-between px-5 py-4 ${
+                        index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/50 dark:bg-slate-700/50'
+                      } hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                          <FileText size={18} />
+                        </div>
+                        <button
+                          onClick={() => handlePreview(template)}
+                          className="text-sm font-semibold text-navy-700 dark:text-navy-300 hover:text-navy-900 dark:hover:text-navy-100 hover:underline transition-colors cursor-pointer"
+                        >
+                          {template.name}
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(template)}
+                          className="px-4 py-1.5 text-sm font-medium border-2 border-navy-600 dark:border-navy-400 text-navy-600 dark:text-navy-400 rounded-lg hover:bg-navy-50 dark:hover:bg-navy-900/30 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleUseTemplate(template)}
+                          className="px-4 py-1.5 text-sm font-medium border-2 border-green-600 dark:border-green-400 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+                        >
+                          Generate
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete template "${template.name}"?`)) {
+                              deleteTemplate(template.id);
+                            }
+                          }}
+                          className="px-4 py-1.5 text-sm font-medium border-2 border-red-500 dark:border-red-400 text-red-500 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-5 py-16 text-center">
+                    <File size={48} className="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+                    <p className="text-gray-400 dark:text-gray-500">No templates found matching your filters.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ========== MODALS ========== */}

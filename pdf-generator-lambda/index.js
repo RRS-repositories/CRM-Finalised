@@ -272,6 +272,120 @@ async function logAction(contactId, caseId, documentType, metadata) {
 }
 
 /**
+ * Fetch HTML template from database
+ */
+async function fetchHtmlTemplateFromDb(documentType) {
+    const dbPool = getPool();
+    const templateType = documentType === 'LOA' ? 'LOA' : 'COVER_LETTER';
+
+    try {
+        const result = await dbPool.query(
+            'SELECT html_content FROM html_templates WHERE template_type = $1 LIMIT 1',
+            [templateType]
+        );
+
+        if (result.rows.length > 0) {
+            return result.rows[0].html_content;
+        }
+        return null;
+    } catch (err) {
+        console.warn('Failed to fetch HTML template from database:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Render HTML template by replacing variables
+ */
+function renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lenderEmail, signatureBase64) {
+    const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+    const clientId = `RR-${contact.id}`;
+    const fullReference = `${clientId}/${caseData.id}`;
+    const refSpec = `${contact.id}${caseData.id}`;
+
+    const today = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+    });
+
+    const clientAddress = [
+        contact.address_line_1,
+        contact.address_line_2,
+        contact.city,
+        contact.state_county,
+        contact.postal_code
+    ].filter(Boolean).join(', ');
+
+    const dob = contact.dob
+        ? new Date(contact.dob).toLocaleDateString('en-GB')
+        : '';
+
+    // Build variable map
+    const variables = {
+        // Client Details
+        clientFullName: fullName,
+        clientFirstName: contact.first_name || '',
+        clientLastName: contact.last_name || '',
+        clientEmail: contact.email || '',
+        clientPhone: contact.phone || '',
+        clientAddress: clientAddress,
+        clientAddressLine1: contact.address_line_1 || '',
+        clientAddressLine2: contact.address_line_2 || '',
+        clientCity: contact.city || '',
+        clientCounty: contact.state_county || '',
+        clientPostcode: contact.postal_code || '',
+        clientPreviousAddress: contact.previous_address || '—',
+        clientDateOfBirth: dob,
+        clientDOB: dob,
+
+        // Claim Details
+        lenderName: caseData.lender || '',
+        claimLender: caseData.lender || '',
+        clientId: clientId,
+        reference: fullReference,
+        refSpec: refSpec,
+        claimValue: caseData.claim_value
+            ? `£${Number(caseData.claim_value).toLocaleString()}`
+            : '',
+
+        // Lender Details
+        lenderCompanyName: lenderAddress?.company_name || caseData.lender || '',
+        lenderAddress: lenderAddress?.first_line_address || '',
+        lenderAddressLine1: lenderAddress?.first_line_address || '',
+        lenderCity: lenderAddress?.town_city || '',
+        lenderPostcode: lenderAddress?.postcode || '',
+        lenderEmail: lenderEmail || '',
+
+        // Firm Details
+        firmName: 'Fast Action Claims',
+        firmAddress: '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+        firmPhone: '0161 505 0150',
+        sraNumber: '8000843',
+
+        // System
+        today: today,
+        date: today,
+        year: String(new Date().getFullYear()),
+
+        // Signature
+        signatureImage: signatureBase64
+            ? `<img src="${signatureBase64}" style="max-width:200px; height:auto;" />`
+            : '[Signature]',
+        signatureBase64: signatureBase64 || '',
+    };
+
+    // Replace all {{variable}} patterns
+    let html = htmlTemplate;
+    for (const [key, value] of Object.entries(variables)) {
+        const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+        html = html.replace(pattern, String(value || ''));
+    }
+
+    return html;
+}
+
+/**
  * Main Lambda Handler
  */
 export const handler = async (event) => {
@@ -333,32 +447,42 @@ export const handler = async (event) => {
         const lenderAddress = getLenderAddress(caseData.lender);
         const lenderEmail = getLenderEmail(caseData.lender);
 
-        // 4. Try DOCX template first, then fall back to JSON/TipTap
+        // 4. Try to load HTML template from database first
         let html;
         let templateName = 'unknown';
 
-        const docxKey = documentType === 'LOA'
-            ? 'templates/loa-template.docx'
-            : 'templates/cover-letter-template.docx';
+        // Try HTML template from database first
+        const htmlTemplate = await fetchHtmlTemplateFromDb(documentType);
 
-        const docxExists = await fetchDocxFromS3(docxKey);
-
-        if (docxExists) {
-            // Use DOCX template
-            console.log(`Using DOCX template: ${docxKey}`);
-            templateName = docxKey;
-            const variables = buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
-            html = await renderDocxTemplate(documentType, variables, signatureBase64);
+        if (htmlTemplate) {
+            console.log(`Using HTML template from database: ${documentType}`);
+            templateName = `HTML Template (${documentType})`;
+            html = renderHtmlTemplate(htmlTemplate, contact, caseData, lenderAddress, lenderEmail, signatureBase64);
         } else {
-            // Fall back to JSON/TipTap template
-            console.log(`DOCX not found, using JSON template for ${documentType}...`);
-            const template = await loadTemplate(documentType);
-            if (!template) {
-                throw new Error(`No ${documentType} template found`);
+            // Fall back to DOCX template
+            const docxKey = documentType === 'LOA'
+                ? 'templates/loa-template.docx'
+                : 'templates/cover-letter-template.docx';
+
+            const docxExists = await fetchDocxFromS3(docxKey);
+
+            if (docxExists) {
+                // Use DOCX template
+                console.log(`Using DOCX template: ${docxKey}`);
+                templateName = docxKey;
+                const variables = buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
+                html = await renderDocxTemplate(documentType, variables, signatureBase64);
+            } else {
+                // Fall back to JSON/TipTap template
+                console.log(`DOCX not found, using JSON template for ${documentType}...`);
+                const template = await loadTemplate(documentType);
+                if (!template) {
+                    throw new Error(`No ${documentType} template found`);
+                }
+                templateName = template.name || 'JSON Template';
+                const variableMap = buildVariableMap(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
+                html = renderTemplate(template, variableMap);
             }
-            templateName = template.name || 'JSON Template';
-            const variableMap = buildVariableMap(contact, caseData, lenderAddress, lenderEmail, signatureBase64);
-            html = renderTemplate(template, variableMap);
         }
 
         // 7. Generate PDF

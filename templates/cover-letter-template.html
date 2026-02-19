@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 20mm; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            color: #1a1a1a;
+            line-height: 1.5;
+            background: white;
+        }
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            position: relative;
+        }
+
+        /* Header - Right aligned */
+        .header-right {
+            text-align: right;
+            margin-bottom: 30px;
+        }
+        .header-right .firm-name {
+            font-weight: bold;
+            font-size: 12pt;
+        }
+        .header-right p {
+            margin: 2px 0;
+            font-size: 10pt;
+        }
+
+        /* Date */
+        .date {
+            margin-bottom: 20px;
+        }
+
+        /* Recipient address */
+        .recipient {
+            margin-bottom: 20px;
+        }
+        .recipient .label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .recipient p {
+            margin: 2px 0;
+        }
+
+        /* Reference */
+        .reference {
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        /* Salutation */
+        .salutation {
+            margin-bottom: 15px;
+        }
+
+        /* Subject line */
+        .subject {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .client-info {
+            margin-bottom: 20px;
+        }
+        .client-info p {
+            margin: 3px 0;
+        }
+        .client-info strong {
+            display: inline-block;
+            width: 80px;
+        }
+
+        /* Body text */
+        .body-text {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        .body-text p {
+            margin-bottom: 12px;
+        }
+
+        /* Request list */
+        .request-list {
+            margin: 15px 0 15px 25px;
+        }
+        .request-list li {
+            margin-bottom: 8px;
+        }
+
+        /* Sign off */
+        .sign-off {
+            margin-top: 30px;
+        }
+        .sign-off p {
+            margin: 5px 0;
+        }
+        .firm-sig {
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        /* Footer */
+        .footer {
+            position: absolute;
+            bottom: 15mm;
+            left: 20mm;
+            right: 20mm;
+            font-size: 7pt;
+            color: #666;
+            text-align: center;
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+<div class="page">
+    <div class="header-right">
+        <p class="firm-name">Fast Action Claims</p>
+        <p>1.03 The Boat Shed, 12 Exchange Quay</p>
+        <p>Salford, M5 3EQ</p>
+        <p>Tel: 0161 505 0150</p>
+        <p>SRA No: 8000843</p>
+    </div>
+
+    <div class="date">{{today}}</div>
+
+    <div class="recipient">
+        <p class="label">TO:</p>
+        <p>{{lenderCompanyName}}</p>
+        <p>{{lenderAddress}}</p>
+        <p>{{lenderCity}}</p>
+        <p>{{lenderPostcode}}</p>
+    </div>
+
+    <div class="reference">Our Ref: {{refSpec}}</div>
+
+    <p class="salutation">Dear Sir/Madam,</p>
+
+    <p class="subject">RE: Complaint - Irresponsible Lending</p>
+
+    <div class="client-info">
+        <p><strong>Client:</strong> {{clientFullName}}</p>
+        <p><strong>DOB:</strong> {{clientDOB}}</p>
+        <p><strong>Address:</strong> {{clientAddress}}</p>
+    </div>
+
+    <div class="body-text">
+        <p>We are instructed by the above-named client and enclose a signed Letter of Authority for your records.</p>
+
+        <p>Our client instructs us that they have been the victim of irresponsible lending practices. We are therefore writing to formally complain on their behalf.</p>
+
+        <p>Our client believes that at the time of the lending, adequate affordability checks were not carried out. Had proper checks been conducted, it would have been apparent that the lending was unaffordable and should not have been provided.</p>
+
+        <p>We request that you:</p>
+    </div>
+
+    <ol class="request-list">
+        <li>Provide a copy of all credit agreements, statements, and correspondence relating to our client's account(s).</li>
+        <li>Provide details of all affordability assessments conducted prior to lending.</li>
+        <li>Refund all interest, charges, and fees paid by our client, plus 8% simple interest.</li>
+        <li>Remove any adverse credit file entries relating to this account.</li>
+    </ol>
+
+    <div class="body-text">
+        <p>Please respond within 8 weeks of receiving this complaint. If we do not receive a satisfactory response within this timeframe, we reserve the right to refer the matter to the Financial Ombudsman Service.</p>
+
+        <p>Please direct all correspondence to our office address above, quoting the reference number provided.</p>
+    </div>
+
+    <div class="sign-off">
+        <p>Yours faithfully,</p>
+        <p class="firm-sig">Fast Action Claims</p>
+        <p>On behalf of {{clientFullName}}</p>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Rowan Rose Ltd (Company No. 12916452). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+    </div>
+</div>
+
+</body>
+</html>
