@@ -431,6 +431,37 @@ const upload = multer({
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 
+// --- LAMBDA PDF GENERATOR ---
+const PDF_GENERATOR_API_URL = process.env.PDF_GENERATOR_API_URL || 'https://n778tx67zi.execute-api.eu-north-1.amazonaws.com/prod/generate-pdf';
+
+/**
+ * Trigger Lambda to generate LOA or Cover Letter PDF
+ * @param {number} caseId - The case ID
+ * @param {string} documentType - 'LOA' or 'COVER_LETTER'
+ */
+async function triggerPdfGenerator(caseId, documentType) {
+    try {
+        console.log(`🚀 Triggering PDF generator Lambda for case ${caseId}, type: ${documentType}`);
+        const response = await fetch(PDF_GENERATOR_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caseId, documentType })
+        });
+        const result = await response.json();
+        if (result.status === 'SUCCESS') {
+            console.log(`✅ PDF generated for case ${caseId}: ${result.fileName}`);
+        } else if (result.status === 'SKIPPED') {
+            console.log(`⏭️ PDF generation skipped for case ${caseId}: ${result.reason}`);
+        } else {
+            console.error(`❌ PDF generation failed for case ${caseId}:`, result.error);
+        }
+        return result;
+    } catch (err) {
+        console.error(`❌ Error calling PDF generator Lambda for case ${caseId}:`, err.message);
+        return { status: 'ERROR', error: err.message };
+    }
+}
+
 // --- OPENAI CLIENT ---
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -4894,15 +4925,18 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
-        // If status = "LOA Uploaded", generate cover letter from template asynchronously
+        // If status = "New Lead", trigger LOA generation via Lambda (async)
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            triggerPdfGenerator(parseInt(id), 'LOA').catch(err => {
+                console.error(`❌ LOA generation trigger failed for case ${id}:`, err.message);
+            });
+        }
+
+        // If status = "LOA Uploaded", trigger cover letter generation via Lambda (async)
         if (status === 'LOA Uploaded') {
-            generateCoverLetterFromTemplate(parseInt(id), pool, s3Client)
-                .then(result => {
-                    console.log(`📄 Cover letter generated for case ${id}: ${result.fileName}`);
-                })
-                .catch(err => {
-                    console.error(`❌ Cover letter generation failed for case ${id}:`, err.message);
-                });
+            triggerPdfGenerator(parseInt(id), 'COVER_LETTER').catch(err => {
+                console.error(`❌ Cover letter generation trigger failed for case ${id}:`, err.message);
+            });
         }
 
         console.log(`✅ Updated case ${id} status to: ${status}`);
@@ -4941,12 +4975,21 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             );
         }
 
-        // If status = "LOA Uploaded", generate cover letters for each case asynchronously
+        // If status = "New Lead", trigger LOA generation for each case via Lambda (async)
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            for (const updatedCase of result.rows) {
+                triggerPdfGenerator(updatedCase.id, 'LOA').catch(err => {
+                    console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
+                });
+            }
+        }
+
+        // If status = "LOA Uploaded", trigger cover letter generation for each case via Lambda (async)
         if (status === 'LOA Uploaded') {
             for (const updatedCase of result.rows) {
-                generateCoverLetterFromTemplate(updatedCase.id, pool, s3Client)
-                    .then(res => console.log(`📄 Cover letter generated for case ${updatedCase.id}: ${res.fileName}`))
-                    .catch(err => console.error(`❌ Cover letter generation failed for case ${updatedCase.id}:`, err.message));
+                triggerPdfGenerator(updatedCase.id, 'COVER_LETTER').catch(err => {
+                    console.error(`❌ Cover letter generation trigger failed for case ${updatedCase.id}:`, err.message);
+                });
             }
         }
 
