@@ -6225,13 +6225,15 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     ]
                 );
 
-                // Trigger Lambda LOA generation for all cases with status "Lender Selection Form Completed"
+                // Trigger Lambda LOA generation for all cases with status "Lender Selection Form Completed" or "Extra Lender Selection Form Sent"
                 const casesToGenerate = await pool.query(
-                    `SELECT id FROM cases WHERE contact_id = $1 AND status = 'Lender Selection Form Completed' AND loa_generated = false`,
+                    `SELECT id, status FROM cases WHERE contact_id = $1 AND status IN ('Lender Selection Form Completed', 'Extra Lender Selection Form Sent') AND loa_generated = false`,
                     [contactId]
                 );
                 for (const c of casesToGenerate.rows) {
-                    triggerPdfGenerator(c.id, 'LOA').catch(err => {
+                    // For Extra Lender Selection Form Sent, don't change status after generating PDFs
+                    const skipStatusUpdate = (c.status === 'Extra Lender Selection Form Sent');
+                    triggerPdfGenerator(c.id, 'LOA', skipStatusUpdate).catch(err => {
                         console.error(`❌ LOA generation trigger failed for case ${c.id}:`, err.message);
                     });
                 }
