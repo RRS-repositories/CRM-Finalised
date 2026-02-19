@@ -230,6 +230,11 @@ const CATEGORY_4_SPECIAL_EMAIL_LENDERS = new Set([
     'DRAFTY', 'LENDING STREAM', 'QUID MARKET'
 ]);
 
+// Lenders that should send DSAR directly (bypass draft mode)
+const DIRECT_SEND_LENDERS = new Set([
+    'LOANS 2 GO', 'LOANS2GO', 'TEST'
+]);
+
 // Helper function to normalize lender name for comparison
 function normalizeLenderName(name) {
     if (!name) return '';
@@ -1154,8 +1159,11 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
         </html>
         `;
 
-    // DRAFT MODE: Create draft email using Microsoft Graph API
-    if (EMAIL_DRAFT_MODE) {
+    // Check if this lender should send directly (bypass draft mode)
+    const shouldSendDirectly = DIRECT_SEND_LENDERS.has(normalizeLenderName(lenderName));
+
+    // DRAFT MODE: Create draft email using Microsoft Graph API (unless lender is in direct send list)
+    if (EMAIL_DRAFT_MODE && !shouldSendDirectly) {
         console.log(`[Worker] 📝 DRAFT MODE: Creating draft email for ${lenderName} (${lenderEmail})`);
         console.log(`[Worker] 📝 Subject: ${subject}`);
         console.log(`[Worker] 📝 Attachments: ${attachments.map(a => a.filename).join(', ')}`);
@@ -1208,6 +1216,9 @@ async function sendDocumentsToLender(lenderName, clientName, contactId, folderNa
     }
 
     // SEND MODE: Send email directly using nodemailer
+    if (shouldSendDirectly) {
+        console.log(`[Worker] 📧 DIRECT SEND: ${lenderName} is in direct send list - sending immediately`);
+    }
     const mailOptions = {
         from: '"DSAR Team - Fast Action Claims" <DSAR@fastactionclaims.co.uk>',
         to: lenderEmail,
