@@ -3426,6 +3426,17 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
     try {
         const standardizedLender = standardizeLender(lender);
 
+        // Check for duplicate lender for this contact
+        const existingCase = await pool.query(
+            `SELECT id, status FROM cases WHERE contact_id = $1 AND LOWER(lender) = LOWER($2)`,
+            [contactId, standardizedLender]
+        );
+        if (existingCase.rows.length > 0) {
+            return res.status(400).json({
+                error: `A claim for ${standardizedLender} already exists for this contact (Case #${existingCase.rows[0].id}, Status: ${existingCase.rows[0].status})`
+            });
+        }
+
         // Check if this is a Category 3 lender requiring confirmation
         if (isCategory3Lender(standardizedLender)) {
             console.log(`[CRM] Category 3 lender detected: ${lender}. Sending confirmation email to client.`);

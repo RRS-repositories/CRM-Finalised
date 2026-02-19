@@ -938,6 +938,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       const confirmationLenders: string[] = [];
 
       try {
+         const failedLenders: { lender: string; error: string }[] = [];
+
          for (let i = 0; i < selectedLenders.length; i++) {
             // Show partial progress before API call (smooth fill)
             setClaimProgress(i + 0.3);
@@ -949,12 +951,15 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                status: newClaimData.status,
                productType: newClaimData.productType || 'Credit Card'
             });
-            // Track Category 3 vs normal claims
+            // Track Category 3 vs normal claims vs failures
             if (result.category3) {
                confirmationSentCount++;
                confirmationLenders.push(result.lender || selectedLenders[i]);
             } else if (result.success) {
                createdCount++;
+            } else {
+               // Track failed claims (e.g., duplicates)
+               failedLenders.push({ lender: selectedLenders[i], error: result.message || 'Unknown error' });
             }
             // Complete this step
             setClaimProgress(i + 1);
@@ -976,10 +981,20 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             addNotification(confirmationSentCount > 0 && createdCount === 0 ? 'info' : 'success', messages.join('. '));
          }
 
-         setShowAddClaim(false);
-         setNewClaimData({ claimValue: 0, status: ClaimStatus.NEW_LEAD });
-         setSelectedLenders([]);
-         setLenderSearchQuery('');
+         // Show errors for failed claims
+         if (failedLenders.length > 0) {
+            for (const failed of failedLenders) {
+               addNotification('error', `${failed.lender}: ${failed.error}`);
+            }
+         }
+
+         // Only close modal if at least one claim succeeded or was queued
+         if (createdCount > 0 || confirmationSentCount > 0) {
+            setShowAddClaim(false);
+            setNewClaimData({ claimValue: 0, status: ClaimStatus.NEW_LEAD });
+            setSelectedLenders([]);
+            setLenderSearchQuery('');
+         }
       } finally {
          setIsCreatingClaim(false);
          setClaimProgress(0);

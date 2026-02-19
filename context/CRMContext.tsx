@@ -1562,6 +1562,12 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       const cs = await response.json();
 
+      // Handle error responses (e.g., duplicate lender)
+      if (!response.ok) {
+        addNotification('error', cs.error || 'Failed to create claim');
+        return { success: false, message: cs.error || 'Failed to create claim' };
+      }
+
       // Handle Category 3 lender confirmation flow
       if (cs.category3) {
         addNotification('info', cs.message || `Confirmation email sent to client for ${cs.lender}`);
