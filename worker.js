@@ -959,15 +959,15 @@ async function sendCategory4ClientEmail(lenderName, clientName, firstName, clien
             console.log(`[Worker] ✅ Category 4 draft created for ${clientEmail}, Draft ID: ${createdDraft.id}`);
             return { success: true, draft: true, draftId: createdDraft.id, email: clientEmail };
         } else {
-            // Send via nodemailer
+            // Send via irlEmailTransporter (irl@rowanrose.co.uk)
             const mailOptions = {
-                from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+                from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
                 to: LENDER_EMAIL_TEST_MODE ? TEST_EMAIL_ADDRESS : clientEmail,
                 subject: subject,
                 html: htmlBody
             };
 
-            const info = await clientEmailTransporter.sendMail(mailOptions);
+            const info = await irlEmailTransporter.sendMail(mailOptions);
             console.log(`[Worker] ✅ Category 4 email sent to ${clientEmail}, Message ID: ${info.messageId}`);
             return { success: true, messageId: info.messageId, email: clientEmail };
         }
@@ -1620,7 +1620,7 @@ const processPendingLOAs = async () => {
         // Now includes signature_url (signature.png from sales form) as fallback
         const query = `
             SELECT c.id as case_id, c.lender, c.created_at,
-                   cnt.id as contact_id, cnt.first_name, cnt.last_name,
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email as client_email,
                    cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code,
                    cnt.signature_2_url, cnt.signature_url, cnt.dob, cnt.created_at as contact_created_at,
                    cnt.previous_addresses, cnt.previous_address_line_1, cnt.previous_address_line_2
@@ -1821,6 +1821,29 @@ const processPendingLOAs = async () => {
                 }
 
                 console.log(`[Worker] ✅ LOA Generated for Case ${record.case_id} (${record.lender})`);
+
+                // Send Category 4 verification email to client after LOA is generated
+                const lenderCategory = getLenderCategory(record.lender);
+                if (lenderCategory === 4) {
+                    console.log(`[Worker] 📧 Category 4 lender detected - sending verification email to client`);
+                    const clientName = `${record.first_name} ${record.last_name}`;
+                    const cat4Result = await sendCategory4ClientEmail(
+                        record.lender,
+                        clientName,
+                        record.first_name,
+                        record.client_email,
+                        record.contact_id,
+                        record.case_id
+                    );
+                    if (cat4Result.success) {
+                        await pool.query(
+                            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                             VALUES ($1, $2, 'system', 'worker', 'category4_email_sent', 'claims', $3)`,
+                            [record.contact_id, record.case_id, `Category 4 verification email sent to client for ${record.lender}`]
+                        );
+                    }
+                }
+
                 results.push({ case_id: record.case_id, lender: record.lender, status: 'generated' });
 
             } catch (err) {
