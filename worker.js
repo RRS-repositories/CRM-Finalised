@@ -548,8 +548,58 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = n
     }
 }
 
+// --- HELPER FUNCTION: FIND ACTUAL S3 FOLDER FOR A CONTACT ---
+async function findActualS3Folder(expectedFolderName, contactId) {
+    // First try the expected folder name
+    try {
+        const testKey = `${expectedFolderName}/`;
+        const listParams = {
+            Bucket: S3_BUCKET,
+            Prefix: testKey,
+            MaxKeys: 1
+        };
+        const result = await s3.send(new ListObjectsV2Command(listParams));
+        if (result.Contents && result.Contents.length > 0) {
+            return expectedFolderName;
+        }
+    } catch (err) {
+        // Continue to search
+    }
+
+    // If not found, search for any folder ending with _CONTACTID or ._CONTACTID
+    try {
+        const listParams = {
+            Bucket: S3_BUCKET,
+            Delimiter: '/',
+            MaxKeys: 1000
+        };
+        const result = await s3.send(new ListObjectsV2Command(listParams));
+        if (result.CommonPrefixes) {
+            for (const prefix of result.CommonPrefixes) {
+                const folderPath = prefix.Prefix.replace(/\/$/, '');
+                // Check if folder ends with _CONTACTID or ._CONTACTID
+                if (folderPath.endsWith(`_${contactId}`) || folderPath.endsWith(`._${contactId}`)) {
+                    console.log(`[Worker] Found actual S3 folder: ${folderPath} (expected: ${expectedFolderName})`);
+                    return folderPath;
+                }
+            }
+        }
+    } catch (err) {
+        console.warn(`[Worker] Error searching for S3 folder:`, err.message);
+    }
+
+    return expectedFolderName; // Fallback to expected
+}
+
 // --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
 async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName) {
+    // Find the actual S3 folder (handles legacy naming with dots)
+    const actualFolderName = await findActualS3Folder(folderName, contactId);
+    if (actualFolderName !== folderName) {
+        console.log(`[Worker] Using actual folder: ${actualFolderName} instead of ${folderName}`);
+        folderName = actualFolderName;
+    }
+
     const documents = {
         loa: null,
         coverLetter: null,
