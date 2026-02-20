@@ -558,7 +558,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
             Prefix: testKey,
             MaxKeys: 1
         };
-        const result = await s3.send(new ListObjectsV2Command(listParams));
+        const result = await s3Client.send(new ListObjectsV2Command(listParams));
         if (result.Contents && result.Contents.length > 0) {
             return expectedFolderName;
         }
@@ -573,7 +573,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
             Delimiter: '/',
             MaxKeys: 1000
         };
-        const result = await s3.send(new ListObjectsV2Command(listParams));
+        const result = await s3Client.send(new ListObjectsV2Command(listParams));
         if (result.CommonPrefixes) {
             for (const prefix of result.CommonPrefixes) {
                 const folderPath = prefix.Prefix.replace(/\/$/, '');
@@ -932,7 +932,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                         Prefix: prefix,
                         MaxKeys: 10
                     };
-                    const listResult = await s3.send(new ListObjectsV2Command(listParams));
+                    const listResult = await s3Client.send(new ListObjectsV2Command(listParams));
                     if (listResult.Contents && listResult.Contents.length > 0) {
                         for (const obj of listResult.Contents) {
                             if (obj.Key && obj.Key !== prefix) {
