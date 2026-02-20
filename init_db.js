@@ -200,6 +200,12 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS extra_lenders TEXT;
     `);
 
+    // Add ip_address column - client IP when signature form was signed
+    console.log('Adding ip_address column to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
+    `);
+
     // Add extended claim fields to cases table
     console.log('Adding extended claim fields to cases...');
     await pool.query(`
@@ -379,6 +385,35 @@ async function initDb() {
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp);
+    `);
+
+    // ============================================
+    // OnlyOffice Templates Table (Persistent Storage)
+    // ============================================
+    console.log('Creating oo_templates table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oo_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        category VARCHAR(100) DEFAULT 'General',
+        s3_key TEXT NOT NULL,
+        file_name VARCHAR(255),
+        file_size INTEGER,
+        variable_fields JSONB DEFAULT '[]',
+        is_active BOOLEAN DEFAULT TRUE,
+        template_type VARCHAR(50) DEFAULT 'DOCX',
+        use_for_loa BOOLEAN DEFAULT FALSE,
+        use_for_cover_letter BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_oo_templates_category ON oo_templates(category);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_oo_templates_active ON oo_templates(is_active) WHERE is_active = TRUE;
     `);
 
     // Critical indexes for contact-related queries (performance optimization)

@@ -9519,18 +9519,35 @@ app.post('/api/templates/generate-from-docx', async (req, res) => {
 });
 
 // ============================================================================
-// ONLYOFFICE INTEGRATION API ROUTES (Phase 1 - In-Memory)
+// ONLYOFFICE INTEGRATION API ROUTES (Phase 2 - Database Persistent Storage)
 // ============================================================================
 
 // --- OO Template CRUD ---
 
 // GET /api/oo/templates - List all templates, optional ?category filter
-app.get('/api/oo/templates', (req, res) => {
+app.get('/api/oo/templates', async (req, res) => {
     try {
-        let templates = Array.from(ooTemplates.values());
+        let query = 'SELECT * FROM oo_templates WHERE is_active = TRUE';
+        const params = [];
         if (req.query.category) {
-            templates = templates.filter(t => t.category === req.query.category);
+            query += ' AND category = $1';
+            params.push(req.query.category);
         }
+        query += ' ORDER BY updated_at DESC';
+        const result = await pool.query(query, params);
+        // Map DB columns to expected frontend format
+        const templates = result.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            category: row.category || 'General',
+            s3Key: row.s3_key,
+            mergeFields: row.variable_fields || [],
+            useForLoa: row.use_for_loa,
+            useForCoverLetter: row.use_for_cover_letter,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        }));
         res.json({ success: true, templates });
     } catch (err) {
         console.error('[OO Templates] List error:', err);
@@ -9542,7 +9559,7 @@ app.get('/api/oo/templates', (req, res) => {
 app.post('/api/oo/templates', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
-        const { name, description, category } = req.body;
+        const { name, description, category, useForLoa, useForCoverLetter } = req.body;
         if (!name) return res.status(400).json({ success: false, message: 'name is required' });
 
         const sanitizedName = name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
@@ -9551,19 +9568,38 @@ app.post('/api/oo/templates', upload.single('file'), async (req, res) => {
 
         const mergeFields = extractMergeFields(req.file.buffer);
 
-        const id = ooTemplateIdCounter++;
-        const now = new Date().toISOString();
-        const template = {
-            id, name,
-            description: description || '',
-            category: category || 'General',
-            s3Key, mergeFields,
-            createdAt: now,
-            updatedAt: now,
-        };
-        ooTemplates.set(id, template);
+        // Insert into database
+        const result = await pool.query(`
+            INSERT INTO oo_templates (name, description, category, s3_key, file_name, file_size, variable_fields, use_for_loa, use_for_cover_letter)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *
+        `, [
+            name,
+            description || '',
+            category || 'General',
+            s3Key,
+            req.file.originalname,
+            req.file.size,
+            JSON.stringify(mergeFields),
+            useForLoa === 'true' || useForLoa === true,
+            useForCoverLetter === 'true' || useForCoverLetter === true
+        ]);
 
-        console.log(`[OO Templates] Created #${id}: "${name}" (${mergeFields.length} merge fields)`);
+        const row = result.rows[0];
+        const template = {
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            category: row.category || 'General',
+            s3Key: row.s3_key,
+            mergeFields: row.variable_fields || [],
+            useForLoa: row.use_for_loa,
+            useForCoverLetter: row.use_for_cover_letter,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
+
+        console.log(`[OO Templates] Created #${template.id}: "${name}" (${mergeFields.length} merge fields)`);
         res.json({ success: true, template });
     } catch (err) {
         console.error('[OO Templates] Create error:', err);
@@ -9574,8 +9610,22 @@ app.post('/api/oo/templates', upload.single('file'), async (req, res) => {
 // GET /api/oo/templates/:id - Get template metadata + presigned download URL
 app.get('/api/oo/templates/:id', async (req, res) => {
     try {
-        const template = ooTemplates.get(Number(req.params.id));
-        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+        const result = await pool.query('SELECT * FROM oo_templates WHERE id = $1 AND is_active = TRUE', [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        const row = result.rows[0];
+        const template = {
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            category: row.category || 'General',
+            s3Key: row.s3_key,
+            mergeFields: row.variable_fields || [],
+            useForLoa: row.use_for_loa,
+            useForCoverLetter: row.use_for_cover_letter,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
 
         const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({
             Bucket: BUCKET_NAME, Key: template.s3Key
@@ -9588,15 +9638,44 @@ app.get('/api/oo/templates/:id', async (req, res) => {
 });
 
 // PUT /api/oo/templates/:id - Update template metadata
-app.put('/api/oo/templates/:id', (req, res) => {
+app.put('/api/oo/templates/:id', async (req, res) => {
     try {
-        const template = ooTemplates.get(Number(req.params.id));
-        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+        const { name, description, category, useForLoa, useForCoverLetter } = req.body;
+        const updates = [];
+        const params = [];
+        let paramIndex = 1;
 
-        if (req.body.name !== undefined) template.name = req.body.name;
-        if (req.body.description !== undefined) template.description = req.body.description;
-        if (req.body.category !== undefined) template.category = req.body.category;
-        template.updatedAt = new Date().toISOString();
+        if (name !== undefined) { updates.push(`name = $${paramIndex++}`); params.push(name); }
+        if (description !== undefined) { updates.push(`description = $${paramIndex++}`); params.push(description); }
+        if (category !== undefined) { updates.push(`category = $${paramIndex++}`); params.push(category); }
+        if (useForLoa !== undefined) { updates.push(`use_for_loa = $${paramIndex++}`); params.push(useForLoa === 'true' || useForLoa === true); }
+        if (useForCoverLetter !== undefined) { updates.push(`use_for_cover_letter = $${paramIndex++}`); params.push(useForCoverLetter === 'true' || useForCoverLetter === true); }
+
+        if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+
+        updates.push(`updated_at = NOW()`);
+        params.push(req.params.id);
+
+        const result = await pool.query(
+            `UPDATE oo_templates SET ${updates.join(', ')} WHERE id = $${paramIndex} AND is_active = TRUE RETURNING *`,
+            params
+        );
+
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        const row = result.rows[0];
+        const template = {
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            category: row.category || 'General',
+            s3Key: row.s3_key,
+            mergeFields: row.variable_fields || [],
+            useForLoa: row.use_for_loa,
+            useForCoverLetter: row.use_for_cover_letter,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
 
         res.json({ success: true, template });
     } catch (err) {
@@ -9605,12 +9684,16 @@ app.put('/api/oo/templates/:id', (req, res) => {
     }
 });
 
-// DELETE /api/oo/templates/:id - Remove from in-memory store
-app.delete('/api/oo/templates/:id', (req, res) => {
+// DELETE /api/oo/templates/:id - Soft delete (set is_active = false)
+app.delete('/api/oo/templates/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
-        if (!ooTemplates.has(id)) return res.status(404).json({ success: false, message: 'Template not found' });
-        ooTemplates.delete(id);
+        const result = await pool.query(
+            'UPDATE oo_templates SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND is_active = TRUE RETURNING id',
+            [id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Template not found' });
+
         console.log(`[OO Templates] Deleted #${id}`);
         res.json({ success: true, message: 'Template deleted' });
     } catch (err) {
@@ -9624,8 +9707,15 @@ app.delete('/api/oo/templates/:id', (req, res) => {
 // GET /api/oo/templates/:id/editor-config
 app.get('/api/oo/templates/:id/editor-config', async (req, res) => {
     try {
-        const template = ooTemplates.get(Number(req.params.id));
-        if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
+        const result = await pool.query('SELECT * FROM oo_templates WHERE id = $1 AND is_active = TRUE', [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Template not found' });
+
+        const row = result.rows[0];
+        const template = {
+            id: row.id,
+            name: row.name,
+            s3Key: row.s3_key,
+        };
 
         // Use path-style S3 client — bucket "client.landing.page" has dots which break
         // virtual-hosted-style SSL certs when OnlyOffice fetches the file server-side
@@ -9733,7 +9823,7 @@ app.post('/api/oo/callback', async (req, res) => {
             if (!response.ok) throw new Error(`Failed to download from OO: ${response.status}`);
             const buffer = Buffer.from(await response.arrayBuffer());
 
-            // Check documents
+            // Check documents (still in-memory for generated docs)
             for (const [id, doc] of ooDocuments) {
                 if (doc.ooDocKey === key) {
                     await uploadS3Buffer(doc.s3KeyDocx, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -9744,14 +9834,23 @@ app.post('/api/oo/callback', async (req, res) => {
                 }
             }
 
-            // Check templates
-            for (const [id, tpl] of ooTemplates) {
-                if (key.startsWith(`tpl_${id}_`)) {
-                    await uploadS3Buffer(tpl.s3Key, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-                    tpl.mergeFields = extractMergeFields(buffer);
-                    tpl.updatedAt = new Date().toISOString();
-                    console.log(`[OO Callback] Updated template #${id}`);
-                    break;
+            // Check templates - key format is tpl_{id}_v{timestamp}
+            const templateMatch = key.match(/^tpl_(\d+)_v/);
+            if (templateMatch) {
+                const templateId = parseInt(templateMatch[1], 10);
+                const result = await pool.query('SELECT * FROM oo_templates WHERE id = $1 AND is_active = TRUE', [templateId]);
+                if (result.rows.length > 0) {
+                    const template = result.rows[0];
+                    // Upload updated DOCX back to S3
+                    await uploadS3Buffer(template.s3_key, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                    // Extract merge fields from updated document
+                    const mergeFields = extractMergeFields(buffer);
+                    // Update database
+                    await pool.query(
+                        'UPDATE oo_templates SET variable_fields = $1, updated_at = NOW() WHERE id = $2',
+                        [JSON.stringify(mergeFields), templateId]
+                    );
+                    console.log(`[OO Callback] Updated template #${templateId} in S3 and database`);
                 }
             }
         }

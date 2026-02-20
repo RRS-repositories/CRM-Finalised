@@ -64,7 +64,16 @@
       "Bash(aws logs:*)",
       "Bash(npm info:*)",
       "Bash(PGPASSWORD='admin123' psql -h rowan-rose-solicitors-clients-list.cjme82cqwljz.eu-north-1.rds.amazonaws.com -U postgres -d client_credentials -c \"INSERT INTO cases \\(contact_id, lender, status, created_at\\) VALUES \\(229068, ''VANQUIS'', ''New Lead'', NOW\\(\\)\\) RETURNING id, lender, status;\")",
-      "Bash(aws lambda invoke:*)"
+      "Bash(aws lambda invoke:*)",
+      "Bash(git checkout:*)",
+      "WebFetch(domain:rowanroseclaims.co.uk)",
+      "Bash(sshpass -p 'Gaynorhilton24!!' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"echo ''Connected to Hostinger''\")",
+      "Bash(brew install:*)",
+      "Bash(sshpass -p 'Gaynorhilton24!!' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"docker ps --format ''{{.ID}} {{.Image}}'' | head -5\")",
+      "Bash(sshpass -p \"Gaynorhilton24\\\\!\\\\!\" ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"echo ''Connected''\")",
+      "Bash(sshpass -p 'Fac@12345678' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"docker ps --format ''{{.ID}} {{.Image}}''\")",
+      "Bash(sshpass -p 'Fac@12345678' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"docker exec 635061bc5b73 /var/www/onlyoffice/documentserver/npm/json -f /etc/onlyoffice/documentserver/local.json ''services.CoAuthoring.secret.session.string''\")",
+      "Bash(git config:*)"
     ]
   }
 }

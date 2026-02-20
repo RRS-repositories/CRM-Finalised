@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 10mm 12mm 15mm 12mm; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
+            color: #1a1a1a;
+            line-height: 1.3;
+            background: white;
+        }
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 10mm 12mm 15mm 12mm;
+            position: relative;
+            page-break-after: always;
+        }
+        .page:last-child { page-break-after: auto; }
+
+        /* Header - LEFT ALIGNED */
+        .header {
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 3px solid #1e3a5f;
+        }
+        .header-logo {
+            font-size: 32pt;
+            font-weight: bold;
+            color: #1e3a5f;
+            letter-spacing: 1px;
+            line-height: 1.1;
+        }
+        .header-logo span {
+            color: #c9a227;
+            display: block;
+            font-size: 28pt;
+        }
+        .header-contact {
+            font-size: 7pt;
+            color: #555;
+            margin-top: 5px;
+        }
+
+        /* Title */
+        .title {
+            background: #1e3a5f;
+            color: white;
+            text-align: center;
+            padding: 8px;
+            font-size: 12pt;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        /* In respect of - BIG */
+        .in-respect-of {
+            margin: 8px 0;
+            font-size: 14pt;
+            font-weight: bold;
+        }
+        .in-respect-of strong {
+            color: #1e3a5f;
+            font-size: 16pt;
+        }
+
+        /* Sections */
+        .section-header {
+            background: #1e3a5f;
+            color: white;
+            padding: 6px 10px;
+            font-size: 10pt;
+            font-weight: bold;
+            margin: 10px 0 0 0;
+        }
+        .section-subheader {
+            background: #4a6d8c;
+            color: white;
+            padding: 5px 10px;
+            font-size: 8pt;
+            font-weight: bold;
+            margin: 8px 0 0 0;
+        }
+
+        /* Tables - CLIENT DETAILS BIGGER */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+        }
+        td, th {
+            border: none;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 6px 8px;
+            font-size: 10pt;
+            vertical-align: top;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .label-cell {
+            background: #f8f9fa;
+            font-weight: 600;
+            width: 28%;
+            color: #333;
+        }
+        .value-cell {
+            background: white;
+            font-size: 11pt;
+            font-weight: 500;
+        }
+
+        /* Authorisation text - SMALLER */
+        .auth-text {
+            padding: 8px 0;
+            font-size: 7.5pt;
+            line-height: 1.4;
+            text-align: justify;
+        }
+        .auth-text p { margin-bottom: 6px; }
+        .auth-text ol { margin-left: 15px; }
+        .auth-text li { margin-bottom: 4px; }
+
+        /* Signature section */
+        .signature-box {
+            border-top: 2px solid #1e3a5f;
+            padding: 12px 0;
+            margin-top: 8px;
+            min-height: 80px;
+        }
+        .signature-img {
+            max-width: 180px;
+            max-height: 70px;
+        }
+        .signature-date {
+            margin-top: 8px;
+            font-size: 9pt;
+            color: #666;
+        }
+
+        /* Footer */
+        .footer {
+            position: absolute;
+            bottom: 8mm;
+            left: 12mm;
+            right: 12mm;
+            font-size: 6.5pt;
+            color: #666;
+            text-align: center;
+            border-top: 1px solid #ddd;
+            padding-top: 5px;
+            line-height: 1.3;
+        }
+
+        /* Page 2 & 3 */
+        .certificate-header {
+            margin-bottom: 15px;
+        }
+        .certificate-logo {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #1e3a5f;
+            letter-spacing: 2px;
+        }
+        .certificate-subtitle {
+            font-size: 7pt;
+            color: #888;
+            letter-spacing: 3px;
+            margin-top: 2px;
+        }
+        .signing-complete {
+            background: #22c55e;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            font-size: 11pt;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .seal-applied {
+            background: #dc2626;
+            color: white;
+            padding: 6px 12px;
+            font-size: 8pt;
+            font-weight: bold;
+            margin: 8px 0;
+            display: inline-block;
+        }
+        .legal-notice {
+            font-size: 7.5pt;
+            color: #555;
+            line-height: 1.4;
+            padding: 10px;
+            background: #f8f9fa;
+            margin-top: 8px;
+        }
+        .legal-notice table td {
+            font-size: 7.5pt;
+            padding: 4px 6px;
+        }
+        .verification-box {
+            background: #1e3a5f;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .verification-box h4 {
+            font-size: 10pt;
+            margin-bottom: 5px;
+        }
+        .verification-box p {
+            font-size: 7.5pt;
+            margin: 3px 0;
+        }
+
+        /* Audit trail */
+        .audit-table td, .audit-table th {
+            font-size: 7.5pt;
+            padding: 5px 8px;
+        }
+        .audit-table .timestamp {
+            width: 25%;
+            background: #f8f9fa;
+            font-weight: 500;
+        }
+
+        /* Page 2 tables - smaller */
+        .page2-table td {
+            font-size: 8pt;
+            padding: 5px 8px;
+        }
+        .page2-table .label-cell {
+            font-size: 8pt;
+        }
+        .page2-table .value-cell {
+            font-size: 8pt;
+            font-weight: normal;
+        }
+    </style>
+</head>
+<body>
+
+<!-- PAGE 1: LETTER OF AUTHORITY -->
+<div class="page">
+    <div class="header">
+        <div class="header-logo">FAST ACTION<span>CLAIMS</span></div>
+        <div class="header-contact">
+            info@fastactionclaims.co.uk &nbsp;|&nbsp; 0161 533 1706 &nbsp;|&nbsp; 1.03 Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+        </div>
+    </div>
+
+    <div class="title">LETTER OF AUTHORITY</div>
+
+    <p class="in-respect-of">In respect of: <strong>{{lenderName}}</strong></p>
+
+    <div class="section-header">CLIENT DETAILS</div>
+    <table>
+        <tr><td class="label-cell">Full Name:</td><td class="value-cell">{{clientFullName}}</td></tr>
+        <tr><td class="label-cell">Address:</td><td class="value-cell">{{clientAddress}}</td></tr>
+        <tr><td class="label-cell">Postcode:</td><td class="value-cell">{{clientPostcode}}</td></tr>
+        <tr><td class="label-cell">Date of Birth:</td><td class="value-cell">{{clientDOB}}</td></tr>
+        <tr><td class="label-cell">Previous Address:</td><td class="value-cell">{{clientPreviousAddress}}</td></tr>
+    </table>
+
+    <div class="section-header">AUTHORISATION</div>
+    <div class="auth-text">
+        <p>I/We hereby Authorise and instruct: You (The Bank/Door Step Lender/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/Pension Provider/Catalogue Loans Provider/Mortgage Broker/HMRC) to:</p>
+        <ol>
+            <li>Liaise exclusively with Fast Action Claims in respect of all aspects of my/our potential complaint/claim for compensation as stated above.</li>
+            <li>Immediately release to Fast Action Claims any information/documentation relating to all my/our loans/credit cards/overdrafts/Store Cards/Car Finance/Packaged Bank Account/ to include all Broker Commissions, Tax deductions which may be requested. This includes information in response to a request made under Sections 77-78 of the Consumer Credit Act 1974 and/or Section 45 of the Data Protection Act 2018 and Article 15 GDPR.</li>
+            <li>Contact Fast Action Claims whenever they need to send me/us information or contact me/us in connection with this matter.</li>
+        </ol>
+        <p>I/We authorise Fast Action Claims of 1.03, 12 Exchange Quay, Salford, M5 3EQ as my/our sole representatives to deal with my potential complaint/claim for compensation in relation to all loans/credit cards/car finance/overdrafts/Packaged Bank Accounts/Store Cards. I/We confirm that Fast Action Claims are instructed to pursue all aspects they consider necessary in relation to my/our dealings with your organisation. This letter of authority relates to ALL products and accounts I/We have or have had with you.</p>
+        <p>I/We have read, understand and agree to Fast Action Claims' Terms and Conditions. I/We give them full authority, in accordance with the FCA's Dispute Resolution Guidelines, to act on my/our behalf to pursue all aspects they deem necessary in relation to all my/our financial affairs/tax affairs with the aforementioned Provider(s). I/We authorise you to accept any signatures on documents sent to you by Fast Action Claims which have been obtained electronically (e-signed). I/We confirm that in the event that you need to contact a third party to progress my/our case for any reason, I/we hereby give my/our authority and consent for the third party to provide Fast Action Claims with any information they request and may require to pursue my/our claim/complaint.</p>
+        <p>I/We understand that, in addition to the present Letter of Authority I/We will need to provide further information when raising an expression of dissatisfaction to you (The Bank/Building Society/Card Provider/Finance Provider/Loan Broker/Underwriter/Insurance Provider/Financial Advisor/HMRC), about the underlying product(s), service(s) and where known, specific account number(s) being complained about. I hereby authorise Fast Action Claims to submit my claim for irresponsible lending.</p>
+    </div>
+
+    <div class="section-header">SIGNATURE</div>
+    <div class="signature-box">
+        {{signatureImage}}
+        <div class="signature-date">{{today}}</div>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Rowan Rose Ltd (Company No. 12916452). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+    </div>
+</div>
+
+<!-- PAGE 2: ELECTRONIC SIGNATURE CERTIFICATE -->
+<div class="page">
+    <div class="certificate-header">
+        <div class="certificate-logo">ROWAN ROSE</div>
+        <div class="certificate-subtitle">S O L I C I T O R S</div>
+    </div>
+
+    <h2 style="text-align: center; font-size: 13pt; margin: 12px 0 3px 0;">Electronic Signature</h2>
+    <p style="text-align: center; font-size: 9pt; color: #666; margin-bottom: 10px;">Certificate of Completion</p>
+
+    <div class="signing-complete">SIGNING COMPLETE</div>
+
+    <div class="section-header">DOCUMENT DETAILS</div>
+    <table class="page2-table">
+        <tr><td class="label-cell">Envelope ID:</td><td class="value-cell">{{refSpec}}</td></tr>
+        <tr><td class="label-cell">Document Title:</td><td class="value-cell">Letter of Authority - Irresponsible Lending Claim</td></tr>
+        <tr><td class="label-cell">Pages:</td><td class="value-cell">3</td></tr>
+        <tr><td class="label-cell">Created:</td><td class="value-cell">{{today}}</td></tr>
+        <tr><td class="label-cell">Completed:</td><td class="value-cell">{{today}}</td></tr>
+        <tr><td class="label-cell">Document Hash:</td><td class="value-cell">{{documentHash}} <small style="color:#888">(SHA-256)</small></td></tr>
+    </table>
+
+    <div class="section-header">SIGNER DETAILS</div>
+    <div class="section-subheader">Client (Signatory)</div>
+    <table class="page2-table">
+        <tr><td class="label-cell">Name:</td><td class="value-cell">{{clientFullName}}</td></tr>
+        <tr><td class="label-cell">Email:</td><td class="value-cell">{{clientEmail}}</td></tr>
+        <tr><td class="label-cell">IP Address:</td><td class="value-cell">{{clientIpAddress}}</td></tr>
+        <tr><td class="label-cell">Signed:</td><td class="value-cell">{{today}}</td></tr>
+        <tr><td class="label-cell">Authentication:</td><td class="value-cell">Email Verification + SMS OTP</td></tr>
+    </table>
+
+    <div class="section-header">SECURITY & INTEGRITY</div>
+    <div class="seal-applied">Tamper-Evident Seal Applied</div>
+    <div class="legal-notice">
+        <p>This document is protected by a cryptographic seal. Any modification after the completion timestamp will invalidate the seal and be detectable.</p>
+        <table style="margin-top: 6px;">
+            <tr><td class="label-cell" style="width:35%;">Signature Standard:</td><td class="value-cell">eIDAS / UK Electronic Communications Act 2000 compliant</td></tr>
+            <tr><td class="label-cell">Hash Algorithm:</td><td class="value-cell">SHA-256</td></tr>
+            <tr><td class="label-cell">Timestamping:</td><td class="value-cell">Server-side UTC timestamp</td></tr>
+        </table>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Rowan Rose Ltd (Company No. 12916452). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+    </div>
+</div>
+
+<!-- PAGE 3: AUDIT TRAIL -->
+<div class="page">
+    <div class="certificate-header">
+        <div class="certificate-logo">ROWAN ROSE</div>
+        <div class="certificate-subtitle">S O L I C I T O R S</div>
+    </div>
+
+    <h2 style="text-align: center; font-size: 11pt; margin: 10px 0 3px 0; font-weight: bold;">Certificate of Completion - Audit Trail</h2>
+    <p style="text-align: center; font-size: 8pt; color: #888; margin-bottom: 10px;">Envelope: {{refSpec}}</p>
+
+    <div class="section-header">COMPLETE AUDIT TRAIL</div>
+    <table class="audit-table">
+        <tr style="background: #1e3a5f; color: white;"><th>TIMESTAMP (UTC)</th><th>EVENT</th></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Document created and sent for signature via Rowan Rose eSign</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Email notification delivered to [{{clientEmail}}]</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Document viewed by {{clientFullName}}</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>SMS OTP authentication completed by {{clientFullName}}</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Document signed by {{clientFullName}}</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Signing complete - tamper-evident seal applied</td></tr>
+        <tr><td class="timestamp">{{today}}</td><td>Completed document delivered to all parties</td></tr>
+    </table>
+
+    <div class="section-header" style="margin-top: 15px;">LEGAL NOTICE & COMPLIANCE</div>
+    <div class="legal-notice">
+        <p>This Certificate of Completion confirms that all parties identified above have electronically signed the referenced document. Electronic signatures applied through this system are legally binding under the Electronic Communications Act 2000 and the eIDAS Regulation (as retained in UK law post-Brexit). This certificate constitutes a complete and unalterable record of the signing transaction.</p>
+        <p style="margin-top: 6px;">The document hash (SHA-256) provides a unique fingerprint. Any subsequent alteration to the signed document will produce a different hash, thereby evidencing tampering. The original signed document and this certificate are stored in encrypted form in compliance with SRA record-keeping requirements and GDPR data protection obligations.</p>
+    </div>
+
+    <div class="verification-box">
+        <h4>Verification</h4>
+        <p>To verify this document, contact Rowan Rose Solicitors quoting Envelope ID: {{refSpec}}</p>
+        <p style="font-weight: bold; margin-top: 5px;">Boat Shed, Exchange Quay, Salford M5 3EQ | SRA No: 8000843</p>
+    </div>
+
+    <div class="footer">
+        Fast Action Claims is a trading style of Rowan Rose Solicitors, authorised and regulated by the Solicitors Regulation Authority (SRA No. 8000843). Rowan Rose Ltd (Company No. 12916452). Registered office: 1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ
+    </div>
+</div>
+
+</body>
+</html>
