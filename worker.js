@@ -232,7 +232,9 @@ const CATEGORY_4_SPECIAL_EMAIL_LENDERS = new Set([
 
 // Lenders that should send DSAR directly (bypass draft mode)
 const DIRECT_SEND_LENDERS = new Set([
-    'TEST'
+    'TEST',
+    'LOANS 2 GO',
+    'LOANS2GO'
 ]);
 
 // Helper function to normalize lender name for comparison
