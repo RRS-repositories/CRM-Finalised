@@ -763,16 +763,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
     // 4. ID Documents - gather ALL from Documents/ID_Document/ AND Lenders/{lender}/ID_Document/
     try {
-        // Build alternative folder names to handle legacy naming (e.g., trailing dots in names)
-        // folderName = FirstName_LastName_ContactId, but S3 might have FirstName_LastName._ContactId
-        const folderVariations = [folderName];
-        // Add variation with dot before contact_id (legacy naming issue)
-        const folderNameWithDot = folderName.replace(/_(\d+)$/, '._$1');
-        if (folderNameWithDot !== folderName) {
-            folderVariations.push(folderNameWithDot);
-        }
-
-        // ID Document subfolder variations (underscore vs space)
+        // ID Document subfolder variations (underscore vs space) - only check within the correct contact folder
         const idSubfolders = ['ID_Document', 'ID Document'];
 
         // 4a. Get ID documents from Documents/ID_Document/ folder (category = 'ID Document')
@@ -786,23 +777,20 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         for (const row of generalIdDocsQuery.rows) {
             let found = false;
-            // Try all folder and subfolder variations
-            for (const folder of folderVariations) {
+            // Try both subfolder variations (ID_Document and ID Document)
+            for (const subFolder of idSubfolders) {
                 if (found) break;
-                for (const subFolder of idSubfolders) {
-                    const idDocKey = `${folder}/Documents/${subFolder}/${row.name}`;
-                    const docBuffer = await fetchPdfFromS3(idDocKey);
-                    if (docBuffer) {
-                        const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                        documents.idDocuments.push({
-                            filename: row.name,
-                            content: docBuffer,
-                            contentType: contentType
-                        });
-                        console.log(`[Worker] ✅ Found ID Document (general): ${row.name} at ${idDocKey}`);
-                        found = true;
-                        break;
-                    }
+                const idDocKey = `${folderName}/Documents/${subFolder}/${row.name}`;
+                const docBuffer = await fetchPdfFromS3(idDocKey);
+                if (docBuffer) {
+                    const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                    documents.idDocuments.push({
+                        filename: row.name,
+                        content: docBuffer,
+                        contentType: contentType
+                    });
+                    console.log(`[Worker] ✅ Found ID Document (general): ${row.name} at ${idDocKey}`);
+                    found = true;
                 }
             }
         }
@@ -819,26 +807,23 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         for (const row of lenderIdDocsQuery.rows) {
             let found = false;
-            for (const folder of folderVariations) {
+            for (const subFolder of idSubfolders) {
                 if (found) break;
-                for (const subFolder of idSubfolders) {
-                    const idDocKey = `${folder}/Lenders/${sanitizedLenderName}/${subFolder}/${row.name}`;
-                    const docBuffer = await fetchPdfFromS3(idDocKey);
-                    if (docBuffer) {
-                        const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                        // Avoid duplicates
-                        const exists = documents.idDocuments.some(d => d.filename === row.name);
-                        if (!exists) {
-                            documents.idDocuments.push({
-                                filename: row.name,
-                                content: docBuffer,
-                                contentType: contentType
-                            });
-                            console.log(`[Worker] ✅ Found ID Document (lender): ${row.name} at ${idDocKey}`);
-                        }
-                        found = true;
-                        break;
+                const idDocKey = `${folderName}/Lenders/${sanitizedLenderName}/${subFolder}/${row.name}`;
+                const docBuffer = await fetchPdfFromS3(idDocKey);
+                if (docBuffer) {
+                    const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                    // Avoid duplicates
+                    const exists = documents.idDocuments.some(d => d.filename === row.name);
+                    if (!exists) {
+                        documents.idDocuments.push({
+                            filename: row.name,
+                            content: docBuffer,
+                            contentType: contentType
+                        });
+                        console.log(`[Worker] ✅ Found ID Document (lender): ${row.name} at ${idDocKey}`);
                     }
+                    found = true;
                 }
             }
         }
@@ -862,27 +847,23 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
             for (const row of legacyIdQuery.rows) {
                 let found = false;
-                // Try multiple paths with all folder variations
-                for (const folder of folderVariations) {
+                const pathsToTry = [
+                    `${folderName}/Documents/${row.name}`,
+                    `${folderName}/Documents/ID_Document/${row.name}`,
+                    `${folderName}/Documents/ID Document/${row.name}`
+                ];
+                for (const path of pathsToTry) {
                     if (found) break;
-                    const pathsToTry = [
-                        `${folder}/Documents/${row.name}`,
-                        `${folder}/Documents/ID_Document/${row.name}`,
-                        `${folder}/Documents/ID Document/${row.name}`
-                    ];
-                    for (const path of pathsToTry) {
-                        const docBuffer = await fetchPdfFromS3(path);
-                        if (docBuffer) {
-                            const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                            documents.idDocuments.push({
-                                filename: row.name,
-                                content: docBuffer,
-                                contentType: contentType
-                            });
-                            console.log(`[Worker] ✅ Found legacy ID Document: ${row.name} at ${path}`);
-                            found = true;
-                            break;
-                        }
+                    const docBuffer = await fetchPdfFromS3(path);
+                    if (docBuffer) {
+                        const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
+                        documents.idDocuments.push({
+                            filename: row.name,
+                            content: docBuffer,
+                            contentType: contentType
+                        });
+                        console.log(`[Worker] ✅ Found legacy ID Document: ${row.name} at ${path}`);
+                        found = true;
                     }
                 }
             }
@@ -891,38 +872,36 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         // 4d. Final fallback: Scan S3 directly for ID documents (handles files uploaded manually to S3)
         if (documents.idDocuments.length === 0) {
             console.log(`[Worker] No ID docs found in DB, scanning S3 directly...`);
-            for (const folder of folderVariations) {
+            for (const subFolder of idSubfolders) {
                 if (documents.idDocuments.length > 0) break;
-                for (const subFolder of idSubfolders) {
-                    const prefix = `${folder}/Documents/${subFolder}/`;
-                    try {
-                        const listParams = {
-                            Bucket: S3_BUCKET,
-                            Prefix: prefix,
-                            MaxKeys: 10
-                        };
-                        const listResult = await s3.send(new ListObjectsV2Command(listParams));
-                        if (listResult.Contents && listResult.Contents.length > 0) {
-                            for (const obj of listResult.Contents) {
-                                if (obj.Key && obj.Key !== prefix) {
-                                    const fileName = obj.Key.split('/').pop();
-                                    const docBuffer = await fetchPdfFromS3(obj.Key);
-                                    if (docBuffer) {
-                                        const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
-                                        const contentType = isImage ? 'image/jpeg' : 'application/pdf';
-                                        documents.idDocuments.push({
-                                            filename: fileName,
-                                            content: docBuffer,
-                                            contentType: contentType
-                                        });
-                                        console.log(`[Worker] ✅ Found ID Document (S3 scan): ${fileName} at ${obj.Key}`);
-                                    }
+                const prefix = `${folderName}/Documents/${subFolder}/`;
+                try {
+                    const listParams = {
+                        Bucket: S3_BUCKET,
+                        Prefix: prefix,
+                        MaxKeys: 10
+                    };
+                    const listResult = await s3.send(new ListObjectsV2Command(listParams));
+                    if (listResult.Contents && listResult.Contents.length > 0) {
+                        for (const obj of listResult.Contents) {
+                            if (obj.Key && obj.Key !== prefix) {
+                                const fileName = obj.Key.split('/').pop();
+                                const docBuffer = await fetchPdfFromS3(obj.Key);
+                                if (docBuffer) {
+                                    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                                    const contentType = isImage ? 'image/jpeg' : 'application/pdf';
+                                    documents.idDocuments.push({
+                                        filename: fileName,
+                                        content: docBuffer,
+                                        contentType: contentType
+                                    });
+                                    console.log(`[Worker] ✅ Found ID Document (S3 scan): ${fileName} at ${obj.Key}`);
                                 }
                             }
                         }
-                    } catch (s3Err) {
-                        console.warn(`[Worker] Could not scan S3 folder ${prefix}:`, s3Err.message);
                     }
+                } catch (s3Err) {
+                    console.warn(`[Worker] Could not scan S3 folder ${prefix}:`, s3Err.message);
                 }
             }
         }
