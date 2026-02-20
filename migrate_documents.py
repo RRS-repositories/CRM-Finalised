@@ -31,7 +31,7 @@ load_dotenv('.env')
 SOURCE_BUCKET = 'migration-bucket-flg'
 SOURCE_PREFIX = 'export/12509/'
 TARGET_BUCKET = 'client.landing.page'
-EXCEL_FILE = './LOA SIGNED LEAD.xlsx'
+EXCEL_FILE = './public/LOA SIGNED LEAD.xlsx'
 LENDERS_FILE = './all_lenders_details.json'
 
 # AWS Clients
@@ -281,11 +281,57 @@ def copy_s3_object(source_bucket: str, source_key: str, target_bucket: str, targ
         return False
 
 
+def insert_document_record(conn, contact_id: int, filename: str, doc_type: str, lender: Optional[str], dry_run: bool = False):
+    """Insert a record into the documents table so the worker can find it"""
+    if dry_run:
+        print(f"  [DRY-RUN] Would insert document record: {filename} ({doc_type})")
+        return True
+
+    # Map doc_type to category
+    category_map = {
+        'ID_DOCUMENT': 'ID Document',
+        'LOA': 'LOA',
+        'COVER_LETTER': 'Cover Letter',
+        'OTHER': 'Other'
+    }
+    category = category_map.get(doc_type, 'Other')
+
+    # Determine file type from extension
+    ext = filename.lower().split('.')[-1] if '.' in filename else ''
+    file_type = 'image' if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp'] else 'pdf'
+
+    try:
+        cur = conn.cursor()
+        # Check if document already exists
+        cur.execute(
+            "SELECT id FROM documents WHERE contact_id = %s AND name = %s AND category = %s",
+            (contact_id, filename, category)
+        )
+        if cur.fetchone():
+            print(f"  [SKIP] Document already exists in DB: {filename}")
+            return True
+
+        # Insert the document record
+        tags = [lender] if lender else []
+        cur.execute("""
+            INSERT INTO documents (contact_id, name, type, category, tags, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+        """, (contact_id, filename, file_type, category, tags))
+        conn.commit()
+        print(f"  [DB] Inserted document record: {filename} ({category})")
+        return True
+    except Exception as e:
+        print(f"  [ERROR] Failed to insert document record: {e}")
+        conn.rollback()
+        return False
+
+
 def process_reference(
     reference: str,
     contact: Dict,
     classifier: DocumentClassifier,
     logger: MigrationLogger,
+    conn,
     dry_run: bool = False
 ) -> Dict:
     """
@@ -332,6 +378,15 @@ def process_reference(
 
             # Copy file
             if copy_s3_object(SOURCE_BUCKET, source_key, TARGET_BUCKET, target_path, dry_run):
+                # Insert record into documents table so worker can find it
+                insert_document_record(
+                    conn,
+                    contact['contact_id'],
+                    new_filename,
+                    classification['type'],
+                    lender,
+                    dry_run
+                )
                 logger.log_success(source_key, target_path, classification)
                 stats['success'] += 1
             else:
@@ -407,7 +462,7 @@ def main():
 
         print(f"[{i}/{len(excel_refs)}] Processing {reference} -> {contact['first_name']} {contact['last_name']} (ID: {contact['contact_id']})", flush=True)
 
-        stats = process_reference(reference, contact, classifier, logger, args.dry_run)
+        stats = process_reference(reference, contact, classifier, logger, conn, args.dry_run)
         total_stats['processed'] += stats['processed']
         total_stats['success'] += stats['success']
         total_stats['errors'] += stats['errors']
