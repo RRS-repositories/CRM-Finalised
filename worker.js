@@ -921,10 +921,11 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         // 4d. Final fallback: Scan S3 directly for ID documents (handles files uploaded manually to S3)
         if (documents.idDocuments.length === 0) {
-            console.log(`[Worker] No ID docs found in DB, scanning S3 directly...`);
+            console.log(`[Worker] No ID docs found in DB, scanning S3 directly for folderName: ${folderName}`);
             for (const subFolder of idSubfolders) {
                 if (documents.idDocuments.length > 0) break;
                 const prefix = `${folderName}/Documents/${subFolder}/`;
+                console.log(`[Worker] Scanning S3 prefix: ${prefix}`);
                 try {
                     const listParams = {
                         Bucket: S3_BUCKET,
