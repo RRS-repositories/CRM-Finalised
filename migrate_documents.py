@@ -190,8 +190,8 @@ def list_s3_folder(bucket: str, prefix: str) -> List[str]:
 
 
 def sanitize_name(name: str) -> str:
-    """Sanitize name for S3 path (remove special chars, replace spaces with underscore)"""
-    return re.sub(r'[^a-zA-Z0-9\s]', '', name).replace(' ', '_').strip('_')
+    """Sanitize name for S3 path (keep dots, remove other special chars, replace spaces with underscore)"""
+    return re.sub(r'[^a-zA-Z0-9\s.]', '', name).replace(' ', '_').strip('_')
 
 
 def build_target_path(
