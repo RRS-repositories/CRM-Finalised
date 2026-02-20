@@ -554,7 +554,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
     try {
         const testKey = `${expectedFolderName}/`;
         const listParams = {
-            Bucket: S3_BUCKET,
+            Bucket: BUCKET_NAME,
             Prefix: testKey,
             MaxKeys: 1
         };
@@ -569,7 +569,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
     // If not found, search for any folder ending with _CONTACTID or ._CONTACTID
     try {
         const listParams = {
-            Bucket: S3_BUCKET,
+            Bucket: BUCKET_NAME,
             Delimiter: '/',
             MaxKeys: 1000
         };
@@ -928,7 +928,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                 console.log(`[Worker] Scanning S3 prefix: ${prefix}`);
                 try {
                     const listParams = {
-                        Bucket: S3_BUCKET,
+                        Bucket: BUCKET_NAME,
                         Prefix: prefix,
                         MaxKeys: 10
                     };
