@@ -248,10 +248,12 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
     console.log('[PDF Generator] Converting DOCX to PDF using OnlyOffice...');
     const pdfBuffer = await convertDocxToPdf(filledDocx, `${documentType}.docx`);
 
-    // 8. Build S3 key
-    const timestamp = Date.now();
-    const sanitizedName = `${contact.first_name}_${contact.last_name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const fileName = `${sanitizedName}_${documentType.replace(/\s+/g, '_')}_${timestamp}.pdf`;
+    // 8. Build S3 key with proper naming convention
+    const refSpec = `${contact.id}${caseData.id}`;
+    const contactName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim() || 'Unknown';
+    const sanitizedLender = (caseData.lender || 'NO_LENDER').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docType = documentType === 'LOA' ? 'LOA' : 'COVER LETTER';
+    const fileName = `${refSpec} - ${contactName} - ${sanitizedLender} - ${docType}.pdf`;
     const s3Key = `documents/${contact.id}/${fileName}`;
 
     // 9. Upload to S3
