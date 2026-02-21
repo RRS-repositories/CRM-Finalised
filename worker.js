@@ -579,7 +579,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
             Prefix: testKey,
             MaxKeys: 1
         };
-        const result = await s3.send(new ListObjectsV2Command(listParams));
+        const result = await s3Client.send(new ListObjectsV2Command(listParams));
         if (result.Contents && result.Contents.length > 0) {
             return expectedFolderName;
         }
@@ -594,7 +594,7 @@ async function findActualS3Folder(expectedFolderName, contactId) {
             Delimiter: '/',
             MaxKeys: 1000
         };
-        const result = await s3.send(new ListObjectsV2Command(listParams));
+        const result = await s3Client.send(new ListObjectsV2Command(listParams));
         if (result.CommonPrefixes) {
             for (const prefix of result.CommonPrefixes) {
                 const folderPath = prefix.Prefix.replace(/\/$/, '');
@@ -832,150 +832,56 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         console.warn('[Worker] Could not fetch previous address document:', err.message);
     }
 
-    // 4. ID Documents - gather ALL from Documents/ID_Document/ AND Lenders/{lender}/ID_Document/
+    // 4. ID Documents - Scan S3 directly (no DB dependency)
+    // Check both Documents/ID_Document/ and Lenders/{lender}/ID_Document/ folders
     try {
-        // ID Document subfolder variations (underscore vs space) - only check within the correct contact folder
         const idSubfolders = ['ID_Document', 'ID Document'];
 
-        // 4a. Get ID documents from Documents/ID_Document/ folder (category = 'ID Document')
-        const generalIdDocsQuery = await pool.query(
-            `SELECT name, type FROM documents
-             WHERE contact_id = $1
-             AND category = 'ID Document'
-             ORDER BY created_at DESC`,
-            [contactId]
-        );
+        // Helper function to scan S3 folder for ID documents
+        async function scanS3ForIdDocs(prefix) {
+            try {
+                const listParams = {
+                    Bucket: BUCKET_NAME,
+                    Prefix: prefix,
+                    MaxKeys: 20
+                };
+                const listResult = await s3Client.send(new ListObjectsV2Command(listParams));
+                if (listResult.Contents && listResult.Contents.length > 0) {
+                    for (const obj of listResult.Contents) {
+                        if (obj.Key && obj.Key !== prefix) {
+                            const fileName = obj.Key.split('/').pop();
+                            // Skip if already have this file
+                            if (documents.idDocuments.some(d => d.filename === fileName)) continue;
 
-        for (const row of generalIdDocsQuery.rows) {
-            let found = false;
-            // Try both subfolder variations (ID_Document and ID Document)
-            for (const subFolder of idSubfolders) {
-                if (found) break;
-                const idDocKey = `${folderName}/Documents/${subFolder}/${row.name}`;
-                const docBuffer = await fetchPdfFromS3(idDocKey);
-                if (docBuffer) {
-                    const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                    documents.idDocuments.push({
-                        filename: row.name,
-                        content: docBuffer,
-                        contentType: contentType
-                    });
-                    console.log(`[Worker] ✅ Found ID Document (general): ${row.name} at ${idDocKey}`);
-                    found = true;
-                }
-            }
-        }
-
-        // 4b. Get ID documents from Lenders/{lender}/ID_Document/ folder
-        const lenderIdDocsQuery = await pool.query(
-            `SELECT name, type FROM documents
-             WHERE contact_id = $1
-             AND category = 'ID Document'
-             AND tags @> ARRAY[$2]::text[]
-             ORDER BY created_at DESC`,
-            [contactId, lenderName]
-        );
-
-        for (const row of lenderIdDocsQuery.rows) {
-            let found = false;
-            for (const subFolder of idSubfolders) {
-                if (found) break;
-                const idDocKey = `${folderName}/Lenders/${sanitizedLenderName}/${subFolder}/${row.name}`;
-                const docBuffer = await fetchPdfFromS3(idDocKey);
-                if (docBuffer) {
-                    const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                    // Avoid duplicates
-                    const exists = documents.idDocuments.some(d => d.filename === row.name);
-                    if (!exists) {
-                        documents.idDocuments.push({
-                            filename: row.name,
-                            content: docBuffer,
-                            contentType: contentType
-                        });
-                        console.log(`[Worker] ✅ Found ID Document (lender): ${row.name} at ${idDocKey}`);
-                    }
-                    found = true;
-                }
-            }
-        }
-
-        // 4c. Fallback: check for legacy ID documents (keywords in name)
-        if (documents.idDocuments.length === 0) {
-            const legacyIdQuery = await pool.query(
-                `SELECT name, type FROM documents
-                 WHERE contact_id = $1
-                 AND (
-                     LOWER(name) LIKE '%passport%' OR
-                     LOWER(name) LIKE '%license%' OR
-                     LOWER(name) LIKE '%licence%' OR
-                     LOWER(name) LIKE '%driving%' OR
-                     LOWER(name) LIKE '%identity%'
-                 )
-                 ORDER BY created_at DESC
-                 LIMIT 5`,
-                [contactId]
-            );
-
-            for (const row of legacyIdQuery.rows) {
-                let found = false;
-                const pathsToTry = [
-                    `${folderName}/Documents/${row.name}`,
-                    `${folderName}/Documents/ID_Document/${row.name}`,
-                    `${folderName}/Documents/ID Document/${row.name}`
-                ];
-                for (const path of pathsToTry) {
-                    if (found) break;
-                    const docBuffer = await fetchPdfFromS3(path);
-                    if (docBuffer) {
-                        const contentType = row.type === 'image' ? 'image/jpeg' : 'application/pdf';
-                        documents.idDocuments.push({
-                            filename: row.name,
-                            content: docBuffer,
-                            contentType: contentType
-                        });
-                        console.log(`[Worker] ✅ Found legacy ID Document: ${row.name} at ${path}`);
-                        found = true;
-                    }
-                }
-            }
-        }
-
-        // 4d. Final fallback: Scan S3 directly for ID documents (handles files uploaded manually to S3)
-        if (documents.idDocuments.length === 0) {
-            console.log(`[Worker] No ID docs found in DB, scanning S3 directly for folderName: ${folderName}`);
-            for (const subFolder of idSubfolders) {
-                if (documents.idDocuments.length > 0) break;
-                const prefix = `${folderName}/Documents/${subFolder}/`;
-                console.log(`[Worker] Scanning S3 prefix: ${prefix}`);
-                try {
-                    const listParams = {
-                        Bucket: BUCKET_NAME,
-                        Prefix: prefix,
-                        MaxKeys: 10
-                    };
-                    const listResult = await s3.send(new ListObjectsV2Command(listParams));
-                    if (listResult.Contents && listResult.Contents.length > 0) {
-                        for (const obj of listResult.Contents) {
-                            if (obj.Key && obj.Key !== prefix) {
-                                const fileName = obj.Key.split('/').pop();
-                                const docBuffer = await fetchPdfFromS3(obj.Key);
-                                if (docBuffer) {
-                                    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
-                                    const contentType = isImage ? 'image/jpeg' : 'application/pdf';
-                                    documents.idDocuments.push({
-                                        filename: fileName,
-                                        content: docBuffer,
-                                        contentType: contentType
-                                    });
-                                    console.log(`[Worker] ✅ Found ID Document (S3 scan): ${fileName} at ${obj.Key}`);
-                                }
+                            const docBuffer = await fetchPdfFromS3(obj.Key);
+                            if (docBuffer) {
+                                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                                const contentType = isImage ? 'image/jpeg' : 'application/pdf';
+                                documents.idDocuments.push({
+                                    filename: fileName,
+                                    content: docBuffer,
+                                    contentType: contentType
+                                });
+                                console.log(`[Worker] ✅ Found ID Document: ${fileName} at ${obj.Key}`);
                             }
                         }
                     }
-                } catch (s3Err) {
-                    console.warn(`[Worker] Could not scan S3 folder ${prefix}:`, s3Err.message);
                 }
+            } catch (s3Err) {
+                // Silently continue - folder might not exist
             }
+        }
+
+        // 4a. Scan Documents/ID_Document/ and Documents/ID Document/
+        for (const subFolder of idSubfolders) {
+            const prefix = `${folderName}/Documents/${subFolder}/`;
+            await scanS3ForIdDocs(prefix);
+        }
+
+        // 4b. Scan Lenders/{lender}/ID_Document/ and Lenders/{lender}/ID Document/
+        for (const subFolder of idSubfolders) {
+            const prefix = `${folderName}/Lenders/${sanitizedLenderName}/${subFolder}/`;
+            await scanS3ForIdDocs(prefix);
         }
 
         console.log(`[Worker] Total ID Documents found: ${documents.idDocuments.length}`);
