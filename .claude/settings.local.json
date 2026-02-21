@@ -80,7 +80,12 @@
       "Bash(lsof:*)",
       "Bash(xargs kill:*)",
       "Bash(nslookup:*)",
-      "Bash(git -C /c/Users/Admin/Documents/FAC/AWS/CRM-Finalised remote -v)"
+      "Bash(git -C /c/Users/Admin/Documents/FAC/AWS/CRM-Finalised remote -v)",
+      "Bash(npm audit:*)",
+      "Bash(npm view:*)",
+      "Bash(unzip:*)",
+      "Bash(aws lambda list-functions:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }
