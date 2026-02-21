@@ -101,7 +101,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         contact.postal_code
     ].filter(Boolean).join(', ');
 
-    // Build previous address - show first address only, add "..." if more exist
+    // Build previous address - show first address only (comma-separated)
     let previousAddress = '—';
 
     // First try the JSONB array
@@ -117,9 +117,6 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
 
         if (addrParts) {
             previousAddress = addrParts;
-            if (contact.previous_addresses.length > 1) {
-                previousAddress += '...';
-            }
         }
     } else {
         // Fallback to individual columns
