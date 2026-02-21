@@ -152,6 +152,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             address: clientAddress,
             postcode: contact.postal_code || '',
             previousAddress: previousAddress,
+            previousAddressLine1: contact.previous_addresses?.[0]?.address_line_1 || contact.previous_address_line_1 || '',
+            previousAddressLine2: contact.previous_addresses?.[0]?.address_line_2 || contact.previous_address_line_2 || '',
+            previousCity: contact.previous_addresses?.[0]?.city || contact.previous_city || '',
+            previousCounty: contact.previous_addresses?.[0]?.county || contact.previous_county || '',
+            previousPostcode: contact.previous_addresses?.[0]?.postal_code || contact.previous_postal_code || '',
             dateOfBirth: dob,
             dob: dob,
             ipAddress: contact.ip_address || '',
@@ -193,6 +198,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         clientAddress: clientAddress,
         clientPostcode: contact.postal_code || '',
         clientPreviousAddress: previousAddress,
+        clientPreviousAddressLine1: contact.previous_addresses?.[0]?.address_line_1 || contact.previous_address_line_1 || '',
+        clientPreviousAddressLine2: contact.previous_addresses?.[0]?.address_line_2 || contact.previous_address_line_2 || '',
+        clientPreviousCity: contact.previous_addresses?.[0]?.city || contact.previous_city || '',
+        clientPreviousCounty: contact.previous_addresses?.[0]?.county || contact.previous_county || '',
+        clientPreviousPostcode: contact.previous_addresses?.[0]?.postal_code || contact.previous_postal_code || '',
         clientDateOfBirth: dob,
         clientDOB: dob,
         clientIpAddress: contact.ip_address || '',
@@ -216,7 +226,13 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         today: today,
         date: today,
         year: String(new Date().getFullYear()),
-        signatureImage: signatureBase64 || '[Signature]',
+        signatureImage: signatureBase64 ? {
+            _type: 'image',
+            source: signatureBase64.split(',')[1], // Extract base64 data without 'data:image/png;base64,' prefix
+            format: 'png',
+            width: 5, // Width in cm
+            height: 2.5 // Height in cm
+        } : null,
     };
 }
 
