@@ -208,13 +208,16 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
     const lenderEmail = getLenderEmail(caseData.lender);
 
     // 3. Load template from database
+    // Map documentType to template field
+    const useField = documentType === 'LOA' ? 'use_for_loa' : 'use_for_cover_letter';
+
     const templateQuery = `
-        SELECT s3_key FROM onlyoffice_templates
-        WHERE document_type = $1
+        SELECT s3_key FROM oo_templates
+        WHERE ${useField} = TRUE AND is_active = TRUE
         ORDER BY created_at DESC
         LIMIT 1
     `;
-    const templateResult = await pool.query(templateQuery, [documentType]);
+    const templateResult = await pool.query(templateQuery);
 
     if (templateResult.rows.length === 0) {
         throw new Error(`No OnlyOffice template found for ${documentType}`);
