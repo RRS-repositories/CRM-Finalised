@@ -170,6 +170,27 @@ pool.on('error', (err, client) => {
     console.error('Unexpected error on idle client', err);
 });
 
+// --- Helper: Insert error notification into persistent_notifications ---
+async function insertErrorNotification(contactId, contactName, description) {
+    try {
+        console.log(`[Worker] 🔔 Creating error notification for ${contactName} (ID: ${contactId})`);
+        const result = await pool.query(
+            `INSERT INTO persistent_notifications (type, title, message, contact_id, contact_name, link, is_read, created_at)
+             VALUES ('action_error', $1, $2, $3, $4, $5, false, NOW()) RETURNING id`,
+            [
+                `Error: ${contactName}`,
+                description,
+                contactId,
+                contactName,
+                `/contacts/${contactId}`
+            ]
+        );
+        console.log(`[Worker] ✅ Error notification created (ID: ${result.rows[0]?.id}) for ${contactName}`);
+    } catch (err) {
+        console.error('[Worker] ❌ Error inserting error notification:', err.message);
+    }
+}
+
 // ============================================================================
 // LENDER CATEGORIES FOR DSAR PROCESSING
 // ============================================================================
@@ -1464,6 +1485,7 @@ const processPendingDSAREmails = async () => {
                          VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
                         [record.contact_id, record.case_id, `DSAR not allowed for ${record.lender} - please contact support for manual processing`]
                     );
+                    await insertErrorNotification(record.contact_id, clientName, `DSAR not allowed for ${record.lender} - please contact support for manual processing`);
                     continue;
                 }
 
@@ -1520,6 +1542,7 @@ const processPendingDSAREmails = async () => {
                              VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
                             [record.contact_id, record.case_id, `DSAR failed for ${record.lender} - no email address available. Status reverted to LOA Signed.`]
                         );
+                        await insertErrorNotification(record.contact_id, clientName, `DSAR failed for ${record.lender} - no email address available. Status reverted to LOA Signed.`);
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - no lender email`);
                     } else if (emailResult.reason === 'send_failed' || emailResult.reason === 'draft_failed') {
                         console.error(`[Worker] ❌ ${EMAIL_DRAFT_MODE ? 'Draft creation' : 'Email send'} FAILED for Case ${record.case_id}. Error: ${emailResult.error}`);
@@ -1534,6 +1557,7 @@ const processPendingDSAREmails = async () => {
                              VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
                             [record.contact_id, record.case_id, `DSAR ${EMAIL_DRAFT_MODE ? 'draft creation' : 'send'} failed for ${record.lender}. Error: ${emailResult.error}. Status reverted to LOA Signed.`]
                         );
+                        await insertErrorNotification(record.contact_id, clientName, `DSAR ${EMAIL_DRAFT_MODE ? 'draft creation' : 'send'} failed for ${record.lender}. Error: ${emailResult.error}. Status reverted to LOA Signed.`);
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - ${emailResult.reason}`);
                     } else if (emailResult.reason === 'missing_required_docs') {
                         // Missing LOA - revert to LOA Signed so user knows action is needed
@@ -1547,6 +1571,9 @@ const processPendingDSAREmails = async () => {
                              VALUES ($1, $2, 'system', 'worker', 'dsar_failed', 'claims', $3)`,
                             [record.contact_id, record.case_id, `DSAR failed for ${record.lender} - missing LOA document. Status reverted to LOA Signed.`]
                         );
+                        console.log(`[Worker] >>> ABOUT TO INSERT ERROR NOTIFICATION for ${clientName} (contact: ${record.contact_id})`);
+                        await insertErrorNotification(record.contact_id, clientName, `DSAR failed for ${record.lender} - missing LOA document. Status reverted to LOA Signed.`);
+                        console.log(`[Worker] >>> DONE inserting error notification`);
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing LOA`);
                     } else if (emailResult.reason === 'missing_id_documents') {
                         // Category 2 lenders require ID - fail and log
@@ -1560,6 +1587,7 @@ const processPendingDSAREmails = async () => {
                              VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
                             [record.contact_id, record.case_id, `⚠️ No ID document available - cannot send DSAR for ${record.lender}. Please upload ID document in Documents or Claim Documents section.`]
                         );
+                        await insertErrorNotification(record.contact_id, clientName, `No ID document available - cannot send DSAR for ${record.lender}. Please upload ID document in Documents or Claim Documents section.`);
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing ID documents (required for ${record.lender})`);
                     } else if (emailResult.reason === 'missing_cover_letter') {
                         // Category 1 lenders require Cover Letter - fail and log
@@ -1573,6 +1601,7 @@ const processPendingDSAREmails = async () => {
                              VALUES ($1, $2, 'system', 'worker', 'dsar_blocked', 'claims', $3)`,
                             [record.contact_id, record.case_id, `⚠️ Missing Cover Letter - cannot send DSAR for ${record.lender}. Both LOA and Cover Letter are required.`]
                         );
+                        await insertErrorNotification(record.contact_id, clientName, `Missing Cover Letter - cannot send DSAR for ${record.lender}. Both LOA and Cover Letter are required.`);
                         console.log(`[Worker] ⚠️ Status reverted to 'LOA Signed' for Case ${record.case_id} - missing Cover Letter (required for ${record.lender})`);
                     }
                 }

@@ -194,7 +194,7 @@ const OnlyOfficeEditor: React.FC<OnlyOfficeEditorProps> = ({ type, id, title, on
   }, [insertFieldAtCursor]);
 
   return (
-    <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col">
+    <div className="fixed inset-0 z-[200] bg-white dark:bg-slate-900 flex flex-col">
       {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-3">

@@ -745,7 +745,7 @@ export interface Task {
   completedBy?: string;
 }
 
-export type NotificationType = 'task_assigned' | 'meeting_scheduled' | 'follow_up_due' | 'task_completed' | 'ticket_raised' | 'ticket_resolved';
+export type NotificationType = 'task_assigned' | 'meeting_scheduled' | 'follow_up_due' | 'task_completed' | 'ticket_raised' | 'ticket_resolved' | 'action_error';
 
 export type TicketStatus = 'open' | 'resolved';
 
@@ -774,7 +774,10 @@ export interface PersistentNotification {
   relatedTaskId?: string;
   taskTitle?: string;
   taskDate?: string;
+  contactId?: string;
+  contactName?: string;
   isRead: boolean;
+  isExiting?: boolean;
   createdAt: string;
 }
 

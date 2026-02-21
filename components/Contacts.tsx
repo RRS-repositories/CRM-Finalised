@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
    Search, Filter, Upload, Download, MoreHorizontal,
    Trash2, X, UserPlus, ArrowLeft, Clock as ClockIcon,
@@ -5236,19 +5236,28 @@ const Contacts: React.FC = () => {
    const { contacts, addContact, deleteContacts, addNotification, actionLogs, fetchAllActionLogs, addCommunication, pendingContactNavigation, clearContactNavigation, contactsPagination, fetchContactsPage } = useCRM();
    const navigate = useNavigate();
    const { contactId: urlContactId } = useParams<{ contactId: string }>();
+   const [searchParams] = useSearchParams();
 
    // Fetch all action logs for the Last Activity column
    useEffect(() => {
       fetchAllActionLogs();
    }, [fetchAllActionLogs]);
 
-   // Sync URL param with selectedContactId state
+   // Sync URL param with selectedContactId state (supports new tab via query params)
    useEffect(() => {
       if (urlContactId) {
          setSelectedContactId(urlContactId);
          setViewMode('detail');
+         const tabParam = searchParams.get('tab');
+         const claimIdParam = searchParams.get('claimId');
+         if (tabParam) {
+            setInitialTab(tabParam as ContactTab);
+         }
+         if (claimIdParam) {
+            setInitialClaimId(claimIdParam);
+         }
       }
-   }, [urlContactId]);
+   }, [urlContactId, searchParams]);
 
    // Callback to navigate back to Pipeline/Cases module
    const handleBackToPipeline = useCallback(() => {

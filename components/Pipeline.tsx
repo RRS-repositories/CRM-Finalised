@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { PIPELINE_CATEGORIES, SPEC_LENDERS } from '../constants';
 import { ClaimStatus, Claim, Contact } from '../types';
 import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
@@ -420,8 +420,7 @@ const KanbanColumn = memo<{
 KanbanColumn.displayName = 'KanbanColumn';
 
 const Pipeline: React.FC = () => {
-  const { claims, contacts, updateClaimStatus, bulkUpdateClaimStatusByIds, navigateToContact, fetchAllClaims } = useCRM();
-  const navigate = useNavigate();
+  const { claims, contacts, updateClaimStatus, bulkUpdateClaimStatusByIds, fetchAllClaims } = useCRM();
 
   // Fetch all claims when Pipeline loads
   useEffect(() => {
@@ -686,11 +685,10 @@ const Pipeline: React.FC = () => {
     return uniqueLenders.filter(l => l.toLowerCase().includes(lenderSearch.toLowerCase()));
   }, [lenderSearch, uniqueLenders]);
 
-  // Stable callback for navigating to a contact from kanban card
+  // Stable callback for navigating to a contact - opens in new tab
   const handleNavigateToContact = useCallback((contactId: string, claimId: string) => {
-    navigateToContact(contactId, 'claims', claimId);
-    navigate('/contacts');
-  }, [navigateToContact, navigate]);
+    window.open(`/contacts/${contactId}?tab=claims&claimId=${claimId}`, '_blank');
+  }, []);
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -1049,6 +1047,11 @@ const Pipeline: React.FC = () => {
                                     ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/20' : index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/50 dark:bg-slate-800/50'}
                                  `}
                                  onClick={() => toggleClaimSelection(claim.id)}
+                                 onDoubleClick={() => {
+                                    if (claim.contactId) {
+                                       handleNavigateToContact(claim.contactId, claim.id);
+                                    }
+                                 }}
                               >
                                  {/* Checkbox */}
                                  <td className="w-12 px-4 py-3 border-r border-gray-100 dark:border-slate-700">

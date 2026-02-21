@@ -73,7 +73,14 @@
       "Bash(sshpass -p \"Gaynorhilton24\\\\!\\\\!\" ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"echo ''Connected''\")",
       "Bash(sshpass -p 'Fac@12345678' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"docker ps --format ''{{.ID}} {{.Image}}''\")",
       "Bash(sshpass -p 'Fac@12345678' ssh -o StrictHostKeyChecking=no root@168.231.79.19 \"docker exec 635061bc5b73 /var/www/onlyoffice/documentserver/npm/json -f /etc/onlyoffice/documentserver/local.json ''services.CoAuthoring.secret.session.string''\")",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(ls:*)",
+      "Bash(wmic process:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(nslookup:*)",
+      "Bash(git -C /c/Users/Admin/Documents/FAC/AWS/CRM-Finalised remote -v)"
     ]
   }
 }

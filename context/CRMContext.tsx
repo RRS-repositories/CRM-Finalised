@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useRef, ReactNode, useEffect, useCallback, useMemo } from 'react';
 import { Contact, ClaimStatus, Document, DocumentStatus, Template, Form, User, Role, Claim, ActivityLog, Notification, ViewState, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, BankDetails, PreviousAddressEntry, Task, TaskReminder, PersistentNotification, TimelineItem, SupportTicket } from '../types';
 import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYPES } from '../constants';
 import { emailService } from '../services/emailService';
@@ -63,6 +63,8 @@ interface CRMContextType {
   notifications: Notification[];
   addNotification: (type: 'success' | 'error' | 'info', message: string) => void;
   removeNotification: (id: string) => void;
+  errorToasts: PersistentNotification[];
+  removeErrorToast: (id: string) => void;
 
   // Context Awareness for AI
   activeContext: ActiveContext | null;
@@ -345,6 +347,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [persistentNotifications, setPersistentNotifications] = useState<PersistentNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [errorToasts, setErrorToasts] = useState<PersistentNotification[]>([]);
+  const seenNotificationIds = useRef<Set<string>>(new Set());
+  const isFirstNotificationFetch = useRef(true);
 
   // Support Tickets State
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -458,6 +463,40 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 400);
   };
+
+  // --- Error Toast Notifications (from worker errors) ---
+  const playNotificationSound = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+      oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.3);
+    } catch (e) { /* Ignore audio errors */ }
+  }, []);
+
+  const addErrorToast = useCallback((notification: PersistentNotification) => {
+    setErrorToasts(prev => [...prev, { ...notification, isExiting: false }]);
+    playNotificationSound();
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+      removeErrorToast(notification.id);
+    }, 10000);
+  }, [playNotificationSound]);
+
+  const removeErrorToast = useCallback((id: string) => {
+    setErrorToasts(prev => prev.map(n => n.id === id ? { ...n, isExiting: true } : n));
+    setTimeout(() => {
+      setErrorToasts(prev => prev.filter(n => n.id !== id));
+    }, 500);
+  }, []);
 
   // --- Data Fetching ---
 
@@ -2865,7 +2904,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const data = await notifResponse.json();
         const mapped: PersistentNotification[] = data.map((n: any) => ({
           id: n.id.toString(),
-          userId: n.user_id.toString(),
+          userId: n.user_id?.toString() || '',
           type: n.type,
           title: n.title,
           message: n.message,
@@ -2873,10 +2912,43 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           relatedTaskId: n.related_task_id?.toString(),
           taskTitle: n.task_title,
           taskDate: n.task_date,
+          contactId: n.contact_id?.toString(),
+          contactName: n.contact_name,
           isRead: n.is_read,
           createdAt: n.created_at
         }));
         setPersistentNotifications(mapped);
+
+        // Detect new error notifications and show toasts
+        if (isFirstNotificationFetch.current) {
+          // First load: show toasts for recent unread errors (last 30 min), seed the rest
+          const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+          const recentUnread: PersistentNotification[] = [];
+          mapped.forEach(n => {
+            if (n.type === 'action_error' && !n.isRead && n.createdAt > thirtyMinAgo) {
+              recentUnread.push(n);
+            }
+            seenNotificationIds.current.add(n.id);
+          });
+          // Show up to 5 most recent as toasts (they're already sorted desc)
+          recentUnread.slice(0, 5).reverse().forEach(n => {
+            addErrorToast(n);
+          });
+          isFirstNotificationFetch.current = false;
+        } else {
+          const newErrors = mapped.filter(
+            n => n.type === 'action_error' && !n.isRead && !seenNotificationIds.current.has(n.id)
+          );
+          if (newErrors.length > 0) {
+            newErrors.forEach(n => {
+              seenNotificationIds.current.add(n.id);
+              addErrorToast(n);
+            });
+            // Refresh claims data so status changes (e.g. reverted to LOA Signed) appear live
+            claimsFetchedAtRef.current = 0; // Reset cache to force fresh fetch
+            fetchAllClaims();
+          }
+        }
       }
 
       if (countResponse.ok) {
@@ -2886,7 +2958,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error) {
       console.error('Error fetching notifications:', error);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, addErrorToast, fetchAllClaims]);
 
   const markNotificationRead = async (notificationId: string): Promise<void> => {
     try {
@@ -3047,6 +3119,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     requestPasswordReset, resetPassword,
     contacts, documents, templates, forms, claims, appointments, activityLogs,
     notifications, addNotification, removeNotification,
+    errorToasts, removeErrorToast,
     activeContext, setActiveContext,
     currentView, setCurrentView,
     pendingContactNavigation, navigateToContact, clearContactNavigation,
@@ -3070,13 +3143,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     contactsPagination, loadMoreContacts, fetchContactsPage
   }), [
     currentUser, users, contacts, documents, templates, forms, claims, appointments,
-    activityLogs, notifications, activeContext, currentView, pendingContactNavigation,
+    activityLogs, notifications, errorToasts, activeContext, currentView, pendingContactNavigation,
     communications, workflowTriggers, crmNotes, notesLoading, actionLogs, theme,
     tasks, persistentNotifications, unreadNotificationCount, tickets, isLoading, contactsPagination,
     // Stable callbacks (useCallback) won't trigger re-renders
     login, logout, initiateRegistration, verifyRegistration, updateUserRole, updateUserStatus,
     deleteUser, requestPasswordReset, resetPassword, addNotification, removeNotification,
-    setActiveContext, setCurrentView, navigateToContact, clearContactNavigation,
+    removeErrorToast, setActiveContext, setCurrentView, navigateToContact, clearContactNavigation,
     updateContactStatus, updateContact, addContact, deleteContacts, getContactDetails,
     getPipelineStats, addClaim, updateClaim, deleteClaim, updateClaimStatus,
     bulkUpdateClaimStatusByIds, bulkUpdateClaims, addAppointment, updateAppointment,

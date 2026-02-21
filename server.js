@@ -28,6 +28,7 @@ import { generateCoverLetterFromTemplate } from './coverletter.js';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import jwt from 'jsonwebtoken';
+import crmEvents from './services/crmEvents.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,6 +152,9 @@ pool.on('error', (err, client) => {
     console.error('Unexpected error on idle client', err);
     // Don't exit the process specifically for ETIMEDOUT or ECONNRESET on idle clients
 });
+
+// Initialise CRM event bus (Windmill automation dispatch)
+crmEvents.init(pool);
 // --- DATABASE INITIALIZATION & MIGRATIONS ---
 (async () => {
     try {
@@ -395,6 +399,48 @@ pool.on('error', (err, client) => {
             `);
             console.log('✅ Cases table schema synchronized');
 
+            // Add contact_id and contact_name columns to persistent_notifications for error notifications
+            await client.query(`
+                ALTER TABLE persistent_notifications ADD COLUMN IF NOT EXISTS contact_id INTEGER;
+                ALTER TABLE persistent_notifications ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255);
+            `);
+            console.log('✅ persistent_notifications contact columns ready');
+
+            // Backfill: migrate existing action_log errors into persistent_notifications
+            const { rows: existingErrors } = await client.query(`
+                SELECT al.client_id, al.description, al.timestamp,
+                       c.first_name, c.last_name
+                FROM action_logs al
+                LEFT JOIN contacts c ON al.client_id = c.id
+                WHERE al.action_type IN ('dsar_blocked', 'dsar_failed')
+                AND al.actor_type = 'system'
+                AND NOT EXISTS (
+                    SELECT 1 FROM persistent_notifications pn
+                    WHERE pn.type = 'action_error'
+                    AND pn.contact_id = al.client_id
+                    AND pn.message = al.description
+                )
+            `);
+            if (existingErrors.length > 0) {
+                for (const err of existingErrors) {
+                    const contactName = err.first_name && err.last_name
+                        ? `${err.first_name} ${err.last_name}` : 'Unknown';
+                    await client.query(
+                        `INSERT INTO persistent_notifications (type, title, message, contact_id, contact_name, link, is_read, created_at)
+                         VALUES ('action_error', $1, $2, $3, $4, $5, false, $6)`,
+                        [
+                            `Error: ${contactName}`,
+                            err.description,
+                            err.client_id,
+                            contactName,
+                            `/contacts/${err.client_id}`,
+                            err.timestamp || new Date()
+                        ]
+                    );
+                }
+                console.log(`✅ Backfilled ${existingErrors.length} error notifications from action_logs`);
+            }
+
             // Add document_status column if not present
             await client.query(`
                 ALTER TABLE documents ADD COLUMN IF NOT EXISTS document_status VARCHAR(30) NOT NULL DEFAULT 'Draft'
@@ -427,6 +473,67 @@ pool.on('error', (err, client) => {
                 CREATE INDEX IF NOT EXISTS idx_doc_tracking_token ON document_tracking_events(tracking_token);
             `);
             console.log('✅ Document tracking schema ready');
+
+            // ============================================
+            // AUTOMATION / WINDMILL INTEGRATION TABLES
+            // ============================================
+
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS automations (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    windmill_flow_path VARCHAR(500),
+                    trigger_type VARCHAR(50) NOT NULL,
+                    trigger_config JSONB DEFAULT '{}',
+                    module VARCHAR(50) NOT NULL,
+                    is_active BOOLEAN DEFAULT true,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS automation_runs (
+                    id SERIAL PRIMARY KEY,
+                    automation_id INTEGER REFERENCES automations(id) ON DELETE CASCADE,
+                    windmill_job_id VARCHAR(255),
+                    status VARCHAR(20) DEFAULT 'running',
+                    trigger_type VARCHAR(50),
+                    trigger_data JSONB DEFAULT '{}',
+                    result JSONB DEFAULT '{}',
+                    error TEXT,
+                    duration_ms INTEGER,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS automation_triggers (
+                    id SERIAL PRIMARY KEY,
+                    automation_id INTEGER REFERENCES automations(id) ON DELETE CASCADE,
+                    event_name VARCHAR(100) NOT NULL,
+                    conditions JSONB DEFAULT '{}',
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS automation_webhooks (
+                    id SERIAL PRIMARY KEY,
+                    automation_id INTEGER REFERENCES automations(id) ON DELETE CASCADE,
+                    webhook_path VARCHAR(500),
+                    webhook_url TEXT,
+                    secret VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_automations_module ON automations(module);
+                CREATE INDEX IF NOT EXISTS idx_automations_active ON automations(is_active);
+                CREATE INDEX IF NOT EXISTS idx_automation_runs_automation ON automation_runs(automation_id);
+                CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs(status);
+                CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_automation_triggers_event ON automation_triggers(event_name);
+                CREATE INDEX IF NOT EXISTS idx_automation_triggers_automation ON automation_triggers(automation_id);
+            `);
+            console.log('✅ Automation tables ready');
         } finally {
             client.release();
         }
@@ -2440,6 +2547,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             console.log(`[Upload] "${originalName}" → "${key}" for contact ${contact_id}, category ${docCategory}`);
         }
 
+        crmEvents.emit('document.uploaded', { documentId: rows[0].id, contactId: parseInt(contact_id), data: rows[0] });
         res.json({ success: true, url: s3Url, document: rows[0] });
     } catch (error) {
         console.error('Upload Error:', error);
@@ -2546,6 +2654,7 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
         );
 
         console.log(`[Claim Doc Upload] "${originalName}" → "${key}" for contact ${contact_id}, lender ${lender}, category ${category}`);
+        crmEvents.emit('document.uploaded', { documentId: rows[0].id, contactId: parseInt(contact_id), data: rows[0] });
         res.json({ success: true, url: s3Url, document: rows[0] });
     } catch (error) {
         console.error('Claim Document Upload Error:', error);
@@ -2731,6 +2840,7 @@ app.put('/api/documents/:id/status', async (req, res) => {
             ]
         );
 
+        crmEvents.emit('document.status_changed', { documentId: parseInt(id), contactId: doc.contact_id, data: doc, newStatus: status, previousStatus: previous_status });
         res.json({ success: true, document: rows[0] });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -2803,6 +2913,7 @@ app.delete('/api/documents/:id', async (req, res) => {
         );
 
         console.log(`✅ Document ${id} deleted successfully`);
+        crmEvents.emit('document.deleted', { documentId: parseInt(id), contactId: doc.contact_id, data: { id: parseInt(id), name: doc.name } });
         res.json({ success: true, message: 'Document deleted successfully', deletedDocument: doc.name });
     } catch (err) {
         console.error('❌ Error deleting document:', err);
@@ -3480,6 +3591,7 @@ app.post('/api/contacts', async (req, res) => {
             [finalFirstName || null, finalLastName || null, finalFullName, email || null, phone || null, dob || null, address_line_1 || null, address_line_2 || null, city || null, state_county || null, postal_code || null, source || 'Manual Input', prevAddrsJson, salesToken]
         );
         console.log('[Server POST /api/contacts] Inserted row:', rows[0]);
+        crmEvents.emit('contact.created', { contactId: rows[0].id, data: rows[0] });
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3519,6 +3631,7 @@ app.patch('/api/contacts/:id', async (req, res) => {
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Contact not found' });
         }
+        crmEvents.emit('contact.updated', { contactId: rows[0].id, data: rows[0] });
         res.json(rows[0]);
     } catch (err) {
         console.error('Error updating contact:', err);
@@ -3611,6 +3724,7 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
             [contactId, case_number, standardizedLender, status, claim_value, product_type, account_number, start_date, dsarSendAfter]
         );
         await setReferenceSpecified(pool, contactId, rows[0].id);
+        crmEvents.emit('case.created', { caseId: rows[0].id, contactId: parseInt(contactId), data: rows[0] });
 
         // Trigger LOA generation if status is New Lead (or related statuses)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
@@ -3645,6 +3759,7 @@ app.post('/api/cases/:id/reset-dsar', async (req, res) => {
             `UPDATE cases SET dsar_sent = false, status = 'DSAR Prepared' WHERE id = $1`,
             [req.params.id]
         );
+        crmEvents.emit('case.dsar_reset', { caseId: parseInt(req.params.id) });
         res.json({ success: true, message: `DSAR reset for case ${req.params.id}. Worker will re-send within 60 seconds.` });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -4641,6 +4756,7 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
             );
         }
 
+        crmEvents.emit('contact.updated', { contactId: rows[0].id, data: rows[0] });
         res.json(rows[0]);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4717,6 +4833,7 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
             [rows[0].contact_id, id, 'agent', 'system', 'claim_updated', 'claims', 'Updated claim extended details']
         );
 
+        crmEvents.emit('case.updated', { caseId: parseInt(id), contactId: rows[0].contact_id, data: rows[0] });
         res.json(rows[0]);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4848,6 +4965,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
 
         console.log(`✅ Contact ${id} and all associated data deleted successfully`);
 
+        crmEvents.emit('contact.deleted', { contactId: parseInt(id), data: { id: parseInt(id), first_name: contact.first_name, last_name: contact.last_name } });
         res.json({
             success: true,
             message: 'Contact and all associated data deleted successfully',
@@ -4964,6 +5082,7 @@ app.patch('/api/cases/:id', async (req, res) => {
         }
 
         console.log(`✅ Updated case ${id} status to: ${status}`);
+        crmEvents.emit('case.status_changed', { caseId: parseInt(id), contactId: updatedCase.contact_id, data: updatedCase, newStatus: status });
         res.json(updatedCase);
     } catch (error) {
         console.error('❌ Error updating case status:', error);
@@ -5020,6 +5139,7 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
         }
 
         console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);
+        crmEvents.emit('case.bulk_status', { caseIds: claimIds, newStatus: status, count: result.rows.length });
         res.json({
             success: true,
             updatedCount: result.rows.length,
@@ -5111,6 +5231,7 @@ app.delete('/api/cases/:id', async (req, res) => {
 
         console.log(`✅ Claim ${id} deleted successfully`);
 
+        crmEvents.emit('case.deleted', { caseId: parseInt(id), contactId: claim.contact_id, data: { id: parseInt(id), lender: claim.lender } });
         res.json({
             success: true,
             message: 'Claim deleted successfully',
@@ -6356,7 +6477,7 @@ app.get('/api/notifications', async (req, res) => {
             SELECT n.*, t.title as task_title, t.date as task_date
             FROM persistent_notifications n
             LEFT JOIN tasks t ON n.related_task_id = t.id
-            WHERE n.user_id = $1
+            WHERE (n.user_id = $1 OR (n.user_id IS NULL AND n.type = 'action_error'))
         `;
 
         if (unreadOnly === 'true') {
@@ -6383,7 +6504,7 @@ app.get('/api/notifications/count', async (req, res) => {
         }
 
         const { rows } = await pool.query(
-            'SELECT COUNT(*) as count FROM persistent_notifications WHERE user_id = $1 AND is_read = FALSE',
+            'SELECT COUNT(*) as count FROM persistent_notifications WHERE (user_id = $1 OR (user_id IS NULL AND type = \'action_error\')) AND is_read = FALSE',
             [userId]
         );
 
@@ -6417,7 +6538,7 @@ app.patch('/api/notifications/read-all', async (req, res) => {
             return res.status(400).json({ error: 'userId is required' });
         }
 
-        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE user_id = $1', [userId]);
+        await pool.query('UPDATE persistent_notifications SET is_read = TRUE WHERE user_id = $1 OR (user_id IS NULL AND type = \'action_error\')', [userId]);
 
         res.json({ success: true });
     } catch (error) {
@@ -9565,6 +9686,8 @@ app.post('/api/oo/templates', upload.single('file'), async (req, res) => {
         const sanitizedName = name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
         const s3Key = `oo-templates/${Date.now()}-${sanitizedName}.docx`;
         await uploadS3Buffer(s3Key, req.file.buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        // Cache locally so proxy can serve it (workaround for S3 GetObject deny)
+        ooSaveLocal(s3Key, req.file.buffer);
 
         const mergeFields = extractMergeFields(req.file.buffer);
 
@@ -9704,6 +9827,125 @@ app.delete('/api/oo/templates/:id', async (req, res) => {
 
 // --- OO Editor Config ---
 
+// Local file cache for OO templates/docs (workaround for S3 GetObject deny)
+const OO_CACHE_DIR = path.join(os.tmpdir(), 'oo-file-cache');
+if (!fs.existsSync(OO_CACHE_DIR)) fs.mkdirSync(OO_CACHE_DIR, { recursive: true });
+
+function ooLocalPath(s3Key) {
+    // Convert s3 key to flat filename: oo-templates/123-file.docx → oo-templates__123-file.docx
+    return path.join(OO_CACHE_DIR, s3Key.replace(/\//g, '__'));
+}
+
+function ooSaveLocal(s3Key, buffer) {
+    const filePath = ooLocalPath(s3Key);
+    fs.writeFileSync(filePath, buffer);
+    console.log(`[OO Cache] Saved ${s3Key} → ${filePath} (${buffer.length} bytes)`);
+}
+
+// GET /api/oo/proxy/template/:id - Serve DOCX for OnlyOffice from local cache
+app.get('/api/oo/proxy/template/:id', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT s3_key, name FROM oo_templates WHERE id = $1 AND is_active = TRUE', [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).send('Not found');
+
+        const localFile = ooLocalPath(result.rows[0].s3_key);
+
+        // Try local cache first, fall back to S3
+        let buffer;
+        if (fs.existsSync(localFile)) {
+            buffer = fs.readFileSync(localFile);
+            console.log(`[OO Proxy] Serving template #${req.params.id} from local cache`);
+        } else {
+            // Try S3 as fallback (will work once IAM is fixed)
+            try {
+                buffer = await downloadS3Buffer(result.rows[0].s3_key);
+                ooSaveLocal(result.rows[0].s3_key, buffer);
+            } catch (s3Err) {
+                console.error(`[OO Proxy] S3 download failed for ${result.rows[0].s3_key}:`, s3Err.message);
+                return res.status(503).send('File not in cache and S3 read denied. Re-upload the template.');
+            }
+        }
+
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition': `inline; filename="${encodeURIComponent(result.rows[0].name)}.docx"`,
+            'Content-Length': buffer.length,
+        });
+        res.send(buffer);
+    } catch (err) {
+        console.error('[OO Proxy] Template proxy error:', err);
+        res.status(500).send('Download failed');
+    }
+});
+
+// GET /api/oo/proxy/document/:id - Serve generated doc DOCX from local cache
+app.get('/api/oo/proxy/document/:id', async (req, res) => {
+    try {
+        const doc = ooDocuments.get(Number(req.params.id));
+        if (!doc) return res.status(404).send('Not found');
+
+        const localFile = ooLocalPath(doc.s3KeyDocx);
+
+        let buffer;
+        if (fs.existsSync(localFile)) {
+            buffer = fs.readFileSync(localFile);
+            console.log(`[OO Proxy] Serving document #${req.params.id} from local cache`);
+        } else {
+            try {
+                buffer = await downloadS3Buffer(doc.s3KeyDocx);
+                ooSaveLocal(doc.s3KeyDocx, buffer);
+            } catch (s3Err) {
+                console.error(`[OO Proxy] S3 download failed for ${doc.s3KeyDocx}:`, s3Err.message);
+                return res.status(503).send('File not in cache and S3 read denied.');
+            }
+        }
+
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition': `inline; filename="${encodeURIComponent(doc.name)}.docx"`,
+            'Content-Length': buffer.length,
+        });
+        res.send(buffer);
+    } catch (err) {
+        console.error('[OO Proxy] Document proxy error:', err);
+        res.status(500).send('Download failed');
+    }
+});
+
+// GET /api/oo/debug - Quick test endpoint to verify OO config
+app.get('/api/oo/debug', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, name, s3_key FROM oo_templates WHERE is_active = TRUE LIMIT 1');
+        if (result.rows.length === 0) return res.json({ error: 'No templates found in DB' });
+
+        const row = result.rows[0];
+        const fileUrl = await getSignedUrl(s3ClientPathStyle, new GetObjectCommand({
+            Bucket: BUCKET_NAME, Key: row.s3_key
+        }), { expiresIn: 3600 });
+
+        // Test if the URL is actually reachable
+        let urlReachable = false;
+        try {
+            const testRes = await fetch(fileUrl, { method: 'HEAD' });
+            urlReachable = testRes.ok;
+        } catch (e) {
+            urlReachable = false;
+        }
+
+        res.json({
+            template: { id: row.id, name: row.name, s3Key: row.s3_key },
+            signedUrl: fileUrl,
+            urlReachable,
+            bucket: BUCKET_NAME,
+            onlyOfficeUrl: process.env.ONLYOFFICE_URL || '(not set)',
+            jwtSecretConfigured: !!process.env.ONLYOFFICE_JWT_SECRET,
+            callbackBase: process.env.ONLYOFFICE_CALLBACK_BASE_URL || '(not set, defaults to localhost)',
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /api/oo/templates/:id/editor-config
 app.get('/api/oo/templates/:id/editor-config', async (req, res) => {
     try {
@@ -9717,16 +9959,15 @@ app.get('/api/oo/templates/:id/editor-config', async (req, res) => {
             s3Key: row.s3_key,
         };
 
-        // Use path-style S3 client — bucket "client.landing.page" has dots which break
-        // virtual-hosted-style SSL certs when OnlyOffice fetches the file server-side
-        const fileUrl = await getSignedUrl(s3ClientPathStyle, new GetObjectCommand({
-            Bucket: BUCKET_NAME, Key: template.s3Key
-        }), { expiresIn: 3600 });
-
-
+        // Proxy the file through our server so OnlyOffice fetches from us, not S3 directly.
+        // This avoids S3 signed-URL / IAM / path-style SSL issues.
         const callbackBase = process.env.ONLYOFFICE_CALLBACK_BASE_URL || 'http://localhost:5000';
+        const fileUrl = `${callbackBase}/api/oo/proxy/template/${template.id}`;
         const callbackUrl = `${callbackBase}/api/oo/callback`;
         const callbackReachable = !callbackBase.includes('localhost') && !callbackBase.includes('127.0.0.1');
+
+        console.log(`[OO] Template #${template.id} proxy URL: ${fileUrl}`);
+        console.log(`[OO] Callback: ${callbackUrl} (reachable=${callbackReachable})`);
 
         const config = {
             documentType: 'word',
@@ -9752,6 +9993,7 @@ app.get('/api/oo/templates/:id/editor-config', async (req, res) => {
 
         if (process.env.ONLYOFFICE_JWT_SECRET) {
             config.token = jwt.sign(config, process.env.ONLYOFFICE_JWT_SECRET);
+            console.log(`[OO] JWT token generated (length=${config.token.length})`);
         }
 
         res.json({ success: true, config, onlyOfficeUrl: process.env.ONLYOFFICE_URL || '' });
@@ -9767,14 +10009,13 @@ app.get('/api/oo/documents/:id/editor-config', async (req, res) => {
         const doc = ooDocuments.get(Number(req.params.id));
         if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
 
-        // Path-style S3 URL for OnlyOffice (see template editor-config comment)
-        const fileUrl = await getSignedUrl(s3ClientPathStyle, new GetObjectCommand({
-            Bucket: BUCKET_NAME, Key: doc.s3KeyDocx
-        }), { expiresIn: 3600 });
-
+        // Proxy the file through our server (same approach as templates)
         const callbackBase = process.env.ONLYOFFICE_CALLBACK_BASE_URL || 'http://localhost:5000';
+        const fileUrl = `${callbackBase}/api/oo/proxy/document/${doc.id}`;
         const callbackUrl = `${callbackBase}/api/oo/callback`;
         const callbackReachable = !callbackBase.includes('localhost') && !callbackBase.includes('127.0.0.1');
+
+        console.log(`[OO] Document #${doc.id} proxy URL: ${fileUrl}`);
 
         const config = {
             documentType: 'word',
@@ -10360,6 +10601,667 @@ function renderConfirmationPage({ status, title, message, showRedirect }) {
     `;
 }
 
+// ============================================================================
+// AUTOMATION / WINDMILL ROUTES
+// ============================================================================
+import WindmillService from './services/windmill.js';
+
+// ---------- AUTOMATION CRUD ----------
+
+// Get available CRM events (for UI dropdown) — must be before :id routes
+app.get('/api/automations/events', async (req, res) => {
+    res.json(crmEvents.listEvents());
+});
+
+// List all automations (with optional filters)
+app.get('/api/automations', async (req, res) => {
+    const { module, status, trigger_type } = req.query;
+    try {
+        let query = `
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM automation_runs r WHERE r.automation_id = a.id) AS total_runs,
+                   (SELECT COUNT(*) FROM automation_runs r WHERE r.automation_id = a.id AND r.status = 'completed') AS successful_runs,
+                   (SELECT MAX(r.started_at) FROM automation_runs r WHERE r.automation_id = a.id) AS last_run_at,
+                   (SELECT r.status FROM automation_runs r WHERE r.automation_id = a.id ORDER BY r.started_at DESC LIMIT 1) AS last_run_status
+            FROM automations a WHERE 1=1
+        `;
+        const values = [];
+        let p = 1;
+
+        if (module) { query += ` AND a.module = $${p++}`; values.push(module); }
+        if (status === 'active') { query += ` AND a.is_active = true`; }
+        else if (status === 'inactive') { query += ` AND a.is_active = false`; }
+        if (trigger_type) { query += ` AND a.trigger_type = $${p++}`; values.push(trigger_type); }
+
+        query += ' ORDER BY a.updated_at DESC';
+        const { rows } = await pool.query(query, values);
+        res.json(rows);
+    } catch (err) {
+        console.error('Error listing automations:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get single automation with triggers and recent runs
+app.get('/api/automations/:id', async (req, res) => {
+    try {
+        const { rows: [automation] } = await pool.query('SELECT * FROM automations WHERE id = $1', [req.params.id]);
+        if (!automation) return res.status(404).json({ error: 'Automation not found' });
+
+        const { rows: triggers } = await pool.query(
+            'SELECT * FROM automation_triggers WHERE automation_id = $1 ORDER BY created_at', [req.params.id]
+        );
+        const { rows: runs } = await pool.query(
+            'SELECT * FROM automation_runs WHERE automation_id = $1 ORDER BY started_at DESC LIMIT 50', [req.params.id]
+        );
+        const { rows: webhooks } = await pool.query(
+            'SELECT * FROM automation_webhooks WHERE automation_id = $1', [req.params.id]
+        );
+
+        res.json({ ...automation, triggers, runs, webhooks });
+    } catch (err) {
+        console.error('Error getting automation:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create automation
+app.post('/api/automations', async (req, res) => {
+    const { name, description, module: mod, trigger_type, trigger_config, windmill_flow_path, events, conditions } = req.body;
+
+    if (!name || !mod || !trigger_type) {
+        return res.status(400).json({ error: 'name, module, and trigger_type are required' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { rows: [automation] } = await client.query(
+            `INSERT INTO automations (name, description, module, trigger_type, trigger_config, windmill_flow_path)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [name, description || null, mod, trigger_type, JSON.stringify(trigger_config || {}), windmill_flow_path || null]
+        );
+
+        // Create trigger entries if event-based
+        if (trigger_type === 'event' && events && Array.isArray(events)) {
+            for (const evt of events) {
+                await client.query(
+                    `INSERT INTO automation_triggers (automation_id, event_name, conditions)
+                     VALUES ($1, $2, $3)`,
+                    [automation.id, evt.event_name || evt, JSON.stringify(evt.conditions || conditions || {})]
+                );
+            }
+        }
+
+        // Create webhook entry if webhook-based
+        if (trigger_type === 'webhook') {
+            const { randomUUID } = await import('crypto');
+            const secret = randomUUID().replace(/-/g, '');
+            const webhookPath = windmill_flow_path || `crm/webhook_${automation.id}`;
+            const webhookUrl = `${req.protocol}://${req.get('host')}/api/webhooks/windmill/${secret}`;
+
+            await client.query(
+                `INSERT INTO automation_webhooks (automation_id, webhook_path, webhook_url, secret)
+                 VALUES ($1, $2, $3, $4)`,
+                [automation.id, webhookPath, webhookUrl, secret]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        // Fetch full automation with triggers
+        const { rows: triggers } = await pool.query(
+            'SELECT * FROM automation_triggers WHERE automation_id = $1', [automation.id]
+        );
+        const { rows: webhooks } = await pool.query(
+            'SELECT * FROM automation_webhooks WHERE automation_id = $1', [automation.id]
+        );
+
+        res.json({ ...automation, triggers, webhooks });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Error creating automation:', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update automation
+app.put('/api/automations/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, description, module: mod, trigger_type, trigger_config, windmill_flow_path, events } = req.body;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const updates = [];
+        const values = [];
+        let p = 1;
+
+        if (name !== undefined) { updates.push(`name = $${p++}`); values.push(name); }
+        if (description !== undefined) { updates.push(`description = $${p++}`); values.push(description); }
+        if (mod !== undefined) { updates.push(`module = $${p++}`); values.push(mod); }
+        if (trigger_type !== undefined) { updates.push(`trigger_type = $${p++}`); values.push(trigger_type); }
+        if (trigger_config !== undefined) { updates.push(`trigger_config = $${p++}`); values.push(JSON.stringify(trigger_config)); }
+        if (windmill_flow_path !== undefined) { updates.push(`windmill_flow_path = $${p++}`); values.push(windmill_flow_path); }
+
+        if (updates.length > 0) {
+            updates.push(`updated_at = NOW()`);
+            values.push(id);
+            await client.query(
+                `UPDATE automations SET ${updates.join(', ')} WHERE id = $${p}`, values
+            );
+        }
+
+        // Replace triggers if provided
+        if (events && Array.isArray(events)) {
+            await client.query('DELETE FROM automation_triggers WHERE automation_id = $1', [id]);
+            for (const evt of events) {
+                await client.query(
+                    `INSERT INTO automation_triggers (automation_id, event_name, conditions)
+                     VALUES ($1, $2, $3)`,
+                    [id, evt.event_name || evt, JSON.stringify(evt.conditions || {})]
+                );
+            }
+        }
+
+        await client.query('COMMIT');
+
+        // Return updated automation
+        const { rows: [automation] } = await pool.query('SELECT * FROM automations WHERE id = $1', [id]);
+        const { rows: triggers } = await pool.query('SELECT * FROM automation_triggers WHERE automation_id = $1', [id]);
+        res.json({ ...automation, triggers });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Error updating automation:', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Delete automation
+app.delete('/api/automations/:id', async (req, res) => {
+    try {
+        const { rows: [automation] } = await pool.query('SELECT * FROM automations WHERE id = $1', [req.params.id]);
+        if (!automation) return res.status(404).json({ error: 'Automation not found' });
+
+        // Try to delete from Windmill too (non-blocking)
+        if (automation.windmill_flow_path) {
+            WindmillService.deleteFlow(automation.windmill_flow_path).catch(err => {
+                console.warn('[Automation] Could not delete Windmill flow:', err.message);
+            });
+        }
+
+        await pool.query('DELETE FROM automations WHERE id = $1', [req.params.id]);
+        res.json({ success: true, message: 'Automation deleted' });
+    } catch (err) {
+        console.error('Error deleting automation:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Toggle automation active/inactive
+app.post('/api/automations/:id/toggle', async (req, res) => {
+    try {
+        const { rows: [automation] } = await pool.query(
+            `UPDATE automations SET is_active = NOT is_active, updated_at = NOW() WHERE id = $1 RETURNING *`,
+            [req.params.id]
+        );
+        if (!automation) return res.status(404).json({ error: 'Automation not found' });
+
+        // Toggle linked triggers too
+        await pool.query(
+            'UPDATE automation_triggers SET is_active = $1 WHERE automation_id = $2',
+            [automation.is_active, req.params.id]
+        );
+
+        res.json(automation);
+    } catch (err) {
+        console.error('Error toggling automation:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Manually trigger an automation
+app.post('/api/automations/:id/run', async (req, res) => {
+    try {
+        const { rows: [automation] } = await pool.query('SELECT * FROM automations WHERE id = $1', [req.params.id]);
+        if (!automation) return res.status(404).json({ error: 'Automation not found' });
+        if (!automation.windmill_flow_path) return res.status(400).json({ error: 'No Windmill flow linked' });
+
+        // Create run record
+        const { rows: [run] } = await pool.query(
+            `INSERT INTO automation_runs (automation_id, trigger_type, trigger_data, status, started_at)
+             VALUES ($1, 'manual', $2, 'running', NOW()) RETURNING *`,
+            [automation.id, JSON.stringify(req.body.args || {})]
+        );
+
+        // Fire Windmill flow
+        const startMs = Date.now();
+        try {
+            const jobId = await WindmillService.runFlow(automation.windmill_flow_path, req.body.args || {});
+            await pool.query(
+                'UPDATE automation_runs SET windmill_job_id = $1 WHERE id = $2',
+                [typeof jobId === 'string' ? jobId : JSON.stringify(jobId), run.id]
+            );
+            res.json({ success: true, runId: run.id, jobId });
+        } catch (flowErr) {
+            const durationMs = Date.now() - startMs;
+            await pool.query(
+                `UPDATE automation_runs SET status = 'failed', error = $1, duration_ms = $2, completed_at = NOW() WHERE id = $3`,
+                [flowErr.message, durationMs, run.id]
+            );
+            res.status(500).json({ error: flowErr.message, runId: run.id });
+        }
+    } catch (err) {
+        console.error('Error running automation:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get run history for an automation
+app.get('/api/automations/:id/runs', async (req, res) => {
+    const { limit = 50, offset = 0 } = req.query;
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM automation_runs WHERE automation_id = $1 ORDER BY started_at DESC LIMIT $2 OFFSET $3`,
+            [req.params.id, parseInt(limit), parseInt(offset)]
+        );
+        const { rows: [{ count }] } = await pool.query(
+            'SELECT COUNT(*) FROM automation_runs WHERE automation_id = $1', [req.params.id]
+        );
+        res.json({ runs: rows, total: parseInt(count) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get specific run details with Windmill job result
+app.get('/api/automations/:id/runs/:runId', async (req, res) => {
+    try {
+        const { rows: [run] } = await pool.query(
+            'SELECT * FROM automation_runs WHERE id = $1 AND automation_id = $2',
+            [req.params.runId, req.params.id]
+        );
+        if (!run) return res.status(404).json({ error: 'Run not found' });
+
+        // Fetch fresh result from Windmill if still running
+        if (run.status === 'running' && run.windmill_job_id) {
+            try {
+                const job = await WindmillService.getJob(run.windmill_job_id);
+                if (job && (job.type === 'CompletedJob' || job.success !== undefined)) {
+                    const status = job.success === false ? 'failed' : 'completed';
+                    await pool.query(
+                        `UPDATE automation_runs SET status = $1, result = $2, completed_at = NOW() WHERE id = $3`,
+                        [status, JSON.stringify(job.result || {}), run.id]
+                    );
+                    run.status = status;
+                    run.result = job.result || {};
+                }
+            } catch { /* Windmill unreachable, return what we have */ }
+        }
+
+        res.json(run);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// (Moved to before :id routes — see above)
+
+// ---------- WINDMILL PROXY ROUTES ----------
+// Frontend calls these; the Windmill token stays server-side.
+
+app.get('/api/windmill/scripts', async (req, res) => {
+    try {
+        const scripts = await WindmillService.listScripts(req.query);
+        res.json(scripts);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.get('/api/windmill/flows', async (req, res) => {
+    try {
+        const flows = await WindmillService.listFlows(req.query);
+        res.json(flows);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// Flow path contains slashes (e.g. f/crm/my_flow) — use query param
+app.get('/api/windmill/flow', async (req, res) => {
+    const { path } = req.query;
+    if (!path) return res.status(400).json({ error: 'path query parameter required' });
+    try {
+        const flow = await WindmillService.getFlow(path);
+        res.json(flow);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.post('/api/windmill/flows', async (req, res) => {
+    try {
+        const result = await WindmillService.createFlow(req.body);
+        res.json(result);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.get('/api/windmill/jobs/:id', async (req, res) => {
+    try {
+        const job = await WindmillService.getJob(req.params.id);
+        res.json(job);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.get('/api/windmill/schedules', async (req, res) => {
+    try {
+        const schedules = await WindmillService.listSchedules(req.query);
+        res.json(schedules);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.post('/api/windmill/test-connection', async (req, res) => {
+    try {
+        const result = await WindmillService.testConnection();
+        res.json(result);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// ---------- WINDMILL IFRAME URL ----------
+// Returns an authenticated URL for embedding Windmill in an iframe.
+// The token is injected server-side so it's never stored in frontend code.
+
+app.get('/api/windmill/iframe-url', async (req, res) => {
+    try {
+        const baseUrl = process.env.WINDMILL_BASE_URL || 'https://flowmill.fastactionclaims.com';
+        const token = process.env.WINDMILL_TOKEN || '';
+        const workspace = process.env.WINDMILL_WORKSPACE || 'admins';
+
+        if (!token) {
+            return res.status(500).json({ error: 'Windmill token not configured' });
+        }
+
+        // The ?token= parameter lets Windmill authenticate without cookies
+        // Optional path parameter to navigate directly to a specific page
+        const path = req.query.path || '';
+        const url = `${baseUrl}${path}?token=${token}&workspace=${workspace}`;
+
+        res.json({ url });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------- WEBHOOK RECEIVER ----------
+// Windmill flows (or external services) call back into the CRM via this endpoint.
+
+app.post('/api/webhooks/windmill/:secret', async (req, res) => {
+    try {
+        // Look up the webhook by secret
+        const { rows: [webhook] } = await pool.query(
+            `SELECT w.*, a.id AS automation_id, a.name AS automation_name, a.windmill_flow_path
+             FROM automation_webhooks w
+             JOIN automations a ON a.id = w.automation_id
+             WHERE w.secret = $1 AND a.is_active = true`,
+            [req.params.secret]
+        );
+
+        if (!webhook) {
+            return res.status(404).json({ error: 'Webhook not found or automation inactive' });
+        }
+
+        // Log the run
+        const { rows: [run] } = await pool.query(
+            `INSERT INTO automation_runs (automation_id, trigger_type, trigger_data, status, started_at)
+             VALUES ($1, 'webhook', $2, 'running', NOW()) RETURNING *`,
+            [webhook.automation_id, JSON.stringify(req.body)]
+        );
+
+        // If there's a linked Windmill flow, trigger it
+        if (webhook.windmill_flow_path) {
+            const startMs = Date.now();
+            try {
+                const jobId = await WindmillService.runFlow(webhook.windmill_flow_path, req.body);
+                await pool.query(
+                    'UPDATE automation_runs SET windmill_job_id = $1 WHERE id = $2',
+                    [typeof jobId === 'string' ? jobId : JSON.stringify(jobId), run.id]
+                );
+            } catch (flowErr) {
+                const durationMs = Date.now() - startMs;
+                await pool.query(
+                    `UPDATE automation_runs SET status = 'failed', error = $1, duration_ms = $2, completed_at = NOW() WHERE id = $3`,
+                    [flowErr.message, durationMs, run.id]
+                );
+            }
+        } else {
+            // No flow linked — just log as completed
+            await pool.query(
+                `UPDATE automation_runs SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+                [run.id]
+            );
+        }
+
+        res.json({ success: true, runId: run.id, automationName: webhook.automation_name });
+    } catch (err) {
+        console.error('Webhook error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------- INTERNAL API (for Windmill flows to call back into CRM) ----------
+// Secured with WINDMILL_TOKEN as shared secret in Authorization header.
+
+function windmillInternalAuth(req, res, next) {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token || token !== process.env.WINDMILL_TOKEN) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+}
+
+app.post('/api/internal/contacts/:id/update', windmillInternalAuth, async (req, res) => {
+    try {
+        const fields = req.body;
+        const updates = [];
+        const values = [];
+        let p = 1;
+        for (const [key, value] of Object.entries(fields)) {
+            updates.push(`${key} = $${p++}`);
+            values.push(value);
+        }
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields' });
+        values.push(req.params.id);
+        const { rows } = await pool.query(
+            `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values
+        );
+        res.json(rows[0] || { error: 'Not found' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/internal/cases/:id/update', windmillInternalAuth, async (req, res) => {
+    try {
+        const fields = req.body;
+        const updates = [];
+        const values = [];
+        let p = 1;
+        for (const [key, value] of Object.entries(fields)) {
+            updates.push(`${key} = $${p++}`);
+            values.push(value);
+        }
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields' });
+        values.push(req.params.id);
+        const { rows } = await pool.query(
+            `UPDATE cases SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values
+        );
+        res.json(rows[0] || { error: 'Not found' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/internal/cases/:id/add-note', windmillInternalAuth, async (req, res) => {
+    try {
+        const { content } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO notes (client_id, content, pinned, created_by_name)
+             VALUES ((SELECT contact_id FROM cases WHERE id = $1), $2, false, 'Windmill Automation') RETURNING *`,
+            [req.params.id, content]
+        );
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/internal/notifications/send', windmillInternalAuth, async (req, res) => {
+    try {
+        const { user_id, type, title, message, link } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO persistent_notifications (user_id, type, title, message, link) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [user_id || null, type || 'automation', title, message, link || null]
+        );
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------- AUTOMATION SETUP ----------
+// One-time setup: tests connection, creates Windmill folder, etc.
+
+app.post('/api/automations/setup', async (req, res) => {
+    const results = { steps: [] };
+    try {
+        // 1. Test Windmill connection
+        const conn = await WindmillService.testConnection();
+        results.steps.push({ step: 'Test Windmill connection', ...conn });
+
+        if (!conn.connected) {
+            return res.json({ success: false, message: 'Cannot connect to Windmill', ...results });
+        }
+
+        // 2. Create CRM folder in Windmill
+        try {
+            await WindmillService.createFolder('crm');
+            results.steps.push({ step: 'Create f/crm/ folder', success: true });
+        } catch (err) {
+            results.steps.push({ step: 'Create f/crm/ folder', success: false, note: err.message });
+        }
+
+        // 3. Create CRM API resource in Windmill
+        try {
+            const baseUrl = `${req.protocol}://${req.get('host')}/api/internal`;
+            await WindmillService.createResource({
+                path: 'f/crm/crm_connection',
+                resource_type: 'app',
+                value: { base_url: baseUrl, api_key: process.env.WINDMILL_TOKEN },
+                description: 'FastAction Claims CRM internal API'
+            });
+            results.steps.push({ step: 'Create CRM API resource', success: true });
+        } catch (err) {
+            results.steps.push({ step: 'Create CRM API resource', success: false, note: err.message });
+        }
+
+        results.success = true;
+        res.json(results);
+    } catch (err) {
+        console.error('Setup error:', err);
+        res.status(500).json({ success: false, error: err.message, ...results });
+    }
+});
+
+// ============================================================================
+// WINDMILL REVERSE-PROXY CATCH-ALL
+// Must be AFTER all CRM routes so CRM routes match first.
+// Any /api/* request that didn't match a CRM route is forwarded to Windmill.
+// This lets the embedded Windmill SPA call /api/login, /api/users/whoami, etc.
+// ============================================================================
+
+// Serve the Windmill SPA with a URL fix for iframe embedding.
+// SvelteKit reads window.location.pathname to route; the iframe is at /wm
+// but Windmill has no /wm route → 404. We inject a history.replaceState('/')
+// before any SvelteKit JS runs, so the router sees '/' and loads the dashboard.
+app.get('/wm', async (req, res) => {
+    const wmBaseUrl = process.env.WINDMILL_BASE_URL || 'https://flowmill.fastactionclaims.com';
+    const wmToken = process.env.WINDMILL_TOKEN || '';
+    try {
+        const wmRes = await fetch(wmBaseUrl + '/', {
+            headers: { 'Accept': 'text/html' },
+        });
+        let html = await wmRes.text();
+        // Inject a synchronous script that runs BEFORE SvelteKit initialises:
+        // 1) Fix pathname so SvelteKit routes to '/' (not '/wm')
+        // 2) Set auth token in localStorage + cookie (Windmill checks both)
+        const boot = [
+            `history.replaceState(null,'','/')`,
+            `try{localStorage.setItem('token','${wmToken}');document.cookie='token=${wmToken};path=/;SameSite=Lax'}catch(e){}`,
+        ].join(';');
+        html = html.replace('<head>', `<head><script>${boot}</script>`);
+        res.type('html').send(html);
+    } catch (err) {
+        res.status(502).send(`<h1>Windmill Unavailable</h1><p>${err.message}</p>`);
+    }
+});
+
+// Endpoint to set the Windmill auth cookie (called by the frontend before loading the iframe)
+app.get('/api/windmill/auth-cookie', (req, res) => {
+    const token = process.env.WINDMILL_TOKEN;
+    if (!token) return res.status(500).json({ error: 'Windmill token not configured' });
+    // Set the cookie that Windmill's SPA reads for authentication
+    res.cookie('token', token, {
+        path: '/',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    });
+    res.json({ ok: true });
+});
+
+// Catch-all proxy for Windmill API calls that didn't match any CRM route
+app.use('/api', async (req, res, next) => {
+    // Skip if this looks like it was already handled (safety check)
+    if (res.headersSent) return;
+
+    const wmBaseUrl = process.env.WINDMILL_BASE_URL || 'https://flowmill.fastactionclaims.com';
+    const wmToken = process.env.WINDMILL_TOKEN || '';
+    const targetUrl = `${wmBaseUrl}${req.originalUrl}`;
+
+    try {
+        const fetchOpts = {
+            method: req.method,
+            headers: {
+                'Authorization': `Bearer ${wmToken}`,
+                'Content-Type': req.headers['content-type'] || 'application/json',
+            },
+        };
+
+        // Forward body for non-GET/HEAD methods
+        if (!['GET', 'HEAD'].includes(req.method) && req.body) {
+            fetchOpts.body = JSON.stringify(req.body);
+        }
+
+        const wmRes = await fetch(targetUrl, fetchOpts);
+
+        // Copy status
+        res.status(wmRes.status);
+
+        // Copy relevant headers (skip hop-by-hop headers)
+        const skipHeaders = new Set(['transfer-encoding', 'connection', 'keep-alive', 'content-encoding']);
+        for (const [key, value] of wmRes.headers.entries()) {
+            if (!skipHeaders.has(key.toLowerCase())) {
+                // Rewrite Set-Cookie domain so cookies work on localhost
+                if (key.toLowerCase() === 'set-cookie') {
+                    const rewritten = value.replace(/Domain=[^;]+;?\s*/gi, '');
+                    res.setHeader(key, rewritten);
+                } else {
+                    res.setHeader(key, value);
+                }
+            }
+        }
+
+        // Stream body
+        const body = Buffer.from(await wmRes.arrayBuffer());
+        res.end(body);
+    } catch (err) {
+        // If Windmill is unreachable, return 502
+        if (!res.headersSent) {
+            res.status(502).json({ error: 'Windmill proxy error', detail: err.message });
+        }
+    }
+});
+
 // Listen on 0.0.0.0 for cloud deployment (EC2, Docker, etc.)
 const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Consolidated Server running on port ${port} (listening on all interfaces)`);
@@ -10367,3 +11269,57 @@ const server = app.listen(port, '0.0.0.0', () => {
 server.on('error', (err) => {
     console.error('❌ Server error:', err.message);
 });
+
+// ── Periodic sync: watch action_logs for new DSAR errors and create notifications ──
+// This runs every 30 seconds so that even if the EC2-deployed worker (old code)
+// processes claims, the server will pick up the resulting action_log errors and
+// create persistent_notifications for the frontend to display.
+async function syncActionLogErrors() {
+    try {
+        const client = await pool.connect();
+        try {
+            const { rows: newErrors } = await client.query(`
+                SELECT al.client_id, al.description, al.timestamp,
+                       c.first_name, c.last_name
+                FROM action_logs al
+                LEFT JOIN contacts c ON al.client_id = c.id
+                WHERE al.action_type IN ('dsar_blocked', 'dsar_failed')
+                AND al.actor_type = 'system'
+                AND al.timestamp > NOW() - INTERVAL '24 hours'
+                AND NOT EXISTS (
+                    SELECT 1 FROM persistent_notifications pn
+                    WHERE pn.type = 'action_error'
+                    AND pn.contact_id = al.client_id
+                    AND pn.message = al.description
+                )
+            `);
+            if (newErrors.length > 0) {
+                for (const err of newErrors) {
+                    const contactName = err.first_name && err.last_name
+                        ? `${err.first_name} ${err.last_name}` : 'Unknown';
+                    await client.query(
+                        `INSERT INTO persistent_notifications (type, title, message, contact_id, contact_name, link, is_read, created_at)
+                         VALUES ('action_error', $1, $2, $3, $4, $5, false, $6)`,
+                        [
+                            `Error: ${contactName}`,
+                            err.description,
+                            err.client_id,
+                            contactName,
+                            `/contacts/${err.client_id}`,
+                            err.timestamp || new Date()
+                        ]
+                    );
+                }
+                console.log(`🔔 Synced ${newErrors.length} new error notification(s) from action_logs`);
+            }
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        // Silently ignore sync errors to avoid spamming logs
+    }
+}
+
+// Run sync every 30 seconds
+setInterval(syncActionLogErrors, 30000);
+console.log('🔔 Action-log error sync started (every 30s)');

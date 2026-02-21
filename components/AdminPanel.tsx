@@ -247,13 +247,12 @@ const AdminPanel: React.FC = () => {
           <div className="p-8">
             <h3 className="text-lg font-bold text-navy-900 dark:text-white mb-4">Environment Credentials</h3>
             <div className="space-y-4 max-w-3xl">
-              {['gemini', 'n8n'].map((keyType) => {
+              {['gemini'].map((keyType) => {
                 let label = '';
                 let desc = '';
                 let val = '';
 
                 if (keyType === 'gemini') { label = 'Google Gemini API'; desc = 'AI Assistant & Content Gen'; val = process.env.API_KEY || ''; }
-                if (keyType === 'n8n') { label = 'n8n Automation'; desc = 'Workflow Webhooks'; val = process.env.N8N_API_KEY || ''; }
 
                 return (
                   <div key={keyType} className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 bg-gray-50 dark:bg-slate-700">

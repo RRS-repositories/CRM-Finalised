@@ -26,6 +26,7 @@ const LenderIntake = lazy(() => import('./components/IntakeForm/LenderIntake'));
 const LoaSelectionForm = lazy(() => import('./components/LoaSelectionForm'));
 const LenderConfirmation = lazy(() => import('./components/LenderConfirmation'));
 const MattermostPanel = lazy(() => import('./components/MattermostPanel'));
+const Notifications = lazy(() => import('./components/Notifications'));
 
 // Lightweight loading fallback for lazy-loaded modules
 const ModuleLoader = () => (
@@ -208,6 +209,9 @@ const AppContent = () => {
                     <p>The Accounts module is under development.</p>
                   </div>
                 } />
+
+                {/* Notifications (full page) */}
+                <Route path="/notifications" element={<Notifications />} />
 
                 {/* Mattermost Team Chat */}
                 <Route path="/mattermost" element={<MattermostPanel />} />

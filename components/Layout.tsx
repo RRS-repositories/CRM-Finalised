@@ -25,6 +25,8 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     toggleTheme,
     notifications,
     removeNotification,
+    errorToasts,
+    removeErrorToast,
     logout,
     persistentNotifications,
     unreadNotificationCount,
@@ -51,7 +53,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     fetchPersistentNotifications();
     const interval = setInterval(() => {
       fetchPersistentNotifications();
-    }, 60000);
+    }, 15000); // Poll every 15s for live error notifications
     return () => clearInterval(interval);
   }, [fetchPersistentNotifications]);
 
@@ -294,7 +296,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Top Header */}
-        <header className="h-16 bg-white dark:bg-surface-800 border-b border-gray-200 dark:border-white/5 flex items-center justify-between px-6 z-10 shrink-0">
+        <header className="h-16 bg-white dark:bg-surface-800 border-b border-gray-200 dark:border-white/5 flex items-center justify-between px-6 z-[100] shrink-0 relative">
           {/* Left: Title + Badge */}
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -377,10 +379,10 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
               {notificationDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-40"
+                    className="fixed inset-0 z-[200]"
                     onClick={() => setNotificationDropdownOpen(false)}
                   />
-                  <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-surface-800 rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 z-50 overflow-hidden animate-scale-in">
+                  <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-surface-800 rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 z-[201] overflow-hidden animate-scale-in">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900">
                       <h3 className="font-semibold text-gray-800 dark:text-white">Notifications</h3>
                       {unreadNotificationCount > 0 && (
@@ -407,7 +409,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                               if (!notification.isRead) {
                                 markNotificationRead(notification.id);
                               }
-                              if (notification.link) {
+                              if (notification.type === 'action_error' && notification.contactId) {
+                                window.open(`/contacts/${notification.contactId}`, '_blank');
+                              } else if (notification.link) {
                                 if (notification.link.includes('calendar')) {
                                   onChangeView(ViewState.CALENDAR);
                                 } else if (notification.link.includes('contact')) {
@@ -417,17 +421,21 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                               setNotificationDropdownOpen(false);
                             }}
                             className={`px-4 py-3 border-b border-gray-100 dark:border-white/5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 ${
-                              !notification.isRead ? 'bg-brand-orange/5 dark:bg-brand-orange/5' : ''
+                              notification.type === 'action_error' && !notification.isRead
+                                ? 'bg-red-50 dark:bg-red-900/20'
+                                : (!notification.isRead ? 'bg-brand-orange/5 dark:bg-brand-orange/5' : '')
                             }`}
                           >
                             <div className="flex items-start gap-3">
                               <div className={`p-2 rounded-full shrink-0 ${
+                                notification.type === 'action_error' ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' :
                                 notification.type === 'task_assigned' ? 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400' :
                                 notification.type === 'meeting_scheduled' ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' :
                                 notification.type === 'follow_up_due' ? 'bg-orange-100 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400' :
                                 notification.type === 'task_completed' ? 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400' :
                                 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
                               }`}>
+                                {notification.type === 'action_error' && <AlertCircle size={14} />}
                                 {notification.type === 'task_assigned' && <Users size={14} />}
                                 {notification.type === 'meeting_scheduled' && <Calendar size={14} />}
                                 {notification.type === 'follow_up_due' && <AlertCircle size={14} />}
@@ -435,11 +443,19 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                               </div>
 
                               <div className="flex-1 min-w-0">
-                                <p className={`text-sm ${!notification.isRead ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
-                                  {notification.title}
-                                </p>
+                                {notification.type === 'action_error' && notification.contactName ? (
+                                  <p className={`text-sm ${!notification.isRead ? 'font-semibold text-red-700 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                    {notification.contactName} <span className="font-normal text-gray-500 dark:text-gray-400 text-xs">#{notification.contactId}</span>
+                                  </p>
+                                ) : (
+                                  <p className={`text-sm ${!notification.isRead ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
+                                    {notification.title}
+                                  </p>
+                                )}
                                 {notification.message && (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                                  <p className={`text-xs mt-0.5 line-clamp-2 ${
+                                    notification.type === 'action_error' ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'
+                                  }`}>
                                     {notification.message}
                                   </p>
                                 )}
@@ -449,7 +465,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                               </div>
 
                               {!notification.isRead && (
-                                <div className="w-2 h-2 rounded-full bg-brand-orange shrink-0 mt-2" />
+                                <div className={`w-2 h-2 rounded-full shrink-0 mt-2 ${
+                                  notification.type === 'action_error' ? 'bg-red-500' : 'bg-brand-orange'
+                                }`} />
                               )}
                             </div>
                           </div>
@@ -461,12 +479,12 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                       <div className="px-4 py-2 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900">
                         <button
                           onClick={() => {
-                            onChangeView(ViewState.CALENDAR);
+                            window.open('/notifications', '_blank');
                             setNotificationDropdownOpen(false);
                           }}
                           className="w-full text-center text-xs text-brand-orange hover:text-brand-orange/80 font-medium py-1 transition-colors"
                         >
-                          View Calendar →
+                          View Full List →
                         </button>
                       </div>
                     )}
@@ -569,6 +587,52 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
             </div>
           ))}
         </div>
+
+        {/* Error Notification Toasts */}
+        {errorToasts.length > 0 && (
+          <div className="fixed bottom-6 right-6 z-[70] flex flex-col gap-3 pointer-events-none">
+            {errorToasts.map((toast) => (
+              <div
+                key={toast.id}
+                onClick={() => {
+                  if (toast.contactId) {
+                    window.open(`/contacts/${toast.contactId}`, '_blank');
+                  }
+                  markNotificationRead(toast.id);
+                  removeErrorToast(toast.id);
+                }}
+                className={`
+                  pointer-events-auto cursor-pointer w-96 p-4 rounded-xl shadow-2xl border-l-4 border-red-500
+                  bg-white dark:bg-surface-800 backdrop-blur-sm
+                  transition-all duration-500 transform
+                  ${toast.isExiting ? 'translate-x-full opacity-0' : 'animate-slide-in'}
+                  hover:shadow-xl hover:scale-[1.01]
+                `}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-full bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400 shrink-0">
+                    <AlertCircle size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">
+                      {toast.contactName} <span className="font-normal text-gray-500 dark:text-gray-400 text-xs">#{toast.contactId}</span>
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 line-clamp-2">
+                      {toast.message}
+                    </p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Click to open contact</p>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeErrorToast(toast.id); }}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors shrink-0"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Support Ticket Modal */}
         <SupportTicketModal isOpen={ticketModalOpen} onClose={() => setTicketModalOpen(false)} />
