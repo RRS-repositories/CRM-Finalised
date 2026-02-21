@@ -1979,21 +1979,27 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  <div className="space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                        <div>
-                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">First Name</label>
+                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1">
+                                             <Lock className="w-3 h-3" />
+                                             First Name
+                                          </label>
                                           <input
                                              type="text"
                                              value={personalInfoForm.firstName}
-                                             onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, firstName: e.target.value })}
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             disabled
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                                           />
                                        </div>
                                        <div>
-                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Last Name</label>
+                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1">
+                                             <Lock className="w-3 h-3" />
+                                             Last Name
+                                          </label>
                                           <input
                                              type="text"
                                              value={personalInfoForm.lastName}
-                                             onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, lastName: e.target.value })}
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                             disabled
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                                           />
                                        </div>
                                        <div>

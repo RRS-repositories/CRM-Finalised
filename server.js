@@ -568,7 +568,7 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
             SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
                    ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
                    ct.previous_address_line_1, ct.previous_address_line_2, ct.previous_city,
-                   ct.previous_county, ct.previous_postal_code,
+                   ct.previous_county, ct.previous_postal_code, ct.previous_addresses,
                    ct.dob, ct.ip_address
             FROM cases c
             JOIN contacts ct ON c.contact_id = ct.id
@@ -599,6 +599,7 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
             previous_city: row.previous_city,
             previous_county: row.previous_county,
             previous_postal_code: row.previous_postal_code,
+            previous_addresses: row.previous_addresses,
             dob: row.dob,
             ip_address: row.ip_address
         };
@@ -2009,7 +2010,7 @@ app.post('/api/generate-pdf', async (req, res) => {
             SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
                    ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
                    ct.previous_address_line_1, ct.previous_address_line_2, ct.previous_city,
-                   ct.previous_county, ct.previous_postal_code,
+                   ct.previous_county, ct.previous_postal_code, ct.previous_addresses,
                    ct.dob, ct.ip_address
             FROM cases c
             JOIN contacts ct ON c.contact_id = ct.id
@@ -2042,6 +2043,7 @@ app.post('/api/generate-pdf', async (req, res) => {
             previous_city: row.previous_city,
             previous_county: row.previous_county,
             previous_postal_code: row.previous_postal_code,
+            previous_addresses: row.previous_addresses,
             dob: row.dob,
             ip_address: row.ip_address
         };

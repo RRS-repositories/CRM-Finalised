@@ -101,13 +101,40 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         contact.postal_code
     ].filter(Boolean).join(', ');
 
-    const previousAddress = [
-        contact.previous_address_line_1,
-        contact.previous_address_line_2,
-        contact.previous_city,
-        contact.previous_county,
-        contact.previous_postal_code
-    ].filter(Boolean).join(', ') || '—';
+    // Build previous address - show first address only, add "..." if more exist
+    let previousAddress = '—';
+
+    // First try the JSONB array
+    if (contact.previous_addresses && Array.isArray(contact.previous_addresses) && contact.previous_addresses.length > 0) {
+        const firstAddr = contact.previous_addresses[0];
+        const addrParts = [
+            firstAddr.address_line_1,
+            firstAddr.address_line_2,
+            firstAddr.city,
+            firstAddr.county,
+            firstAddr.postal_code
+        ].filter(Boolean).join(', ');
+
+        if (addrParts) {
+            previousAddress = addrParts;
+            if (contact.previous_addresses.length > 1) {
+                previousAddress += '...';
+            }
+        }
+    } else {
+        // Fallback to individual columns
+        const individualPrevAddress = [
+            contact.previous_address_line_1,
+            contact.previous_address_line_2,
+            contact.previous_city,
+            contact.previous_county,
+            contact.previous_postal_code
+        ].filter(Boolean).join(', ');
+
+        if (individualPrevAddress) {
+            previousAddress = individualPrevAddress;
+        }
+    }
 
     const dob = contact.dob
         ? new Date(contact.dob).toLocaleDateString('en-GB')
@@ -189,7 +216,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         today: today,
         date: today,
         year: String(new Date().getFullYear()),
-        signatureImage: signatureBase64 ? `<img src="${signatureBase64}" style="max-width:200px;" />` : '[Signature]',
+        signatureImage: signatureBase64 || '[Signature]',
     };
 }
 
