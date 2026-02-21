@@ -616,6 +616,16 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
         const pdfResult = await generatePdfFromCase(contact, caseData, documentType, pool);
 
         console.log(`✅ PDF generated for case ${caseId}: ${pdfResult.fileName}`);
+
+        // If LOA was successfully generated, automatically trigger cover letter generation
+        if (documentType === 'LOA') {
+            console.log(`🚀 LOA generated successfully, now triggering Cover Letter generation for case ${caseId}`);
+            // Trigger cover letter generation asynchronously (don't wait for it)
+            triggerPdfGenerator(caseId, 'COVER_LETTER').catch(err => {
+                console.error(`❌ Cover letter generation failed for case ${caseId}:`, err.message);
+            });
+        }
+
         return {
             status: 'SUCCESS',
             fileName: pdfResult.fileName,
