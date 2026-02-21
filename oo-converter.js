@@ -3,7 +3,12 @@
  * Converts DOCX to PDF using OnlyOffice Document Server
  */
 
-// Node.js 18+ has built-in fetch
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+const S3_BUCKET = process.env.S3_BUCKET_NAME || 'client.landing.page';
+const S3_REGION = process.env.AWS_REGION || 'eu-north-1';
+const s3Client = new S3Client({ region: S3_REGION });
 
 const ONLYOFFICE_URL = process.env.ONLYOFFICE_URL || 'https://docs.fastactionclaims.com';
 const CONVERSION_ENDPOINT = `${ONLYOFFICE_URL}/ConvertService.ashx`;
@@ -18,9 +23,26 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
     try {
         console.log('[OO Converter] Converting DOCX to PDF using OnlyOffice...');
 
-        // OnlyOffice conversion requires the file to be accessible via URL
-        // We'll use base64 encoding as a workaround
-        const base64Docx = docxBuffer.toString('base64');
+        // Upload DOCX to S3 temporarily
+        const tempKey = `temp/oo-conversion/${Date.now()}-${fileName}`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: tempKey,
+            Body: docxBuffer,
+            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        }));
+
+        // Get signed URL for OnlyOffice to access
+        const signedUrl = await getSignedUrl(
+            s3Client,
+            new GetObjectCommand({
+                Bucket: S3_BUCKET,
+                Key: tempKey
+            }),
+            { expiresIn: 300 } // 5 minutes
+        );
+
+        console.log(`[OO Converter] DOCX uploaded to S3: ${tempKey}`);
 
         // OnlyOffice conversion API payload
         const payload = {
@@ -29,7 +51,7 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
             key: `conversion_${Date.now()}`,
             outputtype: 'pdf',
             title: fileName,
-            url: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64Docx}`
+            url: signedUrl
         };
 
         console.log(`[OO Converter] Calling OnlyOffice at ${CONVERSION_ENDPOINT}`);
@@ -44,6 +66,8 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
         });
 
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[OO Converter] OnlyOffice error response: ${errorText}`);
             throw new Error(`OnlyOffice conversion failed: ${response.status} ${response.statusText}`);
         }
 
