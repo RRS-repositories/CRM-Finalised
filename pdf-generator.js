@@ -101,6 +101,14 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         contact.postal_code
     ].filter(Boolean).join(', ');
 
+    const previousAddress = [
+        contact.previous_address_line_1,
+        contact.previous_address_line_2,
+        contact.previous_city,
+        contact.previous_state_county,
+        contact.previous_postal_code
+    ].filter(Boolean).join(', ') || '—';
+
     const dob = contact.dob
         ? new Date(contact.dob).toLocaleDateString('en-GB')
         : '';
@@ -116,7 +124,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             phone: contact.phone || '',
             address: clientAddress,
             postcode: contact.postal_code || '',
-            previousAddress: contact.previous_address || '—',
+            previousAddress: previousAddress,
             dateOfBirth: dob,
             dob: dob,
             ipAddress: contact.ip_address || '',
@@ -157,7 +165,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         clientPhone: contact.phone || '',
         clientAddress: clientAddress,
         clientPostcode: contact.postal_code || '',
-        clientPreviousAddress: contact.previous_address || '—',
+        clientPreviousAddress: previousAddress,
         clientDateOfBirth: dob,
         clientDOB: dob,
         clientIpAddress: contact.ip_address || '',
