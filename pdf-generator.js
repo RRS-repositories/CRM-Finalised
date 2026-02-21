@@ -264,8 +264,6 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
     const insertQuery = `
         INSERT INTO documents (contact_id, name, type, category, url, size, tags)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (contact_id, name)
-        DO UPDATE SET url = EXCLUDED.url, updated_at = NOW()
     `;
     await pool.query(insertQuery, [
         contact.id,
