@@ -260,13 +260,23 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
 
     // 10. Insert document record
     const category = documentType === 'LOA' ? 'LOA' : 'Cover Letter';
+    const fileSize = pdfBuffer.length;
     const insertQuery = `
-        INSERT INTO documents (contact_id, file_name, file_url, category, lender, uploaded_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        ON CONFLICT (contact_id, file_name)
-        DO UPDATE SET file_url = EXCLUDED.file_url, uploaded_at = NOW()
+        INSERT INTO documents (contact_id, name, type, category, url, size, tags, lender)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (contact_id, name)
+        DO UPDATE SET url = EXCLUDED.url, updated_at = NOW()
     `;
-    await pool.query(insertQuery, [contact.id, fileName, signedUrl, category, caseData.lender]);
+    await pool.query(insertQuery, [
+        contact.id,
+        fileName,
+        'application/pdf',
+        category,
+        signedUrl,
+        fileSize,
+        '{}',
+        caseData.lender
+    ]);
 
     // 11. Update case status
     const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
