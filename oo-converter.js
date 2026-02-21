@@ -72,25 +72,44 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
             throw new Error(`OnlyOffice conversion failed: ${response.status} ${response.statusText}`);
         }
 
-        // Try to parse JSON
-        let result;
-        try {
-            result = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error(`[OO Converter] OnlyOffice returned non-JSON response: ${responseText.substring(0, 500)}`);
-            throw new Error(`OnlyOffice returned invalid response (not JSON): ${parseError.message}`);
-        }
+        // OnlyOffice can return either JSON or XML
+        let pdfUrl;
 
-        if (result.error) {
-            throw new Error(`OnlyOffice conversion error: ${result.error}`);
-        }
+        if (responseText.trim().startsWith('<?xml') || responseText.trim().startsWith('<FileResult')) {
+            // Parse XML response
+            console.log('[OO Converter] Parsing XML response from OnlyOffice');
+            const fileUrlMatch = responseText.match(/<FileUrl>(.*?)<\/FileUrl>/);
+            const errorMatch = responseText.match(/<Error>(.*?)<\/Error>/);
 
-        // Download the converted PDF
-        if (!result.fileUrl && !result.uri) {
-            throw new Error('No PDF URL in OnlyOffice response');
-        }
+            if (errorMatch) {
+                throw new Error(`OnlyOffice conversion error: ${errorMatch[1]}`);
+            }
 
-        const pdfUrl = result.fileUrl || result.uri;
+            if (!fileUrlMatch) {
+                throw new Error('No FileUrl found in OnlyOffice XML response');
+            }
+
+            pdfUrl = fileUrlMatch[1].replace(/&amp;/g, '&'); // Decode HTML entities
+        } else {
+            // Parse JSON response
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error(`[OO Converter] Invalid response format: ${responseText.substring(0, 500)}`);
+                throw new Error(`OnlyOffice returned invalid response: ${parseError.message}`);
+            }
+
+            if (result.error) {
+                throw new Error(`OnlyOffice conversion error: ${result.error}`);
+            }
+
+            if (!result.fileUrl && !result.uri) {
+                throw new Error('No PDF URL in OnlyOffice JSON response');
+            }
+
+            pdfUrl = result.fileUrl || result.uri;
+        }
         console.log(`[OO Converter] Downloading PDF from: ${pdfUrl}`);
 
         const pdfResponse = await fetch(pdfUrl);
