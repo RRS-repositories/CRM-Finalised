@@ -108,11 +108,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
     if (contact.previous_addresses && Array.isArray(contact.previous_addresses) && contact.previous_addresses.length > 0) {
         const firstAddr = contact.previous_addresses[0];
         const addrParts = [
-            firstAddr.address_line_1,
-            firstAddr.address_line_2,
+            firstAddr.line1,
+            firstAddr.line2,
             firstAddr.city,
             firstAddr.county,
-            firstAddr.postal_code
+            firstAddr.postalCode
         ].filter(Boolean).join(', ');
 
         if (addrParts) {
@@ -149,11 +149,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             address: clientAddress,
             postcode: contact.postal_code || '',
             previousAddress: previousAddress,
-            previousAddressLine1: contact.previous_addresses?.[0]?.address_line_1 || contact.previous_address_line_1 || '',
-            previousAddressLine2: contact.previous_addresses?.[0]?.address_line_2 || contact.previous_address_line_2 || '',
+            previousAddressLine1: contact.previous_addresses?.[0]?.line1 || contact.previous_address_line_1 || '',
+            previousAddressLine2: contact.previous_addresses?.[0]?.line2 || contact.previous_address_line_2 || '',
             previousCity: contact.previous_addresses?.[0]?.city || contact.previous_city || '',
             previousCounty: contact.previous_addresses?.[0]?.county || contact.previous_county || '',
-            previousPostcode: contact.previous_addresses?.[0]?.postal_code || contact.previous_postal_code || '',
+            previousPostcode: contact.previous_addresses?.[0]?.postalCode || contact.previous_postal_code || '',
             dateOfBirth: dob,
             dob: dob,
             ipAddress: contact.ip_address || '',
@@ -195,11 +195,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         clientAddress: clientAddress,
         clientPostcode: contact.postal_code || '',
         clientPreviousAddress: previousAddress,
-        clientPreviousAddressLine1: contact.previous_addresses?.[0]?.address_line_1 || contact.previous_address_line_1 || '',
-        clientPreviousAddressLine2: contact.previous_addresses?.[0]?.address_line_2 || contact.previous_address_line_2 || '',
+        clientPreviousAddressLine1: contact.previous_addresses?.[0]?.line1 || contact.previous_address_line_1 || '',
+        clientPreviousAddressLine2: contact.previous_addresses?.[0]?.line2 || contact.previous_address_line_2 || '',
         clientPreviousCity: contact.previous_addresses?.[0]?.city || contact.previous_city || '',
         clientPreviousCounty: contact.previous_addresses?.[0]?.county || contact.previous_county || '',
-        clientPreviousPostcode: contact.previous_addresses?.[0]?.postal_code || contact.previous_postal_code || '',
+        clientPreviousPostcode: contact.previous_addresses?.[0]?.postalCode || contact.previous_postal_code || '',
         clientDateOfBirth: dob,
         clientDOB: dob,
         clientIpAddress: contact.ip_address || '',
