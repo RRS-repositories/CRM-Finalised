@@ -29,6 +29,7 @@ import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import jwt from 'jsonwebtoken';
 import crmEvents from './services/crmEvents.js';
+import { generatePdfFromCase } from './pdf-generator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1941,6 +1942,83 @@ app.post('/api/documents/download', async (req, res) => {
     } catch (err) {
         console.error('Error downloading file:', err);
         res.status(500).json({ success: false, message: 'Could not download file' });
+    }
+});
+
+// Generate PDF from OnlyOffice template
+app.post('/api/generate-pdf', async (req, res) => {
+    const { caseId, documentType } = req.body;
+
+    try {
+        console.log(`[PDF API] Request received for case ${caseId}, type: ${documentType}`);
+
+        if (!caseId || !documentType) {
+            return res.status(400).json({
+                success: false,
+                message: 'caseId and documentType are required'
+            });
+        }
+
+        // Fetch case and contact data
+        const caseQuery = `
+            SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
+                   ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
+                   ct.previous_address, ct.dob
+            FROM cases c
+            JOIN contacts ct ON c.contact_id = ct.id
+            WHERE c.id = $1
+        `;
+
+        const result = await pool.query(caseQuery, [caseId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: `Case ${caseId} not found`
+            });
+        }
+
+        const row = result.rows[0];
+        const contact = {
+            id: row.contact_id,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            email: row.email,
+            phone: row.phone,
+            address_line_1: row.address_line_1,
+            address_line_2: row.address_line_2,
+            city: row.city,
+            state_county: row.state_county,
+            postal_code: row.postal_code,
+            previous_address: row.previous_address,
+            dob: row.dob
+        };
+
+        const caseData = {
+            id: row.id,
+            contact_id: row.contact_id,
+            lender: row.lender,
+            claim_value: row.claim_value,
+            status: row.status
+        };
+
+        // Generate PDF
+        const pdfResult = await generatePdfFromCase(contact, caseData, documentType, pool);
+
+        console.log(`[PDF API] PDF generated successfully: ${pdfResult.fileName}`);
+
+        res.json({
+            success: true,
+            ...pdfResult
+        });
+
+    } catch (err) {
+        console.error('[PDF API] Error:', err);
+        res.status(500).json({
+            success: false,
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 
