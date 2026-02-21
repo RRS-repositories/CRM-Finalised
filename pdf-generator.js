@@ -105,7 +105,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         contact.previous_address_line_1,
         contact.previous_address_line_2,
         contact.previous_city,
-        contact.previous_state_county,
+        contact.previous_county,
         contact.previous_postal_code
     ].filter(Boolean).join(', ') || '—';
 
