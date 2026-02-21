@@ -279,6 +279,11 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
         }
     }
 
+    // Block LOA generation if no signature found
+    if (!signatureBase64 && documentType === 'LOA') {
+        throw new Error(`Cannot generate LOA for contact ${contact.id}: No signature found. Please upload a signature first.`);
+    }
+
     // 2. Get lender details
     const lenderAddress = getLenderAddress(caseData.lender);
     const lenderEmail = getLenderEmail(caseData.lender);
