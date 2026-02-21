@@ -85,7 +85,11 @@
       "Bash(npm view:*)",
       "Bash(unzip:*)",
       "Bash(aws lambda list-functions:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(export:*)",
+      "Bash(export AWS_SECRET_ACCESS_KEY=f3SvrztUmJhVEvqH5wPE9HjdF/O3rEyLrOLitpwN)",
+      "Bash(export AWS_DEFAULT_REGION=eu-north-1:*)",
+      "Bash(sort:*)"
     ]
   }
 }
