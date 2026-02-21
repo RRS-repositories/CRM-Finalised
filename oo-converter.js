@@ -65,13 +65,21 @@ export async function convertDocxToPdf(docxBuffer, fileName = 'document.docx') {
             body: JSON.stringify(payload)
         });
 
+        const responseText = await response.text();
+
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[OO Converter] OnlyOffice error response: ${errorText}`);
+            console.error(`[OO Converter] OnlyOffice error response (${response.status}): ${responseText.substring(0, 500)}`);
             throw new Error(`OnlyOffice conversion failed: ${response.status} ${response.statusText}`);
         }
 
-        const result = await response.json();
+        // Try to parse JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error(`[OO Converter] OnlyOffice returned non-JSON response: ${responseText.substring(0, 500)}`);
+            throw new Error(`OnlyOffice returned invalid response (not JSON): ${parseError.message}`);
+        }
 
         if (result.error) {
             throw new Error(`OnlyOffice conversion error: ${result.error}`);
