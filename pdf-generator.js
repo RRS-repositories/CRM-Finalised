@@ -348,7 +348,7 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
 
     // 10. Insert document record
     const category = documentType === 'LOA' ? 'LOA' : 'Cover Letter';
-    const fileSize = pdfBuffer.length;
+    const fileSize = `${(pdfBuffer.length / 1024).toFixed(1)} KB`;
     const tags = [caseData.lender, category, documentType, `Case: ${caseData.id}`];
     const insertQuery = `
         INSERT INTO documents (contact_id, name, type, category, url, size, tags)
