@@ -72,7 +72,7 @@ async function uploadToS3(buffer, key, contentType = 'application/pdf') {
             Bucket: S3_BUCKET,
             Key: key
         }),
-        { expiresIn: 31536000 } // 1 year
+        { expiresIn: 604800 } // 7 days (max for S3 SigV4)
     );
 
     return signedUrl;
