@@ -143,6 +143,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             phone: '0161 505 0150',
             sraNumber: '8000843',
         },
+        system: {
+            today: today,
+            date: today,
+            year: String(new Date().getFullYear()),
+        },
 
         // Flat structure for backward compatibility
         clientFullName: fullName,
