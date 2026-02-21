@@ -554,30 +554,68 @@ const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const PDF_GENERATOR_API_URL = process.env.PDF_GENERATOR_API_URL || 'https://n778tx67zi.execute-api.eu-north-1.amazonaws.com/prod/generate-pdf';
 
 /**
- * Trigger Lambda to generate LOA or Cover Letter PDF
+ * Generate LOA or Cover Letter PDF using OnlyOffice (local EC2)
  * @param {number} caseId - The case ID
  * @param {string} documentType - 'LOA' or 'COVER_LETTER'
- * @param {boolean} skipStatusUpdate - If true, Lambda won't change case status
+ * @param {boolean} skipStatusUpdate - If true, won't change case status (deprecated - always updates)
  */
 async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = false) {
     try {
-        console.log(`🚀 Triggering PDF generator Lambda for case ${caseId}, type: ${documentType}, skipStatusUpdate: ${skipStatusUpdate}`);
-        const response = await fetch(PDF_GENERATOR_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caseId, documentType, skipStatusUpdate })
-        });
-        const result = await response.json();
-        if (result.status === 'SUCCESS') {
-            console.log(`✅ PDF generated for case ${caseId}: ${result.fileName}`);
-        } else if (result.status === 'SKIPPED') {
-            console.log(`⏭️ PDF generation skipped for case ${caseId}: ${result.reason}`);
-        } else {
-            console.error(`❌ PDF generation failed for case ${caseId}:`, result.error);
+        console.log(`🚀 Generating PDF for case ${caseId}, type: ${documentType}`);
+
+        // Fetch case and contact data
+        const caseQuery = `
+            SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
+                   ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
+                   ct.previous_address, ct.dob
+            FROM cases c
+            JOIN contacts ct ON c.contact_id = ct.id
+            WHERE c.id = $1
+        `;
+
+        const result = await pool.query(caseQuery, [caseId]);
+
+        if (result.rows.length === 0) {
+            console.error(`❌ Case ${caseId} not found`);
+            return { status: 'ERROR', error: `Case ${caseId} not found` };
         }
-        return result;
+
+        const row = result.rows[0];
+        const contact = {
+            id: row.contact_id,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            email: row.email,
+            phone: row.phone,
+            address_line_1: row.address_line_1,
+            address_line_2: row.address_line_2,
+            city: row.city,
+            state_county: row.state_county,
+            postal_code: row.postal_code,
+            previous_address: row.previous_address,
+            dob: row.dob
+        };
+
+        const caseData = {
+            id: row.id,
+            contact_id: row.contact_id,
+            lender: row.lender,
+            claim_value: row.claim_value,
+            status: row.status
+        };
+
+        // Generate PDF using local OnlyOffice
+        const pdfResult = await generatePdfFromCase(contact, caseData, documentType, pool);
+
+        console.log(`✅ PDF generated for case ${caseId}: ${pdfResult.fileName}`);
+        return {
+            status: 'SUCCESS',
+            fileName: pdfResult.fileName,
+            signedUrl: pdfResult.signedUrl,
+            s3Key: pdfResult.s3Key
+        };
     } catch (err) {
-        console.error(`❌ Error calling PDF generator Lambda for case ${caseId}:`, err.message);
+        console.error(`❌ Error generating PDF for case ${caseId}:`, err.message);
         return { status: 'ERROR', error: err.message };
     }
 }
