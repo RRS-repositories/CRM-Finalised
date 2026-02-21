@@ -10068,6 +10068,8 @@ app.post('/api/oo/callback', async (req, res) => {
             for (const [id, doc] of ooDocuments) {
                 if (doc.ooDocKey === key) {
                     await uploadS3Buffer(doc.s3KeyDocx, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                    // Update local cache so reopening shows latest version
+                    ooSaveLocal(doc.s3KeyDocx, buffer);
                     doc.ooDocKey = `doc_${id}_v${Date.now()}`;
                     doc.updatedAt = new Date().toISOString();
                     console.log(`[OO Callback] Updated document #${id}`);
@@ -10084,6 +10086,8 @@ app.post('/api/oo/callback', async (req, res) => {
                     const template = result.rows[0];
                     // Upload updated DOCX back to S3
                     await uploadS3Buffer(template.s3_key, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                    // Update local cache so reopening shows latest version
+                    ooSaveLocal(template.s3_key, buffer);
                     // Extract merge fields from updated document
                     const mergeFields = extractMergeFields(buffer);
                     // Update database
