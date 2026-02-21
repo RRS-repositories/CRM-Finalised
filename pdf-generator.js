@@ -254,7 +254,12 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
     const sanitizedLender = (caseData.lender || 'NO_LENDER').replace(/[^a-zA-Z0-9_-]/g, '_');
     const docType = documentType === 'LOA' ? 'LOA' : 'COVER LETTER';
     const fileName = `${refSpec} - ${contactName} - ${sanitizedLender} - ${docType}.pdf`;
-    const s3Key = `documents/${contact.id}/${fileName}`;
+
+    // S3 path structure: {firstName}_{lastName}_{contactId}/Lenders/{lender}/{fileName}
+    const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contact.id}`;
+    const s3Key = `${folderPrefix}/Lenders/${sanitizedLender}/${fileName}`;
 
     // 9. Upload to S3
     console.log(`[PDF Generator] Uploading PDF to S3: ${s3Key}`);
