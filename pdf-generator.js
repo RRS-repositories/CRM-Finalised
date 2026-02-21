@@ -119,6 +119,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             previousAddress: contact.previous_address || '—',
             dateOfBirth: dob,
             dob: dob,
+            ipAddress: contact.ip_address || '',
         },
         claim: {
             lender: caseData.lender || '',
@@ -154,6 +155,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         clientPreviousAddress: contact.previous_address || '—',
         clientDateOfBirth: dob,
         clientDOB: dob,
+        clientIpAddress: contact.ip_address || '',
         lenderName: caseData.lender || '',
         claimLender: caseData.lender || '',
         clientId: clientId,
@@ -184,22 +186,33 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
 export async function generatePdfFromCase(contact, caseData, documentType, pool) {
     console.log(`[PDF Generator] Starting PDF generation for case ${caseData.id}, type: ${documentType}`);
 
-    // 1. Check for signature
+    // 1. Check for signature (for both LOA and Cover Letter)
     let signatureBase64 = null;
-    if (documentType === 'Cover Letter') {
-        const signatureQuery = `
-            SELECT key FROM signatures
-            WHERE contact_id = $1
-            ORDER BY uploaded_at DESC
-            LIMIT 1
-        `;
-        const signatureResult = await pool.query(signatureQuery, [contact.id]);
 
-        if (signatureResult.rows.length > 0) {
-            const signatureBuffer = await fetchFromS3(signatureResult.rows[0].key);
-            if (signatureBuffer) {
-                signatureBase64 = `data:image/png;base64,${signatureBuffer.toString('base64')}`;
-            }
+    // Try database first
+    const signatureQuery = `
+        SELECT key FROM signatures
+        WHERE contact_id = $1
+        ORDER BY uploaded_at DESC
+        LIMIT 1
+    `;
+    const signatureResult = await pool.query(signatureQuery, [contact.id]);
+
+    if (signatureResult.rows.length > 0) {
+        const signatureBuffer = await fetchFromS3(signatureResult.rows[0].key);
+        if (signatureBuffer) {
+            signatureBase64 = `data:image/png;base64,${signatureBuffer.toString('base64')}`;
+        }
+    } else {
+        // Try standard Signatures folder location
+        const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contact.id}`;
+        const signatureKey = `${folderPrefix}/Signatures/signature.png`;
+
+        const signatureBuffer = await fetchFromS3(signatureKey);
+        if (signatureBuffer) {
+            signatureBase64 = `data:image/png;base64,${signatureBuffer.toString('base64')}`;
         }
     }
 

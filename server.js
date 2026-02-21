@@ -567,7 +567,7 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
         const caseQuery = `
             SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
                    ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
-                   ct.previous_address, ct.dob
+                   ct.previous_address, ct.dob, ct.ip_address
             FROM cases c
             JOIN contacts ct ON c.contact_id = ct.id
             WHERE c.id = $1
@@ -593,7 +593,8 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
             state_county: row.state_county,
             postal_code: row.postal_code,
             previous_address: row.previous_address,
-            dob: row.dob
+            dob: row.dob,
+            ip_address: row.ip_address
         };
 
         const caseData = {
@@ -2001,7 +2002,7 @@ app.post('/api/generate-pdf', async (req, res) => {
         const caseQuery = `
             SELECT c.*, ct.id as contact_id, ct.first_name, ct.last_name, ct.email, ct.phone,
                    ct.address_line_1, ct.address_line_2, ct.city, ct.state_county, ct.postal_code,
-                   ct.previous_address, ct.dob
+                   ct.previous_address, ct.dob, ct.ip_address
             FROM cases c
             JOIN contacts ct ON c.contact_id = ct.id
             WHERE c.id = $1
@@ -2029,7 +2030,8 @@ app.post('/api/generate-pdf', async (req, res) => {
             state_county: row.state_county,
             postal_code: row.postal_code,
             previous_address: row.previous_address,
-            dob: row.dob
+            dob: row.dob,
+            ip_address: row.ip_address
         };
 
         const caseData = {
