@@ -228,8 +228,8 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         year: String(new Date().getFullYear()),
         signatureImage: signatureBase64 ? {
             _type: 'image',
-            source: signatureBase64.split(',')[1], // Extract base64 data without 'data:image/png;base64,' prefix
-            format: 'png',
+            data: signatureBase64.split(',')[1], // Extract base64 data without 'data:image/png;base64,' prefix
+            extension: '.png',
             width: 5, // Width in cm
             height: 2.5 // Height in cm
         } : null,
