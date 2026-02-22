@@ -5984,13 +5984,20 @@ app.post('/api/submit-loa-form', async (req, res) => {
                             : null;
 
                         if (existingCaseRes.rows.length > 0) {
-                            // Case exists - update status if it's the intake lender, otherwise leave as is (or update if needed)
-                            console.log(`[Background LOA] Case already exists for ${lender}. Updating status if needed.`);
+                            // Case exists - update status based on current status
+                            const existingCase = existingCaseRes.rows[0];
+                            console.log(`[Background LOA] Case already exists for ${lender} with status ${existingCase.status}. Updating status if needed.`);
 
-                            if (initialStatus === 'Lender Selection Form Completed') {
+                            // If case was "Extra Lender Selection Form Sent", change to "Extra Lender Selection Form Completed"
+                            if (existingCase.status === 'Extra Lender Selection Form Sent') {
+                                await pool.query(
+                                    `UPDATE cases SET status = 'Extra Lender Selection Form Completed', dsar_send_after = COALESCE(dsar_send_after, $2) WHERE id = $1`,
+                                    [existingCase.id, dsarSendAfterLender]
+                                );
+                            } else if (initialStatus === 'Lender Selection Form Completed') {
                                 await pool.query(
                                     `UPDATE cases SET status = $1, dsar_send_after = COALESCE(dsar_send_after, $3) WHERE id = $2`,
-                                    [initialStatus, existingCaseRes.rows[0].id, dsarSendAfterLender]
+                                    [initialStatus, existingCase.id, dsarSendAfterLender]
                                 );
                             }
                             return { lender, success: true, status: 'updated' };
@@ -6032,16 +6039,24 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     if (isCategory3Lender(stdIntakeLender)) {
                         console.log(`[Background LOA] Intake lender ${stdIntakeLender} is Category 3. Confirmation email already sent.`);
                     } else {
-                        // Update existing case if it exists (e.g. created created above or previously)
+                        // Update existing case if it exists
                         const intakeDsarSendAfter = stdIntakeLender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+
+                        // For "Extra Lender Selection Form Sent" -> "Extra Lender Selection Form Completed"
+                        // For others -> "Lender Selection Form Completed"
                         const updateResult = await pool.query(
-                            `UPDATE cases SET status = 'Lender Selection Form Completed', dsar_send_after = COALESCE(dsar_send_after, $3)
+                            `UPDATE cases SET
+                                status = CASE
+                                    WHEN status = 'Extra Lender Selection Form Sent' THEN 'Extra Lender Selection Form Completed'
+                                    ELSE 'Lender Selection Form Completed'
+                                END,
+                                dsar_send_after = COALESCE(dsar_send_after, $3)
                              WHERE contact_id = $1 AND lower(lender) = lower($2)`,
                             [contactId, stdIntakeLender, intakeDsarSendAfter]
                         );
 
                         if (updateResult.rowCount === 0) {
-                            // If not exists (meaning user didn't select it? or it wasn't in list?), create it
+                            // If not exists, create it
                             const intakeCaseRes = await pool.query(
                                 `INSERT INTO cases (contact_id, lender, status, claim_value, created_at, loa_generated, dsar_send_after)
                                  VALUES ($1, $2, 'Lender Selection Form Completed', 0, CURRENT_TIMESTAMP, false, $3) RETURNING id`,

@@ -382,14 +382,20 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
 
     // 11. Update case status (skip if skipStatusUpdate is true - for Extra Lender Selection Form Sent)
     if (skipStatusUpdate) {
-        // Only update loa_generated flag, keep status unchanged
-        const updateQuery = `
-            UPDATE cases
-            SET loa_generated = $1, updated_at = NOW()
-            WHERE id = $2
-        `;
-        await pool.query(updateQuery, [documentType === 'LOA', caseData.id]);
-        console.log(`[PDF Generator] Status update skipped for case ${caseData.id}, only loa_generated updated`);
+        // Only update loa_generated for LOA, keep status unchanged
+        if (documentType === 'LOA') {
+            await pool.query(
+                `UPDATE cases SET loa_generated = true, updated_at = NOW() WHERE id = $1`,
+                [caseData.id]
+            );
+        } else {
+            // For cover letter, only update timestamp (don't touch loa_generated)
+            await pool.query(
+                `UPDATE cases SET updated_at = NOW() WHERE id = $1`,
+                [caseData.id]
+            );
+        }
+        console.log(`[PDF Generator] Status update skipped for case ${caseData.id}`);
     } else {
         const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
         const updateQuery = `
