@@ -252,8 +252,8 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
 /**
  * Generate PDF from case data
  */
-export async function generatePdfFromCase(contact, caseData, documentType, pool) {
-    console.log(`[PDF Generator] Starting PDF generation for case ${caseData.id}, type: ${documentType}`);
+export async function generatePdfFromCase(contact, caseData, documentType, pool, skipStatusUpdate = false) {
+    console.log(`[PDF Generator] Starting PDF generation for case ${caseData.id}, type: ${documentType}, skipStatusUpdate: ${skipStatusUpdate}`);
 
     // 1. Check for signature (for both LOA and Cover Letter)
     let signatureBase64 = null;
@@ -380,14 +380,25 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool)
         tags
     ]);
 
-    // 11. Update case status
-    const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
-    const updateQuery = `
-        UPDATE cases
-        SET status = $1, loa_generated = $2, updated_at = NOW()
-        WHERE id = $3
-    `;
-    await pool.query(updateQuery, [newStatus, documentType === 'LOA', caseData.id]);
+    // 11. Update case status (skip if skipStatusUpdate is true - for Extra Lender Selection Form Sent)
+    if (skipStatusUpdate) {
+        // Only update loa_generated flag, keep status unchanged
+        const updateQuery = `
+            UPDATE cases
+            SET loa_generated = $1, updated_at = NOW()
+            WHERE id = $2
+        `;
+        await pool.query(updateQuery, [documentType === 'LOA', caseData.id]);
+        console.log(`[PDF Generator] Status update skipped for case ${caseData.id}, only loa_generated updated`);
+    } else {
+        const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
+        const updateQuery = `
+            UPDATE cases
+            SET status = $1, loa_generated = $2, updated_at = NOW()
+            WHERE id = $3
+        `;
+        await pool.query(updateQuery, [newStatus, documentType === 'LOA', caseData.id]);
+    }
 
     console.log(`[PDF Generator] PDF generated successfully: ${fileName}`);
 

@@ -614,7 +614,7 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
         };
 
         // Generate PDF using local OnlyOffice
-        const pdfResult = await generatePdfFromCase(contact, caseData, documentType, pool);
+        const pdfResult = await generatePdfFromCase(contact, caseData, documentType, pool, skipStatusUpdate);
 
         console.log(`✅ PDF generated for case ${caseId}: ${pdfResult.fileName}`);
 
@@ -622,7 +622,8 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
         if (documentType === 'LOA') {
             console.log(`🚀 LOA generated successfully, now triggering Cover Letter generation for case ${caseId}`);
             // Trigger cover letter generation asynchronously (don't wait for it)
-            triggerPdfGenerator(caseId, 'COVER_LETTER').catch(err => {
+            // Pass same skipStatusUpdate so status stays unchanged for Extra Lender Selection Form Sent
+            triggerPdfGenerator(caseId, 'COVER_LETTER', skipStatusUpdate).catch(err => {
                 console.error(`❌ Cover letter generation failed for case ${caseId}:`, err.message);
             });
         }
@@ -3869,11 +3870,10 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
         await setReferenceSpecified(pool, contactId, rows[0].id);
         crmEvents.emit('case.created', { caseId: rows[0].id, contactId: parseInt(contactId), data: rows[0] });
 
-        // Trigger LOA generation if status is New Lead (or related statuses)
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
-            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
-            triggerPdfGenerator(rows[0].id, 'LOA', skipStatusUpdate).catch(err => {
+        // Trigger LOA generation if status is New Lead or Lender Selection Form Completed
+        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
+            triggerPdfGenerator(rows[0].id, 'LOA').catch(err => {
                 console.error(`❌ LOA generation trigger failed for new case ${rows[0].id}:`, err.message);
             });
         }
@@ -5208,11 +5208,10 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
-        // If status = "New Lead", trigger LOA generation via Lambda (async)
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
-            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
-            triggerPdfGenerator(parseInt(id), 'LOA', skipStatusUpdate).catch(err => {
+        // If status = "New Lead" or "Lender Selection Form Completed", trigger LOA generation
+        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
+            triggerPdfGenerator(parseInt(id), 'LOA').catch(err => {
                 console.error(`❌ LOA generation trigger failed for case ${id}:`, err.message);
             });
         }
@@ -5261,12 +5260,11 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             );
         }
 
-        // If status = "New Lead", trigger LOA generation for each case via Lambda (async)
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            // For Extra Lender Selection Form Sent, don't change status after generating PDFs
-            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+        // If status = "New Lead" or "Lender Selection Form Completed", trigger LOA generation for each case
+        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
             for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
+                triggerPdfGenerator(updatedCase.id, 'LOA').catch(err => {
                     console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
                 });
             }
@@ -10541,6 +10539,11 @@ app.post('/api/process-lender-confirmation/:token', async (req, res) => {
             );
 
             console.log(`[Category 3] ✅ Client confirmed ${confirmation.lender}, case ${newCaseRes.rows[0].id} created`);
+
+            // Trigger LOA generation for the new case
+            triggerPdfGenerator(newCaseRes.rows[0].id, 'LOA').catch(err => {
+                console.error(`❌ LOA generation trigger failed for case ${newCaseRes.rows[0].id}:`, err.message);
+            });
 
             return res.json({
                 success: true,
