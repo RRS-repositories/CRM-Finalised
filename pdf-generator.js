@@ -84,7 +84,8 @@ async function uploadToS3(buffer, key, contentType = 'application/pdf') {
 function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signatureBase64 = null) {
     const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
     const clientId = `RR-${contact.id}`;
-    const fullReference = `${clientId}/${caseData.id}`;
+    // Use reference_specified from cases table if available, otherwise fall back to generated format
+    const fullReference = caseData.reference_specified || `${clientId}/${caseData.id}`;
     const refSpec = `${contact.id}${caseData.id}`;
 
     const today = new Date().toLocaleDateString('en-GB', {

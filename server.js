@@ -609,7 +609,8 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
             contact_id: row.contact_id,
             lender: row.lender,
             claim_value: row.claim_value,
-            status: row.status
+            status: row.status,
+            reference_specified: row.reference_specified
         };
 
         // Generate PDF using local OnlyOffice
