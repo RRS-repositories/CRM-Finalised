@@ -2485,7 +2485,12 @@ app.post('/api/submit-page1', async (req, res) => {
                     const claimId = claimRes.rows[0].id;
                     await setReferenceSpecified(pool, contactId, claimId);
 
-                    console.log(`[Server] Created claim ${claimId} for ${lender_type}. Offloading PDF generation to worker.`);
+                    console.log(`[Server] Created claim ${claimId} for ${lender_type}. Triggering LOA generation.`);
+
+                    // Trigger LOA generation (skipStatusUpdate=true to keep status as "Extra Lender Selection Form Sent")
+                    triggerPdfGenerator(claimId, 'LOA', true).catch(err => {
+                        console.error(`❌ LOA generation trigger failed for case ${claimId}:`, err.message);
+                    });
 
                     // 6. Create submission token for additional lender selection
                     const { randomUUID } = await import('crypto');
