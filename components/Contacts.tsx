@@ -4161,6 +4161,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                 Download
                                              </button>
                                           )}
+                                          <button
+                                             onClick={() => {
+                                                setDocToDelete({ id: doc.id, name: doc.name });
+                                                setShowDeleteDocConfirm(true);
+                                             }}
+                                             className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/50 transition-colors"
+                                             title="Delete"
+                                          >
+                                             <Trash2 size={16} />
+                                          </button>
                                        </div>
                                     </td>
                                  </tr>
