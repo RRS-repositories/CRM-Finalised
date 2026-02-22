@@ -3870,10 +3870,11 @@ app.post('/api/contacts/:id/cases', async (req, res) => {
         await setReferenceSpecified(pool, contactId, rows[0].id);
         crmEvents.emit('case.created', { caseId: rows[0].id, contactId: parseInt(contactId), data: rows[0] });
 
-        // Trigger LOA generation if status is New Lead or Lender Selection Form Completed
-        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
-            triggerPdfGenerator(rows[0].id, 'LOA').catch(err => {
+        // Trigger LOA generation for these statuses
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            // For Extra Lender Selection Form Sent, skip status update so it stays unchanged
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(rows[0].id, 'LOA', skipStatusUpdate).catch(err => {
                 console.error(`❌ LOA generation trigger failed for new case ${rows[0].id}:`, err.message);
             });
         }
@@ -5208,10 +5209,11 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
-        // If status = "New Lead" or "Lender Selection Form Completed", trigger LOA generation
-        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
-            triggerPdfGenerator(parseInt(id), 'LOA').catch(err => {
+        // Trigger LOA generation for these statuses
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            // For Extra Lender Selection Form Sent, skip status update so it stays unchanged
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(parseInt(id), 'LOA', skipStatusUpdate).catch(err => {
                 console.error(`❌ LOA generation trigger failed for case ${id}:`, err.message);
             });
         }
@@ -5260,11 +5262,12 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             );
         }
 
-        // If status = "New Lead" or "Lender Selection Form Completed", trigger LOA generation for each case
-        // NOTE: "Extra Lender Selection Form Sent" is NOT included - LOA is only triggered when extra lender form is submitted
-        if (status === 'New Lead' || status === 'Lender Selection Form Completed') {
+        // Trigger LOA generation for these statuses
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            // For Extra Lender Selection Form Sent, skip status update so it stays unchanged
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
             for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'LOA').catch(err => {
+                triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
                     console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
                 });
             }
