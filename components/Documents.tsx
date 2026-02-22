@@ -3,7 +3,7 @@ import {
    FileText, Search, File, Download, Trash2, Tag, Eye, Edit, Save, X,
    ChevronLeft, Clock, RefreshCw, ChevronDown, ChevronRight, User,
    Send, AlertTriangle, CheckCircle, Mail, XCircle, History, ExternalLink,
-   MailX, Timer
+   MailX, Timer, Loader2
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Document, OOTemplate, DocumentStatus } from '../types';
@@ -109,6 +109,13 @@ const DocumentsContent: React.FC = () => {
 
    // Sending state
    const [sendingDocId, setSendingDocId] = useState<string | null>(null);
+
+   // Delete document state
+   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
+   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+   const [isDeletingDoc, setIsDeletingDoc] = useState(false);
+   const [deleteProgress, setDeleteProgress] = useState(0);
 
    const categories = ['All', 'Client', 'Correspondence', 'Legal', 'Templates', 'Other'];
 
@@ -325,6 +332,58 @@ const DocumentsContent: React.FC = () => {
       }
    };
 
+   const handleDeleteDocClick = (doc: Document) => {
+      setDocToDelete(doc);
+      setShowDeleteConfirm(true);
+      setDeleteConfirmText('');
+   };
+
+   const handleDeleteDocument = async () => {
+      if (!docToDelete || deleteConfirmText !== 'DELETE') return;
+
+      setIsDeletingDoc(true);
+      setDeleteProgress(0);
+
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+         setDeleteProgress(prev => {
+            if (prev >= 90) return prev;
+            return prev + Math.random() * 15;
+         });
+      }, 200);
+
+      try {
+         const res = await fetch(`${API_BASE_URL}/documents/${docToDelete.id}`, {
+            method: 'DELETE'
+         });
+
+         clearInterval(progressInterval);
+
+         if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to delete document');
+         }
+
+         setDeleteProgress(100);
+         await new Promise(resolve => setTimeout(resolve, 500));
+
+         addNotification('success', `Document "${docToDelete.name}" deleted successfully`);
+
+         // Close modal and reset state
+         setShowDeleteConfirm(false);
+         setDocToDelete(null);
+         setDeleteConfirmText('');
+      } catch (err: unknown) {
+         clearInterval(progressInterval);
+         const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
+         console.error('Delete document error:', err);
+         addNotification('error', errorMessage);
+      } finally {
+         setIsDeletingDoc(false);
+         setDeleteProgress(0);
+      }
+   };
+
    const selectedStatusConfig = selectedStatus
       ? DOCUMENT_STATUS_CONFIG.find(c => c.status === selectedStatus)
       : null;
@@ -499,6 +558,7 @@ const DocumentsContent: React.FC = () => {
                                  updateDocumentStatus={updateDocumentStatus}
                                  handleSendDocument={handleSendDocument}
                                  handleOpenDocTimeline={handleOpenDocTimeline}
+                                 handleDeleteDocClick={handleDeleteDocClick}
                                  sendingDocId={sendingDocId}
                               />
                            ))}
@@ -636,6 +696,82 @@ const DocumentsContent: React.FC = () => {
                </div>
             </div>
          )}
+
+         {/* Delete Document Confirmation Modal */}
+         {showDeleteConfirm && docToDelete && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full relative">
+                  {/* Deleting Progress Overlay */}
+                  {isDeletingDoc && (
+                     <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl">
+                        <div className="relative w-24 h-24">
+                           <svg className="w-full h-full transform -rotate-90">
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-200 dark:text-slate-600" />
+                              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
+                                 strokeDasharray={251.2}
+                                 strokeDashoffset={251.2 - (251.2 * deleteProgress) / 100}
+                                 className="text-green-500 transition-all duration-300 ease-out"
+                                 strokeLinecap="round"
+                              />
+                           </svg>
+                           <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-green-600 dark:text-green-400">
+                              {Math.round(deleteProgress)}%
+                           </div>
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-gray-700 dark:text-white">
+                           {deleteProgress < 100 ? 'Deleting document from S3...' : 'Done!'}
+                        </p>
+                     </div>
+                  )}
+                  <div className="flex items-center gap-3 mb-4">
+                     <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                        <Trash2 size={20} className="text-red-600" />
+                     </div>
+                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Delete Document?</h3>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                     Are you sure you want to delete <strong>"{docToDelete.name}"</strong>?
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                     This will permanently remove the file from storage. This action cannot be undone.
+                  </p>
+                  <div className="mb-6">
+                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Type <span className="font-bold text-red-600">DELETE</span> to confirm:
+                     </label>
+                     <input
+                        type="text"
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value.toUpperCase())}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                        placeholder="DELETE"
+                        disabled={isDeletingDoc}
+                     />
+                  </div>
+                  <div className="flex justify-end gap-3">
+                     <button
+                        onClick={() => {
+                           setShowDeleteConfirm(false);
+                           setDocToDelete(null);
+                           setDeleteConfirmText('');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+                        disabled={isDeletingDoc}
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={handleDeleteDocument}
+                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        disabled={isDeletingDoc || deleteConfirmText !== 'DELETE'}
+                     >
+                        {isDeletingDoc && <Loader2 size={14} className="animate-spin" />}
+                        {isDeletingDoc ? 'Deleting...' : 'Delete Document'}
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
       </div>
    );
 };
@@ -653,13 +789,14 @@ interface DocumentGroupProps {
    updateDocumentStatus: (docId: string, status: DocumentStatus) => Promise<void>;
    handleSendDocument: (doc: Document) => void;
    handleOpenDocTimeline: (docId: string) => void;
+   handleDeleteDocClick: (doc: Document) => void;
    sendingDocId: string | null;
 }
 
 const DocumentGroup: React.FC<DocumentGroupProps> = ({
    contactName, lender, docs, getFileIcon, formatDate,
    handlePreview, handleEditClick, updateDocumentStatus,
-   handleSendDocument, handleOpenDocTimeline, sendingDocId
+   handleSendDocument, handleOpenDocTimeline, handleDeleteDocClick, sendingDocId
 }) => {
    const [isExpanded, setIsExpanded] = useState(true);
 
@@ -830,6 +967,7 @@ const DocumentGroup: React.FC<DocumentGroupProps> = ({
                                     <Download size={13} />
                                  </button>
                                  <button
+                                    onClick={() => handleDeleteDocClick(doc)}
                                     className="p-1.5 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/50 transition-colors"
                                     title="Delete"
                                  >
