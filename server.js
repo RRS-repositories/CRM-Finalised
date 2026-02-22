@@ -6013,8 +6013,11 @@ app.post('/api/submit-loa-form', async (req, res) => {
 
                             console.log(`[Background LOA] Created Case ${newCaseId} for ${lender} with status ${initialStatus}`);
 
-                            // Trigger PDF generation for newly created case (skip status update to keep "New Lead")
-                            triggerPdfGenerator(newCaseId, 'LOA', true).catch(err => {
+                            // Trigger PDF generation for newly created case
+                            // For "New Lead" status, allow status to change (LOA Uploaded → LOA Signed)
+                            // For other statuses (like Extra Lender Selection Form Sent), skip status update
+                            const skipUpdate = (initialStatus !== 'New Lead');
+                            triggerPdfGenerator(newCaseId, 'LOA', skipUpdate).catch(err => {
                                 console.error(`❌ LOA generation trigger failed for new case ${newCaseId}:`, err.message);
                             });
 
