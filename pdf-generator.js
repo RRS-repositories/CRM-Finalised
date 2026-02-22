@@ -94,6 +94,19 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         year: 'numeric'
     });
 
+    // Timestamp format: "02 Feb 2026 09:22:19"
+    const now = new Date();
+    const timestamp = now.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    }) + ' ' + now.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+
     const clientAddress = [
         contact.address_line_1,
         contact.address_line_2,
@@ -185,6 +198,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
             today: today,
             date: today,
             year: String(new Date().getFullYear()),
+            timestamp: timestamp,
         },
 
         // Flat structure for backward compatibility
@@ -224,6 +238,7 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         today: today,
         date: today,
         year: String(new Date().getFullYear()),
+        timestamp: timestamp,
         signatureImage: signatureBase64 ? {
             _type: 'image',
             data: signatureBase64.split(',')[1], // Extract base64 data without 'data:image/png;base64,' prefix
