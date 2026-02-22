@@ -116,7 +116,8 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
     ].filter(Boolean).join(', ');
 
     // Build previous address - show first address only (comma-separated)
-    let previousAddress = '—';
+    // Empty string if no previous address (don't show "—")
+    let previousAddress = '';
 
     // First try the JSONB array
     if (contact.previous_addresses && Array.isArray(contact.previous_addresses) && contact.previous_addresses.length > 0) {
