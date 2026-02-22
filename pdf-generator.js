@@ -374,7 +374,7 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
     await pool.query(insertQuery, [
         contact.id,
         fileName,
-        'application/pdf',
+        'pdf',
         category,
         signedUrl,
         fileSize,
