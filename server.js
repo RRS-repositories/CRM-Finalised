@@ -1583,10 +1583,9 @@ app.post('/api/submit-previous-address', async (req, res) => {
                     const pdfBuffer = await generatePreviousAddressPDF(contact, addresses, facLogoBase64);
                     console.log(`[Background] PDF generated. Buffer size: ${pdfBuffer.length} bytes.`);
 
-                    // 3. Upload to S3 (New Folder Structure)
-                    const folderName = `${contact.first_name}_${contact.last_name}_${clientId}`;
+                    // 3. Upload to S3 (contactId-only folder structure)
                     const timestamp = Date.now();
-                    const fileName = `${folderName}/Documents/Previous_Addresses_${timestamp}.pdf`;
+                    const fileName = `${clientId}/Documents/Previous_Addresses_${timestamp}.pdf`;
                     console.log(`[Background] Uploading to S3 Key: ${fileName}`);
 
                     const uploadCommand = new PutObjectCommand({
@@ -1940,9 +1939,13 @@ app.post('/api/documents/secure-url', async (req, res) => {
 
         console.log(`[secure-url] Key: ${key}`);
 
+        // Extract filename for Content-Disposition header
+        const filename = key.split('/').pop();
+
         const command = new GetObjectCommand({
             Bucket: bucketName,
             Key: key,
+            ResponseContentDisposition: `inline; filename="${filename}"`,
         });
 
         const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
@@ -2369,7 +2372,7 @@ app.post('/api/submit-page1', async (req, res) => {
 
         const dbRes = await pool.query(insertQuery, values);
         const contactId = dbRes.rows[0].id;
-        const folderPath = `${first_name}_${last_name}_${contactId}/`;
+        const folderPath = `${contactId}/`;
 
         // --- IMMEDIATE RESPONSE TO CLIENT ---
         // We respond NOW so the user doesn't wait for PDF generation/Uploads
@@ -2611,7 +2614,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
 
         // Check for existing file with same name in this category
         let s3FileName = `${baseName}${ext}`;
-        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${contact_id}/Documents/${sanitizedCategory}`;
 
         const nameCheck = await pool.query(
             `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
@@ -2742,16 +2745,16 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
         // Special handling for LOA and Cover Letter - store directly in lender folder with DSAR-compatible naming
         if (category === 'Letter of Authority') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - LOA${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else if (category === 'Cover Letter') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - COVER LETTER${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else {
             // Standard category - store in subfolder
             s3FileName = `${baseName}${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
+            folderPath = `${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
 
             // Check for existing file with same name to handle versioning
             const nameCheck = await pool.query(
@@ -2854,11 +2857,9 @@ app.post('/api/upload-document-by-name', upload.single('document'), async (req, 
             claim = claimRes.rows[0];
         }
 
-        // 3. Upload to S3 under contact folder
-        const firstName = contact.first_name || '';
-        const lastName = contact.last_name || '';
+        // 3. Upload to S3 under contact folder (contactId-only structure)
         const docName = original_name || file.originalname;
-        const key = `${firstName}_${lastName}_${contact_id}/Documents/${docName}`;
+        const key = `${contact_id}/Documents/${docName}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -3328,8 +3329,7 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
 
-        const { first_name, last_name } = contactRes.rows[0];
-        const baseFolder = `${first_name}_${last_name}_${contactId}/`;
+        const baseFolder = `${contactId}/`;
         // Scan Documents/, Lenders/ (new structure), and LOA/ (legacy) subfolders
         const foldersToScan = [
             { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
@@ -5067,7 +5067,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
-        const folderPath = `${contact.first_name}_${contact.last_name}_${contact.id}/`;
+        const folderPath = `${contact.id}/`;
 
         console.log(`🗑️  Deleting contact ${id} and S3 folder: ${folderPath}`);
 
@@ -5325,7 +5325,7 @@ app.delete('/api/cases/:id', async (req, res) => {
         }
 
         const claim = claimRes.rows[0];
-        const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
+        const folderPath = `${claim.contact_id}/`;
         const refSpec = `${claim.contact_id}${id}`;
         const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
@@ -5870,7 +5870,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         }
 
         const contactId = contact.id;
-        const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+        const folderPath = `${contactId}/`;
 
         // --- UPDATE DB IMMEDIATELY ---
         await pool.query('UPDATE contacts SET loa_submitted = true WHERE id = $1', [contactId]);
@@ -7650,7 +7650,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = `${record.first_name}_${record.last_name}_${contactId}/`;
+        const folderPath = `${contactId}/`;
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
