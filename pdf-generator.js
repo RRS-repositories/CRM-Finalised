@@ -180,6 +180,8 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
                 : '',
             reference: fullReference,
             refSpec: refSpec,
+            contactId: String(contact.id),
+            caseId: String(caseData.id),
         },
         lender: {
             name: caseData.lender || '',
