@@ -576,24 +576,37 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = n
 // --- HELPER FUNCTION: FIND ACTUAL S3 FOLDER FOR A CONTACT ---
 async function findAllS3FoldersForContact(contactId) {
     // Find ALL folders ending with _CONTACTID (handles special character encoding variations)
+    // Uses pagination to handle buckets with 1000+ folders
     const folders = [];
     try {
-        const listParams = {
-            Bucket: BUCKET_NAME,
-            Delimiter: '/',
-            MaxKeys: 1000
-        };
-        const result = await s3Client.send(new ListObjectsV2Command(listParams));
-        if (result.CommonPrefixes) {
-            for (const prefix of result.CommonPrefixes) {
-                const folderPath = prefix.Prefix.replace(/\/$/, '');
-                // Check if folder ends with _CONTACTID or ._CONTACTID
-                if (folderPath.endsWith(`_${contactId}`) || folderPath.endsWith(`._${contactId}`)) {
-                    folders.push(folderPath);
+        let continuationToken = undefined;
+        let pageCount = 0;
+        const maxPages = 20; // Safety limit - 20 pages = 20,000 folders max
+
+        do {
+            const listParams = {
+                Bucket: BUCKET_NAME,
+                Delimiter: '/',
+                MaxKeys: 1000,
+                ContinuationToken: continuationToken
+            };
+            const result = await s3Client.send(new ListObjectsV2Command(listParams));
+            pageCount++;
+
+            if (result.CommonPrefixes) {
+                for (const prefix of result.CommonPrefixes) {
+                    const folderPath = prefix.Prefix.replace(/\/$/, '');
+                    // Check if folder ends with _CONTACTID or ._CONTACTID
+                    if (folderPath.endsWith(`_${contactId}`) || folderPath.endsWith(`._${contactId}`)) {
+                        folders.push(folderPath);
+                    }
                 }
             }
-        }
-        if (folders.length > 1) {
+
+            continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+        } while (continuationToken && pageCount < maxPages);
+
+        if (folders.length > 0) {
             console.log(`[Worker] Found ${folders.length} S3 folders for contact ${contactId}: ${folders.join(', ')}`);
         }
     } catch (err) {
