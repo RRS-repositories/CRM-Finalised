@@ -570,24 +570,9 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = n
 }
 
 // --- HELPER FUNCTION: FIND ACTUAL S3 FOLDER FOR A CONTACT ---
-async function findActualS3Folder(expectedFolderName, contactId) {
-    // First try the expected folder name
-    try {
-        const testKey = `${expectedFolderName}/`;
-        const listParams = {
-            Bucket: BUCKET_NAME,
-            Prefix: testKey,
-            MaxKeys: 1
-        };
-        const result = await s3Client.send(new ListObjectsV2Command(listParams));
-        if (result.Contents && result.Contents.length > 0) {
-            return expectedFolderName;
-        }
-    } catch (err) {
-        // Continue to search
-    }
-
-    // If not found, search for any folder ending with _CONTACTID or ._CONTACTID
+async function findAllS3FoldersForContact(contactId) {
+    // Find ALL folders ending with _CONTACTID (handles special character encoding variations)
+    const folders = [];
     try {
         const listParams = {
             Bucket: BUCKET_NAME,
@@ -600,25 +585,25 @@ async function findActualS3Folder(expectedFolderName, contactId) {
                 const folderPath = prefix.Prefix.replace(/\/$/, '');
                 // Check if folder ends with _CONTACTID or ._CONTACTID
                 if (folderPath.endsWith(`_${contactId}`) || folderPath.endsWith(`._${contactId}`)) {
-                    console.log(`[Worker] Found actual S3 folder: ${folderPath} (expected: ${expectedFolderName})`);
-                    return folderPath;
+                    folders.push(folderPath);
                 }
             }
         }
+        if (folders.length > 1) {
+            console.log(`[Worker] Found ${folders.length} S3 folders for contact ${contactId}: ${folders.join(', ')}`);
+        }
     } catch (err) {
-        console.warn(`[Worker] Error searching for S3 folder:`, err.message);
+        console.warn(`[Worker] Error searching for S3 folders:`, err.message);
     }
-
-    return expectedFolderName; // Fallback to expected
+    return folders;
 }
 
 // --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
 async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName) {
-    // Find the actual S3 folder (handles legacy naming with dots)
-    const actualFolderName = await findActualS3Folder(folderName, contactId);
-    if (actualFolderName !== folderName) {
-        console.log(`[Worker] Using actual folder: ${actualFolderName} instead of ${folderName}`);
-        folderName = actualFolderName;
+    // Find ALL S3 folders for this contact (handles special character encoding variations)
+    const allFolders = await findAllS3FoldersForContact(contactId);
+    if (allFolders.length === 0) {
+        allFolders.push(folderName); // Fallback to expected folder
     }
 
     const documents = {
@@ -631,42 +616,37 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     const refSpec = `${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
-    // 1. LOA PDF - Search S3 Lenders/{lender}/ folder directly (simplest and most reliable)
-    console.log(`[Worker] 🔍 Searching for LOA in Lenders/${sanitizedLenderName}/ folder...`);
-    documents.loa = await findFileInS3Folder(`${folderName}/Lenders/${sanitizedLenderName}/`, lenderName, 'LOA', refSpec);
+    // Search across ALL folders for this contact
+    for (const folder of allFolders) {
+        // 1. LOA PDF - Search S3 Lenders/{lender}/ folder directly
+        if (!documents.loa) {
+            documents.loa = await findFileInS3Folder(`${folder}/Lenders/${sanitizedLenderName}/`, lenderName, 'LOA', refSpec);
+        }
+        if (!documents.loa) {
+            documents.loa = await findFileInS3Folder(`${folder}/Lenders/`, lenderName, 'LOA', refSpec);
+        }
+        if (!documents.loa) {
+            documents.loa = await findFileInS3Folder(`${folder}/LOA/`, lenderName, 'LOA', refSpec);
+        }
 
-    // Fallback: search entire Lenders folder
-    if (!documents.loa) {
-        console.log(`[Worker] 🔍 Searching entire Lenders folder for LOA...`);
-        documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA', refSpec);
-    }
+        // 2. Cover Letter PDF - Search S3 Lenders/{lender}/ folder directly
+        if (!documents.coverLetter) {
+            documents.coverLetter = await findFileInS3Folder(`${folder}/Lenders/${sanitizedLenderName}/`, lenderName, 'COVER LETTER', refSpec);
+        }
+        if (!documents.coverLetter) {
+            documents.coverLetter = await findFileInS3Folder(`${folder}/Lenders/`, lenderName, 'COVER LETTER', refSpec);
+        }
+        if (!documents.coverLetter) {
+            documents.coverLetter = await findFileInS3Folder(`${folder}/LOA/`, lenderName, 'COVER LETTER', refSpec);
+        }
 
-    // Fallback: check LOA folder
-    if (!documents.loa) {
-        console.log(`[Worker] 🔍 Searching LOA folder...`);
-        documents.loa = await findFileInS3Folder(`${folderName}/LOA/`, lenderName, 'LOA', refSpec);
+        // Stop if we found both
+        if (documents.loa && documents.coverLetter) break;
     }
 
     if (!documents.loa) {
         console.log(`[Worker] ❌ LOA not found`);
     }
-
-    // 2. Cover Letter PDF - Search S3 Lenders/{lender}/ folder directly
-    console.log(`[Worker] 🔍 Searching for Cover Letter in Lenders/${sanitizedLenderName}/ folder...`);
-    documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/${sanitizedLenderName}/`, lenderName, 'COVER LETTER', refSpec);
-
-    // Fallback: search entire Lenders folder
-    if (!documents.coverLetter) {
-        console.log(`[Worker] 🔍 Searching entire Lenders folder for Cover Letter...`);
-        documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER', refSpec);
-    }
-
-    // Fallback: check LOA folder
-    if (!documents.coverLetter) {
-        console.log(`[Worker] 🔍 Searching LOA folder for Cover Letter...`);
-        documents.coverLetter = await findFileInS3Folder(`${folderName}/LOA/`, lenderName, 'COVER LETTER', refSpec);
-    }
-
     if (!documents.coverLetter) {
         console.log(`[Worker] ❌ Cover Letter not found`);
     }
@@ -685,8 +665,12 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         if (prevAddrQuery.rows.length > 0) {
             const prevAddrFileName = prevAddrQuery.rows[0].name;
-            const prevAddrKey = `${folderName}/Documents/${prevAddrFileName}`;
-            documents.previousAddress = await fetchPdfFromS3(prevAddrKey);
+            // Try all folders for previous address
+            for (const folder of allFolders) {
+                const prevAddrKey = `${folder}/Documents/${prevAddrFileName}`;
+                documents.previousAddress = await fetchPdfFromS3(prevAddrKey);
+                if (documents.previousAddress) break;
+            }
             if (documents.previousAddress) {
                 console.log(`[Worker] ✅ Found Previous Address PDF from documents`);
             }
