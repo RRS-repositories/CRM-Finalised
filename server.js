@@ -1583,9 +1583,10 @@ app.post('/api/submit-previous-address', async (req, res) => {
                     const pdfBuffer = await generatePreviousAddressPDF(contact, addresses, facLogoBase64);
                     console.log(`[Background] PDF generated. Buffer size: ${pdfBuffer.length} bytes.`);
 
-                    // 3. Upload to S3 (contactId-only folder structure)
+                    // 3. Upload to S3 (New Folder Structure)
+                    const folderName = `${contact.first_name}_${contact.last_name}_${clientId}`;
                     const timestamp = Date.now();
-                    const fileName = `${clientId}/Documents/Previous_Addresses_${timestamp}.pdf`;
+                    const fileName = `${folderName}/Documents/Previous_Addresses_${timestamp}.pdf`;
                     console.log(`[Background] Uploading to S3 Key: ${fileName}`);
 
                     const uploadCommand = new PutObjectCommand({
@@ -1939,32 +1940,9 @@ app.post('/api/documents/secure-url', async (req, res) => {
 
         console.log(`[secure-url] Key: ${key}`);
 
-        // Extract filename for Content-Disposition header
-        const filename = key.split('/').pop();
-
-        // Determine content type from extension (S3 often stores as octet-stream)
-        const ext = (filename.split('.').pop() || '').toLowerCase();
-        const mimeTypes = {
-            'pdf': 'application/pdf',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'png': 'image/png',
-            'gif': 'image/gif',
-            'webp': 'image/webp',
-            'txt': 'text/plain',
-            'html': 'text/html',
-            'doc': 'application/msword',
-            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'xls': 'application/vnd.ms-excel',
-            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        };
-        const contentType = mimeTypes[ext] || 'application/octet-stream';
-
         const command = new GetObjectCommand({
             Bucket: bucketName,
             Key: key,
-            ResponseContentDisposition: `inline; filename="${filename}"`,
-            ResponseContentType: contentType,
         });
 
         const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
@@ -2391,7 +2369,7 @@ app.post('/api/submit-page1', async (req, res) => {
 
         const dbRes = await pool.query(insertQuery, values);
         const contactId = dbRes.rows[0].id;
-        const folderPath = `${contactId}/`;
+        const folderPath = `${first_name}_${last_name}_${contactId}/`;
 
         // --- IMMEDIATE RESPONSE TO CLIENT ---
         // We respond NOW so the user doesn't wait for PDF generation/Uploads
@@ -2633,7 +2611,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
 
         // Check for existing file with same name in this category
         let s3FileName = `${baseName}${ext}`;
-        const folderPath = `${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
 
         const nameCheck = await pool.query(
             `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
@@ -2764,16 +2742,16 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
         // Special handling for LOA and Cover Letter - store directly in lender folder with DSAR-compatible naming
         if (category === 'Letter of Authority') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - LOA${ext}`;
-            folderPath = `${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else if (category === 'Cover Letter') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - COVER LETTER${ext}`;
-            folderPath = `${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else {
             // Standard category - store in subfolder
             s3FileName = `${baseName}${ext}`;
-            folderPath = `${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
+            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
 
             // Check for existing file with same name to handle versioning
             const nameCheck = await pool.query(
@@ -2876,9 +2854,11 @@ app.post('/api/upload-document-by-name', upload.single('document'), async (req, 
             claim = claimRes.rows[0];
         }
 
-        // 3. Upload to S3 under contact folder (contactId-only structure)
+        // 3. Upload to S3 under contact folder
+        const firstName = contact.first_name || '';
+        const lastName = contact.last_name || '';
         const docName = original_name || file.originalname;
-        const key = `${contact_id}/Documents/${docName}`;
+        const key = `${firstName}_${lastName}_${contact_id}/Documents/${docName}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -3348,7 +3328,8 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
 
-        const baseFolder = `${contactId}/`;
+        const { first_name, last_name } = contactRes.rows[0];
+        const baseFolder = `${first_name}_${last_name}_${contactId}/`;
         // Scan Documents/, Lenders/ (new structure), and LOA/ (legacy) subfolders
         const foldersToScan = [
             { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
@@ -3358,59 +3339,9 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
         console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}`);
 
-        const { ListObjectsV2Command, HeadObjectCommand } = await import('@aws-sdk/client-s3');
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
 
-        // 2. Remove documents that no longer exist in S3
-        const allDocs = await pool.query(
-            'SELECT id, name, url FROM documents WHERE contact_id = $1',
-            [contactId]
-        );
-
-        let removedCount = 0;
-        for (const doc of allDocs.rows) {
-            try {
-                // Extract S3 key from URL or construct it
-                let s3Key = null;
-
-                if (doc.url && doc.url.includes('s3.')) {
-                    // Extract key from signed URL
-                    const urlObj = new URL(doc.url);
-                    s3Key = decodeURIComponent(urlObj.pathname.slice(1)); // Remove leading /
-                    // Handle path-style URLs
-                    if (s3Key.startsWith(BUCKET_NAME + '/')) {
-                        s3Key = s3Key.substring(BUCKET_NAME.length + 1);
-                    }
-                }
-
-                if (s3Key) {
-                    // Check if file exists in S3
-                    await s3Client.send(new HeadObjectCommand({
-                        Bucket: BUCKET_NAME,
-                        Key: s3Key
-                    }));
-                    // File exists, keep the record
-                } else {
-                    // No valid S3 key, remove the record
-                    await pool.query('DELETE FROM documents WHERE id = $1', [doc.id]);
-                    console.log(`[Sync] Removed stale record (no S3 key): ${doc.name}`);
-                    removedCount++;
-                }
-            } catch (err) {
-                if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
-                    // File doesn't exist in S3, remove the database record
-                    await pool.query('DELETE FROM documents WHERE id = $1', [doc.id]);
-                    console.log(`[Sync] Removed stale record (file not in S3): ${doc.name}`);
-                    removedCount++;
-                }
-                // Ignore other errors (network issues, etc.) - don't delete on uncertainty
-            }
-        }
-
-        if (removedCount > 0) {
-            console.log(`[Sync] Cleaned up ${removedCount} stale document records`);
-        }
-
-        // 3. Clean up any duplicate documents for this contact (keep newest)
+        // 2. Clean up any duplicate documents for this contact (keep newest)
         await pool.query(
             `DELETE FROM documents WHERE id NOT IN (
                 SELECT MAX(id) FROM documents WHERE contact_id = $1 GROUP BY name
@@ -3544,9 +3475,8 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
         res.json({
             success: true,
-            message: `Synced ${syncedCount} new documents, removed ${removedCount} stale records`,
+            message: `Synced ${syncedCount} new documents`,
             synced: syncedCount,
-            removed: removedCount,
             total: totalCount
         });
 
@@ -5137,7 +5067,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
-        const folderPath = `${contact.id}/`;
+        const folderPath = `${contact.first_name}_${contact.last_name}_${contact.id}/`;
 
         console.log(`🗑️  Deleting contact ${id} and S3 folder: ${folderPath}`);
 
@@ -5395,7 +5325,7 @@ app.delete('/api/cases/:id', async (req, res) => {
         }
 
         const claim = claimRes.rows[0];
-        const folderPath = `${claim.contact_id}/`;
+        const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
         const refSpec = `${claim.contact_id}${id}`;
         const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
@@ -5940,7 +5870,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         }
 
         const contactId = contact.id;
-        const folderPath = `${contactId}/`;
+        const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
 
         // --- UPDATE DB IMMEDIATELY ---
         await pool.query('UPDATE contacts SET loa_submitted = true WHERE id = $1', [contactId]);
@@ -7720,7 +7650,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = `${contactId}/`;
+        const folderPath = `${record.first_name}_${record.last_name}_${contactId}/`;
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
