@@ -3435,6 +3435,8 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
                 else if (fileName.includes('_LOA') || fileName.includes(' - LOA.pdf') || fileName.includes(' - LOA ')) category = 'LOA';
                 // Detect category from folder path (e.g., Lenders/VANQUIS/ID_Document/)
                 if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
+                // Documents in Other/ subfolder should get category 'Other'
+                if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
 
                 // Extract lender name from folder path (e.g., "Lenders/VANQUIS/..." → "VANQUIS")
                 const tags = ['Synced from S3'];

@@ -3584,16 +3584,20 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  {(() => {
                                     const currentLender = claimFileForm.lender;
                                     const filteredClaimsDocs = contactDocs.filter(doc => {
-                                       // Filter for documents related to this specific lender (all file types)
+                                       // Filter for documents related to this specific lender
                                        const tags = doc.tags || [];
                                        const lenderLower = currentLender?.toLowerCase() || '';
+                                       const category = doc.category?.toLowerCase() || '';
 
-                                       // Match if: lender in tags, or lender in name, or claim-document tag with lender
+                                       // Exclude "Other" category unless it's a claim-document
+                                       const isClaimDoc = tags.some(t => t === 'claim-document');
+                                       if (category === 'other' && !isClaimDoc) return false;
+
+                                       // Match if: lender in tags, or lender in name
                                        const matchesTag = tags.some(t => t.toLowerCase() === lenderLower);
                                        const matchesName = doc.name.toLowerCase().includes(lenderLower);
-                                       const isClaimDoc = tags.some(t => t === 'claim-document') && matchesTag;
 
-                                       return matchesTag || matchesName || isClaimDoc;
+                                       return matchesTag || matchesName;
                                     });
 
                                     return filteredClaimsDocs.length > 0 ? (
