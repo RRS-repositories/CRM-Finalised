@@ -1942,10 +1942,29 @@ app.post('/api/documents/secure-url', async (req, res) => {
         // Extract filename for Content-Disposition header
         const filename = key.split('/').pop();
 
+        // Determine content type from extension (S3 often stores as octet-stream)
+        const ext = (filename.split('.').pop() || '').toLowerCase();
+        const mimeTypes = {
+            'pdf': 'application/pdf',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'txt': 'text/plain',
+            'html': 'text/html',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
         const command = new GetObjectCommand({
             Bucket: bucketName,
             Key: key,
             ResponseContentDisposition: `inline; filename="${filename}"`,
+            ResponseContentType: contentType,
         });
 
         const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
