@@ -652,7 +652,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     // Match any file ending with LOA.pdf (flexible pattern for various naming formats)
     try {
         const loaQuery = await pool.query(
-            `SELECT name FROM documents
+            `SELECT name, url FROM documents
              WHERE contact_id = $1
              AND category = 'LOA'
              AND LOWER(name) LIKE $2
@@ -665,8 +665,24 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         if (loaQuery.rows.length > 0) {
             const loaFileName = loaQuery.rows[0].name;
+            const loaUrl = loaQuery.rows[0].url;
             console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName}`);
-            documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
+
+            // Try URL from documents table first (most reliable)
+            if (loaUrl) {
+                // Extract S3 key from URL (remove bucket prefix if present)
+                const s3Key = loaUrl.replace(/^https?:\/\/[^\/]+\//, '');
+                console.log(`[Worker] 🔍 Trying LOA from DB URL: ${s3Key}`);
+                documents.loa = await fetchPdfFromS3(s3Key);
+                if (documents.loa) {
+                    console.log(`[Worker] ✅ Found LOA from DB URL`);
+                }
+            }
+
+            // Fallback to path construction if URL fetch failed
+            if (!documents.loa) {
+                documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
+            }
         }
     } catch (err) {
         console.log(`[Worker] DB query for LOA failed: ${err.message}`);
@@ -707,7 +723,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     // Match any file ending with COVER LETTER.pdf (flexible pattern for various naming formats)
     try {
         const coverQuery = await pool.query(
-            `SELECT name FROM documents
+            `SELECT name, url FROM documents
              WHERE contact_id = $1
              AND category = 'Cover Letter'
              AND LOWER(name) LIKE $2
@@ -719,8 +735,23 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         if (coverQuery.rows.length > 0) {
             const coverFileName = coverQuery.rows[0].name;
+            const coverUrl = coverQuery.rows[0].url;
             console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName}`);
-            documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
+
+            // Try URL from documents table first (most reliable)
+            if (coverUrl) {
+                const s3Key = coverUrl.replace(/^https?:\/\/[^\/]+\//, '');
+                console.log(`[Worker] 🔍 Trying Cover Letter from DB URL: ${s3Key}`);
+                documents.coverLetter = await fetchPdfFromS3(s3Key);
+                if (documents.coverLetter) {
+                    console.log(`[Worker] ✅ Found Cover Letter from DB URL`);
+                }
+            }
+
+            // Fallback to path construction if URL fetch failed
+            if (!documents.coverLetter) {
+                documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
+            }
         }
     } catch (err) {
         console.log(`[Worker] DB query for Cover Letter failed: ${err.message}`);
