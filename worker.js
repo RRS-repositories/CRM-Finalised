@@ -631,161 +631,44 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     const refSpec = `${contactId}${caseId}`;
     const sanitizedLenderName = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
 
-    // Helper to try fetching a document from multiple possible S3 paths
-    async function tryFetchFromPaths(fileName, docType) {
-        const pathsToTry = [
-            `${folderName}/Lenders/${sanitizedLenderName}/${fileName}`,
-            `${folderName}/LOA/${fileName}`,
-            `${folderName}/Documents/${fileName}`
-        ];
-        for (const path of pathsToTry) {
-            const result = await fetchPdfFromS3(path);
-            if (result) {
-                console.log(`[Worker] ✅ Found ${docType} from DB at: ${path}`);
-                return result;
-            }
-        }
-        return null;
-    }
+    // 1. LOA PDF - Search S3 Lenders/{lender}/ folder directly (simplest and most reliable)
+    console.log(`[Worker] 🔍 Searching for LOA in Lenders/${sanitizedLenderName}/ folder...`);
+    documents.loa = await findFileInS3Folder(`${folderName}/Lenders/${sanitizedLenderName}/`, lenderName, 'LOA', refSpec);
 
-    // 1. LOA PDF - First check documents table for this lender
-    // Match any file ending with LOA.pdf (flexible pattern for various naming formats)
-    try {
-        const loaQuery = await pool.query(
-            `SELECT name, url FROM documents
-             WHERE contact_id = $1
-             AND category = 'LOA'
-             AND LOWER(name) LIKE $2
-             AND LOWER(name) ~ 'loa(\\s*\\(\\d+\\))?\\.pdf$'
-             AND LOWER(name) NOT LIKE '%cover%letter%'
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [contactId, `%${sanitizedLenderName.toLowerCase()}%`]
-        );
-
-        if (loaQuery.rows.length > 0) {
-            const loaFileName = loaQuery.rows[0].name;
-            const loaUrl = loaQuery.rows[0].url;
-            console.log(`[Worker] 🔍 Found LOA in documents table: ${loaFileName}`);
-
-            // Try URL from documents table first (most reliable)
-            if (loaUrl) {
-                // Extract S3 key from URL (remove bucket prefix if present)
-                const s3Key = loaUrl.replace(/^https?:\/\/[^\/]+\//, '');
-                console.log(`[Worker] 🔍 Trying LOA from DB URL: ${s3Key}`);
-                documents.loa = await fetchPdfFromS3(s3Key);
-                if (documents.loa) {
-                    console.log(`[Worker] ✅ Found LOA from DB URL`);
-                }
-            }
-
-            // Fallback to path construction if URL fetch failed
-            if (!documents.loa) {
-                documents.loa = await tryFetchFromPaths(loaFileName, 'LOA');
-            }
-        }
-    } catch (err) {
-        console.log(`[Worker] DB query for LOA failed: ${err.message}`);
-    }
-
-    // Fallback to constructed filenames if not found in DB
+    // Fallback: search entire Lenders folder
     if (!documents.loa) {
-        const xRefSpec = `x${contactId}${caseId}`; // Backwards compatibility with x prefix
-        const loaPathsToTry = [
-            // New format (no x prefix)
-            `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
-            `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
-            // Old format (with x prefix)
-            `${folderName}/Lenders/${sanitizedLenderName}/${xRefSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
-            `${folderName}/LOA/${xRefSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - LOA.pdf`,
-            // Legacy format
-            `${folderName}/LOA/${sanitizedLenderName}_LOA.pdf`
-        ];
-        console.log(`[Worker] 🔍 Looking for LOA at: ${loaPathsToTry[0]}`);
-        for (const loaPath of loaPathsToTry) {
-            documents.loa = await fetchPdfFromS3(loaPath);
-            if (documents.loa) {
-                console.log(`[Worker] ✅ Found LOA for ${lenderName} at: ${loaPath}`);
-                break;
-            }
-        }
-        // Last resort: search S3 Lenders folder for file matching lender + LOA + case reference
-        if (!documents.loa) {
-            console.log(`[Worker] 🔍 Searching S3 Lenders folder for LOA (case-specific: ${refSpec})...`);
-            documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA', refSpec);
-        }
-        if (!documents.loa) {
-            console.log(`[Worker] ❌ LOA not found`);
-        }
+        console.log(`[Worker] 🔍 Searching entire Lenders folder for LOA...`);
+        documents.loa = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'LOA', refSpec);
     }
 
-    // 2. Cover Letter PDF - First check documents table for this lender
-    // Match any file ending with COVER LETTER.pdf (flexible pattern for various naming formats)
-    try {
-        const coverQuery = await pool.query(
-            `SELECT name, url FROM documents
-             WHERE contact_id = $1
-             AND category = 'Cover Letter'
-             AND LOWER(name) LIKE $2
-             AND LOWER(name) ~ 'cover\\s*letter(\\s*\\(\\d+\\))?\\.pdf$'
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [contactId, `%${sanitizedLenderName.toLowerCase()}%`]
-        );
-
-        if (coverQuery.rows.length > 0) {
-            const coverFileName = coverQuery.rows[0].name;
-            const coverUrl = coverQuery.rows[0].url;
-            console.log(`[Worker] 🔍 Found Cover Letter in documents table: ${coverFileName}`);
-
-            // Try URL from documents table first (most reliable)
-            if (coverUrl) {
-                const s3Key = coverUrl.replace(/^https?:\/\/[^\/]+\//, '');
-                console.log(`[Worker] 🔍 Trying Cover Letter from DB URL: ${s3Key}`);
-                documents.coverLetter = await fetchPdfFromS3(s3Key);
-                if (documents.coverLetter) {
-                    console.log(`[Worker] ✅ Found Cover Letter from DB URL`);
-                }
-            }
-
-            // Fallback to path construction if URL fetch failed
-            if (!documents.coverLetter) {
-                documents.coverLetter = await tryFetchFromPaths(coverFileName, 'Cover Letter');
-            }
-        }
-    } catch (err) {
-        console.log(`[Worker] DB query for Cover Letter failed: ${err.message}`);
+    // Fallback: check LOA folder
+    if (!documents.loa) {
+        console.log(`[Worker] 🔍 Searching LOA folder...`);
+        documents.loa = await findFileInS3Folder(`${folderName}/LOA/`, lenderName, 'LOA', refSpec);
     }
 
-    // Fallback to constructed filenames if not found in DB
+    if (!documents.loa) {
+        console.log(`[Worker] ❌ LOA not found`);
+    }
+
+    // 2. Cover Letter PDF - Search S3 Lenders/{lender}/ folder directly
+    console.log(`[Worker] 🔍 Searching for Cover Letter in Lenders/${sanitizedLenderName}/ folder...`);
+    documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/${sanitizedLenderName}/`, lenderName, 'COVER LETTER', refSpec);
+
+    // Fallback: search entire Lenders folder
     if (!documents.coverLetter) {
-        const xRefSpecCover = `x${contactId}${caseId}`; // Backwards compatibility with x prefix
-        const coverPathsToTry = [
-            // New format (no x prefix)
-            `${folderName}/Lenders/${sanitizedLenderName}/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
-            `${folderName}/LOA/${refSpec} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
-            // Old format (with x prefix)
-            `${folderName}/Lenders/${sanitizedLenderName}/${xRefSpecCover} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
-            `${folderName}/LOA/${xRefSpecCover} - ${firstName} ${lastName} - ${sanitizedLenderName} - COVER LETTER.pdf`,
-            // Legacy format
-            `${folderName}/LOA/${sanitizedLenderName}_Cover_Letter.pdf`
-        ];
-        console.log(`[Worker] 🔍 Looking for Cover Letter at: ${coverPathsToTry[0]}`);
-        for (const coverPath of coverPathsToTry) {
-            documents.coverLetter = await fetchPdfFromS3(coverPath);
-            if (documents.coverLetter) {
-                console.log(`[Worker] ✅ Found Cover Letter for ${lenderName} at: ${coverPath}`);
-                break;
-            }
-        }
-        // Last resort: search S3 Lenders folder for file matching lender + COVER LETTER + case reference
-        if (!documents.coverLetter) {
-            console.log(`[Worker] 🔍 Searching S3 Lenders folder for Cover Letter (case-specific: ${refSpec})...`);
-            documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER', refSpec);
-        }
-        if (!documents.coverLetter) {
-            console.log(`[Worker] ❌ Cover Letter not found`);
-        }
+        console.log(`[Worker] 🔍 Searching entire Lenders folder for Cover Letter...`);
+        documents.coverLetter = await findFileInS3Folder(`${folderName}/Lenders/`, lenderName, 'COVER LETTER', refSpec);
+    }
+
+    // Fallback: check LOA folder
+    if (!documents.coverLetter) {
+        console.log(`[Worker] 🔍 Searching LOA folder for Cover Letter...`);
+        documents.coverLetter = await findFileInS3Folder(`${folderName}/LOA/`, lenderName, 'COVER LETTER', refSpec);
+    }
+
+    if (!documents.coverLetter) {
+        console.log(`[Worker] ❌ Cover Letter not found`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
