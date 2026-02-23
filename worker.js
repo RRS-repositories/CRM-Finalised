@@ -4,6 +4,10 @@ dotenv.config();
 import pkg from 'pg';
 const { Pool } = pkg;
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import OpenAI from 'openai';
+
+// Initialize OpenAI for AI-powered document finding
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -598,6 +602,90 @@ async function findAllS3FoldersForContact(contactId) {
     return folders;
 }
 
+// --- AI-POWERED DOCUMENT FINDER (FALLBACK) ---
+async function aiDocumentFinder(contactId, lenderName, allFolders) {
+    console.log(`[Worker] 🤖 AI Document Finder activated for ${lenderName}...`);
+
+    try {
+        // List ALL files across all folders for this contact
+        const allFiles = [];
+        for (const folder of allFolders) {
+            const listParams = {
+                Bucket: BUCKET_NAME,
+                Prefix: folder + '/',
+                MaxKeys: 500
+            };
+            const result = await s3Client.send(new ListObjectsV2Command(listParams));
+            if (result.Contents) {
+                for (const obj of result.Contents) {
+                    if (obj.Key.toLowerCase().endsWith('.pdf')) {
+                        allFiles.push(obj.Key);
+                    }
+                }
+            }
+        }
+
+        if (allFiles.length === 0) {
+            console.log(`[Worker] 🤖 AI: No PDF files found in any folder`);
+            return { loa: null, coverLetter: null };
+        }
+
+        console.log(`[Worker] 🤖 AI: Analyzing ${allFiles.length} PDF files...`);
+
+        // Ask AI to find the right LOA and Cover Letter
+        const prompt = `You are a document matching AI. Find the LOA and Cover Letter files for lender "${lenderName}".
+
+FILES AVAILABLE:
+${allFiles.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+TASK: Find which file is the LOA and which is the Cover Letter for "${lenderName}".
+
+Rules:
+- LOA files typically contain "LOA" in the name
+- Cover Letter files typically contain "COVER LETTER" or "COVER_LETTER"
+- The file should match the lender name (consider variations: LOANS2GO, Loans2Go, loans2go are the same)
+- Ignore signature files
+- If multiple matches, pick the most recent looking one (higher numbers in filename usually = newer)
+
+Respond in JSON format ONLY:
+{"loa": "full/path/to/loa.pdf", "coverLetter": "full/path/to/cover_letter.pdf"}
+
+If not found, use null for that field.`;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0,
+            response_format: { type: 'json_object' }
+        });
+
+        const aiResult = JSON.parse(response.choices[0].message.content);
+        console.log(`[Worker] 🤖 AI Result:`, JSON.stringify(aiResult));
+
+        // Fetch the files AI found
+        const documents = { loa: null, coverLetter: null };
+
+        if (aiResult.loa && allFiles.includes(aiResult.loa)) {
+            documents.loa = await fetchPdfFromS3(aiResult.loa);
+            if (documents.loa) {
+                console.log(`[Worker] 🤖 AI found LOA: ${aiResult.loa}`);
+            }
+        }
+
+        if (aiResult.coverLetter && allFiles.includes(aiResult.coverLetter)) {
+            documents.coverLetter = await fetchPdfFromS3(aiResult.coverLetter);
+            if (documents.coverLetter) {
+                console.log(`[Worker] 🤖 AI found Cover Letter: ${aiResult.coverLetter}`);
+            }
+        }
+
+        return documents;
+    } catch (err) {
+        console.error(`[Worker] 🤖 AI Document Finder error:`, err.message);
+        return { loa: null, coverLetter: null };
+    }
+}
+
 // --- HELPER FUNCTION: GATHER ALL DOCUMENTS FOR A CASE ---
 async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId, firstName, lastName) {
     // Find ALL S3 folders for this contact (handles special character encoding variations)
@@ -644,11 +732,26 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         if (documents.loa && documents.coverLetter) break;
     }
 
+    // AI FALLBACK: If normal search failed, use AI to find documents
+    if (!documents.loa || !documents.coverLetter) {
+        console.log(`[Worker] Normal search incomplete. LOA: ${!!documents.loa}, Cover Letter: ${!!documents.coverLetter}`);
+        const aiDocs = await aiDocumentFinder(contactId, lenderName, allFolders);
+
+        if (!documents.loa && aiDocs.loa) {
+            documents.loa = aiDocs.loa;
+            console.log(`[Worker] ✅ AI found missing LOA`);
+        }
+        if (!documents.coverLetter && aiDocs.coverLetter) {
+            documents.coverLetter = aiDocs.coverLetter;
+            console.log(`[Worker] ✅ AI found missing Cover Letter`);
+        }
+    }
+
     if (!documents.loa) {
-        console.log(`[Worker] ❌ LOA not found`);
+        console.log(`[Worker] ❌ LOA not found (even with AI)`);
     }
     if (!documents.coverLetter) {
-        console.log(`[Worker] ❌ Cover Letter not found`);
+        console.log(`[Worker] ❌ Cover Letter not found (even with AI)`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
