@@ -3358,9 +3358,59 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
         console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}`);
 
-        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+        const { ListObjectsV2Command, HeadObjectCommand } = await import('@aws-sdk/client-s3');
 
-        // 2. Clean up any duplicate documents for this contact (keep newest)
+        // 2. Remove documents that no longer exist in S3
+        const allDocs = await pool.query(
+            'SELECT id, name, url FROM documents WHERE contact_id = $1',
+            [contactId]
+        );
+
+        let removedCount = 0;
+        for (const doc of allDocs.rows) {
+            try {
+                // Extract S3 key from URL or construct it
+                let s3Key = null;
+
+                if (doc.url && doc.url.includes('s3.')) {
+                    // Extract key from signed URL
+                    const urlObj = new URL(doc.url);
+                    s3Key = decodeURIComponent(urlObj.pathname.slice(1)); // Remove leading /
+                    // Handle path-style URLs
+                    if (s3Key.startsWith(BUCKET_NAME + '/')) {
+                        s3Key = s3Key.substring(BUCKET_NAME.length + 1);
+                    }
+                }
+
+                if (s3Key) {
+                    // Check if file exists in S3
+                    await s3Client.send(new HeadObjectCommand({
+                        Bucket: BUCKET_NAME,
+                        Key: s3Key
+                    }));
+                    // File exists, keep the record
+                } else {
+                    // No valid S3 key, remove the record
+                    await pool.query('DELETE FROM documents WHERE id = $1', [doc.id]);
+                    console.log(`[Sync] Removed stale record (no S3 key): ${doc.name}`);
+                    removedCount++;
+                }
+            } catch (err) {
+                if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+                    // File doesn't exist in S3, remove the database record
+                    await pool.query('DELETE FROM documents WHERE id = $1', [doc.id]);
+                    console.log(`[Sync] Removed stale record (file not in S3): ${doc.name}`);
+                    removedCount++;
+                }
+                // Ignore other errors (network issues, etc.) - don't delete on uncertainty
+            }
+        }
+
+        if (removedCount > 0) {
+            console.log(`[Sync] Cleaned up ${removedCount} stale document records`);
+        }
+
+        // 3. Clean up any duplicate documents for this contact (keep newest)
         await pool.query(
             `DELETE FROM documents WHERE id NOT IN (
                 SELECT MAX(id) FROM documents WHERE contact_id = $1 GROUP BY name
@@ -3494,8 +3544,9 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
 
         res.json({
             success: true,
-            message: `Synced ${syncedCount} new documents`,
+            message: `Synced ${syncedCount} new documents, removed ${removedCount} stale records`,
             synced: syncedCount,
+            removed: removedCount,
             total: totalCount
         });
 
