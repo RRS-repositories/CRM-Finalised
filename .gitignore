@@ -26,3 +26,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Excel/spreadsheet files
+*.xlsx
+*.xls
+*.csv
