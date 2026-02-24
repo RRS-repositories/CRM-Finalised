@@ -3583,8 +3583,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               <div className="space-y-2">
                                  {(() => {
                                     const currentLender = claimFileForm.lender;
+                                    const currentCaseId = viewingClaimId;
+                                    const contactId = contact?.id;
+                                    // refSpec pattern: {contactId}{caseId} - used in generated document filenames
+                                    const refSpec = contactId && currentCaseId ? `${contactId}${currentCaseId}` : null;
+                                    const sanitizedLender = currentLender?.replace(/[^a-zA-Z0-9_-]/g, '_').toUpperCase() || '';
+
                                     const filteredClaimsDocs = contactDocs.filter(doc => {
-                                       // Filter for documents related to this specific lender
                                        const tags = doc.tags || [];
                                        const lenderLower = currentLender?.toLowerCase() || '';
                                        const category = doc.category?.toLowerCase() || '';
@@ -3593,11 +3598,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        const isClaimDoc = tags.some(t => t === 'claim-document');
                                        if (category === 'other' && !isClaimDoc) return false;
 
-                                       // Match if: lender in tags, or lender in name
-                                       const matchesTag = tags.some(t => t.toLowerCase() === lenderLower);
-                                       const matchesName = doc.name.toLowerCase().includes(lenderLower);
+                                       // 1. Best match: document filename starts with refSpec (contactId+caseId)
+                                       if (refSpec && doc.name.startsWith(refSpec)) return true;
 
-                                       return matchesTag || matchesName;
+                                       // 2. Match by lender tag (exact match only)
+                                       const matchesTag = tags.some(t => t.toLowerCase() === lenderLower);
+
+                                       // 3. Match by sanitized lender name in filename (e.g. "VANQUIS" in "- VANQUIS -")
+                                       const matchesLenderInName = sanitizedLender && doc.name.toUpperCase().includes(` - ${sanitizedLender} - `);
+
+                                       // 4. For uploaded claim docs (Bank Statement etc), match by lender tag only
+                                       return matchesTag || (matchesLenderInName && !refSpec);
                                     });
 
                                     return filteredClaimsDocs.length > 0 ? (

@@ -240,6 +240,11 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         sraNumber: '8000843',
         today: today,
         date: today,
+        "Today's Date": today,
+        todayDate: today,
+        "Client ID": clientId,
+        "Full Name": fullName,
+        "Lender": caseData.lender || '',
         year: String(new Date().getFullYear()),
         timestamp: timestamp,
         signatureImage: signatureBase64 ? {

@@ -67,6 +67,22 @@ def merge_lenders(existing, new):
     return ','.join(sorted(existing_set))
 
 
+def merge_extra_lenders(existing, new):
+    """Merge extra lenders, avoiding duplicates, separated by newlines"""
+    if not existing:
+        return new if new else ''
+    if not new:
+        return existing
+
+    existing_set = set(l.strip() for l in existing.split('\n') if l.strip())
+    new_clean = new.strip()
+
+    if new_clean and new_clean not in existing_set:
+        existing_set.add(new_clean)
+
+    return '\n'.join(sorted(existing_set))
+
+
 def main():
     print("=" * 60)
     print("COPY CONTACTS TO LEADS (MERGE LENDERS)")
@@ -75,6 +91,7 @@ def main():
     # Read Excel
     print("\n[1] Reading Excel file...", flush=True)
     df = pd.read_excel(EXCEL_FILE)
+    df.columns = df.columns.str.strip()
     df = df[df['Reference'].notna()]
     print(f"    Rows with data: {len(df)}", flush=True)
 
@@ -153,12 +170,12 @@ def main():
                LOWER(COALESCE(email, '')), dob, lender
         FROM leads
     """)
-    existing_leads = {}  # dedupe_key -> {id, lender}
+    existing_leads = {}  # dedupe_key -> {id, lender, extra_lender}
     for row in cur.fetchall():
         lead_id, fn, ln, em, dob, lender = row
         dob_str = str(dob) if dob else ''
         dedupe_key = (fn, ln, em, dob_str)
-        existing_leads[dedupe_key] = {'id': lead_id, 'lender': lender or ''}
+        existing_leads[dedupe_key] = {'id': lead_id, 'lender': lender or '', 'extra_lender': ''}
     print(f"    Found {len(existing_leads)} existing leads", flush=True)
 
     # Process rows - collect all data first
@@ -178,6 +195,7 @@ def main():
     for idx, row in df.iterrows():
         reference = clean_reference(row.get('Reference'))
         lender = clean_text(row.get('Lender'))
+        excel_extra_lender = clean_text(row.get('EXTRA LENDER'))
 
         if not reference:
             logs.append(f"[SKIP] Row {idx}: No reference")
@@ -197,6 +215,9 @@ def main():
         dob_str = str(contact['dob']) if contact['dob'] else ''
         dedupe_key = (fn, ln, em, dob_str)
 
+        # Combine extra lenders from contacts DB + Excel
+        combined_extra = merge_extra_lenders(contact['extra_lenders'] or '', excel_extra_lender or '')
+
         # Check if already exists in DB
         if dedupe_key in existing_leads:
             existing = existing_leads[dedupe_key]
@@ -204,10 +225,19 @@ def main():
 
             # Merge lender
             new_lender = merge_lenders(existing['lender'], lender)
+            # Merge extra lender
+            new_extra = merge_extra_lenders(existing['extra_lender'], combined_extra)
 
+            changed = False
             if new_lender != existing['lender']:
-                leads_to_update[lead_id] = new_lender
-                existing_leads[dedupe_key]['lender'] = new_lender  # Update cache
+                existing_leads[dedupe_key]['lender'] = new_lender
+                changed = True
+            if new_extra != existing['extra_lender']:
+                existing_leads[dedupe_key]['extra_lender'] = new_extra
+                changed = True
+
+            if changed:
+                leads_to_update[lead_id] = {'lender': new_lender, 'extra_lender': new_extra}
                 logs.append(f"[MERGE_EXISTING] Row {idx}: {contact['first_name']} {contact['last_name']} + {lender}")
                 merged_existing += 1
             continue
@@ -216,6 +246,8 @@ def main():
         if dedupe_key in new_leads:
             # Merge lender with existing in batch
             new_leads[dedupe_key]['lender'] = merge_lenders(new_leads[dedupe_key]['lender'], lender)
+            # Merge extra lender with existing in batch
+            new_leads[dedupe_key]['extra_lender'] = merge_extra_lenders(new_leads[dedupe_key]['extra_lender'], combined_extra)
             logs.append(f"[MERGE_NEW] Row {idx}: {contact['first_name']} {contact['last_name']} + {lender}")
             merged_new += 1
             continue
@@ -230,14 +262,14 @@ def main():
             'email': contact['email'],
             'dob': contact['dob'],
             'lender': lender or '',
-            'extra_lender': contact['extra_lenders'],
+            'extra_lender': combined_extra,
             'ip_address': contact['ip_address'],
             'address': contact['address'],
             'previous_addresses': contact['previous_addresses'],
             'status': 'awaiting_call'
         }
 
-        logs.append(f"[ADD] Row {idx}: {contact['first_name']} {contact['last_name']} - Lender: {lender}")
+        logs.append(f"[ADD] Row {idx}: {contact['first_name']} {contact['last_name']} - Lender: {lender} - Extra: {combined_extra}")
 
     print(f"\n    Processed: {total_rows}", flush=True)
     print(f"    New leads: {matched}", flush=True)
@@ -283,10 +315,10 @@ def main():
 
         from psycopg2.extras import execute_batch
 
-        update_data = [(lender, lead_id) for lead_id, lender in leads_to_update.items()]
+        update_data = [(data['lender'], data['extra_lender'], lead_id) for lead_id, data in leads_to_update.items()]
 
         execute_batch(cur, """
-            UPDATE leads SET lender = %s, updated_at = NOW() WHERE id = %s
+            UPDATE leads SET lender = %s, extra_lender = %s, updated_at = NOW() WHERE id = %s
         """, update_data, page_size=1000)
 
         conn.commit()

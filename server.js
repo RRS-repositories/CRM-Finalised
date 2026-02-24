@@ -1940,12 +1940,33 @@ app.post('/api/documents/secure-url', async (req, res) => {
 
         console.log(`[secure-url] Key: ${key}`);
 
+        // Determine correct content type from file extension so browser displays inline
+        const ext = key.split('.').pop()?.toLowerCase();
+        const mimeTypes = {
+            pdf: 'application/pdf',
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            svg: 'image/svg+xml',
+            doc: 'application/msword',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            xls: 'application/vnd.ms-excel',
+            xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            txt: 'text/plain',
+            csv: 'text/csv',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
         const command = new GetObjectCommand({
             Bucket: bucketName,
             Key: key,
+            ResponseContentDisposition: 'inline',
+            ResponseContentType: contentType,
         });
 
-        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+        const signedUrl = await getSignedUrl(s3ClientPathStyle, command, { expiresIn: 3600 });
         res.json({ success: true, signedUrl });
     } catch (err) {
         console.error('Error generating signed URL:', err);
@@ -2938,16 +2959,137 @@ app.get('/api/documents', async (req, res) => {
 app.get('/api/contacts/:id/documents', async (req, res) => {
     try {
         const contactId = req.params.id;
-        // Clean up duplicates first (keep newest record for each filename)
-        await pool.query(
-            `DELETE FROM documents WHERE id NOT IN (
-                SELECT MAX(id) FROM documents WHERE contact_id = $1 GROUP BY name
-            ) AND contact_id = $1`,
-            [contactId]
-        );
-        const { rows } = await pool.query('SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC', [contactId]);
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+
+        // Get contact info for S3 folder path
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        const { first_name, last_name } = contactRes.rows[0];
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+
+        // Dynamically find the actual S3 folder for this contact.
+        // Folder always ends with _<contactId>/ but name formatting may vary.
+        // Try common patterns first (fast), then fall back to scanning all folders.
+        const nameCandidates = new Set([
+            `${first_name}_${last_name}`.replace(/\s+/g, '_'),
+            `${first_name}_${last_name}`,
+            `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+        ]);
+
+        let baseFolder = null;
+        for (const name of nameCandidates) {
+            const testPrefix = `${name}_${contactId}/`;
+            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: testPrefix, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) {
+                baseFolder = testPrefix;
+                break;
+            }
+        }
+
+        // Last resort: scan top-level folders for anything ending with _<contactId>/
+        if (!baseFolder) {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
+            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
+            if (match) baseFolder = match.Prefix;
+        }
+
+        if (!baseFolder) {
+            return res.json([]); // No S3 folder for this contact
+        }
+
+        console.log(`[Documents] S3 folder for contact ${contactId}: ${baseFolder}`);
+
+        // Scan all relevant S3 subfolders
+        const foldersToScan = [
+            { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
+            { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
+            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
+            { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
+        ];
+        const documents = [];
+
+        const extToType = {
+            'pdf': 'pdf', 'doc': 'docx', 'docx': 'docx',
+            'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image', 'webp': 'image',
+            'xls': 'spreadsheet', 'xlsx': 'spreadsheet',
+            'txt': 'txt', 'html': 'html'
+        };
+
+        for (const folder of foldersToScan) {
+            let continuationToken;
+            do {
+                const listCmd = new ListObjectsV2Command({
+                    Bucket: BUCKET_NAME,
+                    Prefix: folder.prefix,
+                    ContinuationToken: continuationToken
+                });
+                const result = await s3Client.send(listCmd);
+                continuationToken = result.NextContinuationToken;
+
+                if (!result.Contents) continue;
+
+                for (const obj of result.Contents) {
+                    if (obj.Key.endsWith('/')) continue; // skip folder markers
+
+                    const relativePath = obj.Key.substring(folder.prefix.length);
+                    if (!relativePath) continue;
+
+                    const pathParts = relativePath.split('/');
+                    const baseName = pathParts[pathParts.length - 1];
+                    const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
+                    const fileType = extToType[ext] || 'unknown';
+
+                    // Auto-detect category
+                    let category = folder.defaultCategory;
+                    if (baseName.includes('Cover_Letter') || baseName.includes('COVER LETTER')) category = 'Cover Letter';
+                    else if (baseName.includes('_LOA') || baseName.includes(' - LOA.pdf') || baseName.includes(' - LOA ')) category = 'LOA';
+                    if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
+                    if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
+                    if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
+                    if (folder.prefix.includes('Terms-and-Conditions')) category = 'Legal';
+
+                    // Extract lender tag from path
+                    const tags = [];
+                    if (folder.prefix.includes('/Lenders/') && pathParts.length > 1) {
+                        const lenderName = pathParts[0].replace(/_/g, ' ');
+                        if (lenderName && lenderName !== baseName) tags.push(lenderName);
+                    }
+                    if (category === 'LOA' || category === 'Cover Letter') {
+                        const lenderMatch = baseName.match(/ - ([A-Z0-9_ ]+) - (LOA|COVER LETTER)/i);
+                        if (lenderMatch && lenderMatch[1]) {
+                            const lenderFromFile = lenderMatch[1].trim();
+                            if (!tags.includes(lenderFromFile)) tags.push(lenderFromFile);
+                        }
+                    }
+
+                    const sizeKB = obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown';
+
+                    documents.push({
+                        id: obj.Key,  // use S3 key as unique ID
+                        contact_id: parseInt(contactId),
+                        name: baseName,
+                        type: fileType,
+                        category,
+                        url: obj.Key,  // store the S3 key; frontend uses secure-url endpoint to get signed URL
+                        size: sizeKB,
+                        tags,
+                        created_at: obj.LastModified || new Date(),
+                        s3_key: obj.Key
+                    });
+                }
+            } while (continuationToken);
+        }
+
+        // Sort by date descending (newest first)
+        documents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        res.json(documents);
+    } catch (err) {
+        console.error('[Documents] S3 list error:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- DOCUMENT STATUS UPDATE ---
@@ -3001,69 +3143,58 @@ app.delete('/api/documents/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        // 1. Get document details
-        const { rows } = await pool.query(
-            'SELECT id, name, url, contact_id FROM documents WHERE id = $1',
-            [id]
-        );
+        const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+        const bucketName = process.env.S3_BUCKET_NAME;
 
-        if (rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Document not found' });
-        }
+        // Check if id is an S3 key (contains '/') or a DB integer
+        const isS3Key = id.includes('/') || id.includes('_');
+        let s3Key, docName, contactId;
 
-        const doc = rows[0];
-
-        // 2. Delete from S3
-        if (doc.url) {
-            try {
-                const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
-                const bucketName = process.env.S3_BUCKET_NAME;
-
-                // Extract Key from full URL
-                let key = doc.url;
-                if (doc.url.startsWith('http')) {
-                    try {
-                        const urlObj = new URL(doc.url);
-                        key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
-                        key = decodeURIComponent(key);
-                        // Handle path-style URLs: strip bucket name if present
-                        if (key.startsWith(bucketName + '/')) {
-                            key = key.substring(bucketName.length + 1);
-                        }
-                    } catch (e) {
-                        console.warn('URL parsing failed, using raw string');
-                    }
-                }
-
-                console.log(`🗑️  Deleting document from S3: ${key}`);
-                await s3Client.send(new DeleteObjectCommand({
-                    Bucket: bucketName,
-                    Key: key
-                }));
-                console.log(`✅ Deleted document from S3: ${key}`);
-            } catch (s3Error) {
-                console.error('⚠️  S3 deletion error:', s3Error.message);
-                // Continue with database deletion even if S3 fails
+        if (isS3Key) {
+            // New flow: id is the S3 key directly
+            s3Key = decodeURIComponent(id);
+            docName = s3Key.split('/').pop();
+            // Extract contact_id from the key pattern: FirstName_LastName_ID/...
+            const folderMatch = s3Key.match(/_(\d+)\//);
+            contactId = folderMatch ? folderMatch[1] : null;
+        } else {
+            // Legacy flow: id is a DB integer
+            const { rows } = await pool.query('SELECT id, name, url, contact_id FROM documents WHERE id = $1', [id]);
+            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Document not found' });
+            const doc = rows[0];
+            docName = doc.name;
+            contactId = doc.contact_id;
+            // Extract S3 key from URL
+            s3Key = doc.url;
+            if (s3Key && s3Key.startsWith('http')) {
+                try {
+                    const urlObj = new URL(s3Key);
+                    s3Key = decodeURIComponent(urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname);
+                    if (s3Key.startsWith(bucketName + '/')) s3Key = s3Key.substring(bucketName.length + 1);
+                } catch (e) { /* use raw */ }
             }
+            // Also clean from DB
+            await pool.query('DELETE FROM documents WHERE id = $1', [id]);
         }
 
-        // 3. Delete from database
-        await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+        // Delete from S3
+        if (s3Key) {
+            console.log(`🗑️  Deleting document from S3: ${s3Key}`);
+            await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: s3Key }));
+            console.log(`✅ Deleted from S3: ${s3Key}`);
+        }
 
-        // 4. Log the deletion
-        await pool.query(
-            `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
-             VALUES ($1, 'agent', 'system', 'document_deleted', 'documents', $2, $3)`,
-            [
-                doc.contact_id,
-                `Document "${doc.name}" deleted`,
-                JSON.stringify({ document_id: id, name: doc.name })
-            ]
-        );
+        // Log the deletion
+        if (contactId) {
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, 'agent', 'system', 'document_deleted', 'documents', $2, $3)`,
+                [contactId, `Document "${docName}" deleted`, JSON.stringify({ s3_key: s3Key, name: docName })]
+            );
+        }
 
-        console.log(`✅ Document ${id} deleted successfully`);
-        crmEvents.emit('document.deleted', { documentId: parseInt(id), contactId: doc.contact_id, data: { id: parseInt(id), name: doc.name } });
-        res.json({ success: true, message: 'Document deleted successfully', deletedDocument: doc.name });
+        console.log(`✅ Document deleted: ${docName}`);
+        res.json({ success: true, message: 'Document deleted successfully', deletedDocument: docName });
     } catch (err) {
         console.error('❌ Error deleting document:', err);
         res.status(500).json({ success: false, error: err.message });
@@ -3473,10 +3604,42 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
             }
         }
 
+        // 4. Remove stale DB records — check if file still exists in S3
+        const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+        const allDbDocs = await pool.query('SELECT id, name, url FROM documents WHERE contact_id = $1', [contactId]);
+        let removedCount = 0;
+
+        for (const doc of allDbDocs.rows) {
+            // Extract the S3 key from the stored URL
+            let docKey = null;
+            try {
+                if (doc.url && doc.url.startsWith('http')) {
+                    const urlObj = new URL(doc.url);
+                    let path = decodeURIComponent(urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname);
+                    if (path.startsWith(BUCKET_NAME + '/')) path = path.substring(BUCKET_NAME.length + 1);
+                    docKey = path;
+                }
+            } catch (e) { /* skip bad URLs */ }
+
+            if (!docKey) continue;
+
+            try {
+                await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: docKey }));
+                // File exists — keep the record
+            } catch (headErr) {
+                if (headErr.name === 'NotFound' || headErr.$metadata?.httpStatusCode === 404) {
+                    await pool.query('DELETE FROM documents WHERE id = $1', [doc.id]);
+                    removedCount++;
+                    console.log(`[Sync] Removed stale record: ${doc.name} (S3 key missing: ${docKey})`);
+                }
+            }
+        }
+
         res.json({
             success: true,
-            message: `Synced ${syncedCount} new documents`,
+            message: `Synced ${syncedCount} new documents, removed ${removedCount} stale records`,
             synced: syncedCount,
+            removed: removedCount,
             total: totalCount
         });
 
