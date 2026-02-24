@@ -259,7 +259,8 @@ const CATEGORY_4_SPECIAL_EMAIL_LENDERS = new Set([
 const DIRECT_SEND_LENDERS = new Set([
     'TEST',
     'LOANS 2 GO',
-    'LOANS2GO'
+    'LOANS2GO',
+    '118 LOANS'
 ]);
 
 // Helper function to normalize lender name for comparison
@@ -886,16 +887,18 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
             }
         }
 
-        // 4a. Scan Documents/ID_Document/ and Documents/ID Document/
-        for (const subFolder of idSubfolders) {
-            const prefix = `${folderName}/Documents/${subFolder}/`;
-            await scanS3ForIdDocs(prefix);
+        // 4a. Scan Documents/ID_Document/ and Documents/ID Document/ across ALL folders
+        for (const folder of allFolders) {
+            for (const subFolder of idSubfolders) {
+                await scanS3ForIdDocs(`${folder}/Documents/${subFolder}/`);
+            }
         }
 
-        // 4b. Scan Lenders/{lender}/ID_Document/ and Lenders/{lender}/ID Document/
-        for (const subFolder of idSubfolders) {
-            const prefix = `${folderName}/Lenders/${sanitizedLenderName}/${subFolder}/`;
-            await scanS3ForIdDocs(prefix);
+        // 4b. Scan Lenders/{lender}/ID_Document/ and Lenders/{lender}/ID Document/ across ALL folders
+        for (const folder of allFolders) {
+            for (const subFolder of idSubfolders) {
+                await scanS3ForIdDocs(`${folder}/Lenders/${sanitizedLenderName}/${subFolder}/`);
+            }
         }
 
         console.log(`[Worker] Total ID Documents found: ${documents.idDocuments.length}`);
@@ -1383,7 +1386,9 @@ const processPendingDSAREmails = async () => {
         for (const record of rows) {
             try {
                 const clientName = `${record.first_name} ${record.last_name}`;
-                const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
+                // Sanitize folder name: replace spaces and non-ASCII chars to match S3 convention
+                const safeName = `${record.first_name}_${record.last_name}`.replace(/\s+/g, '_').replace(/[^\x00-\x7F]/g, '');
+                const folderName = `${safeName}_${record.contact_id}`;
                 const lenderCategory = getLenderCategory(record.lender);
 
                 console.log(`[Worker] 📧 Processing DSAR for Case ${record.case_id}, Lender: ${record.lender} (Category ${lenderCategory}), Client: ${clientName}`);
