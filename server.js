@@ -567,7 +567,7 @@ crmEvents.init(pool);
 
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }
+    limits: { fileSize: 49 * 1024 * 1024 }
 });
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
