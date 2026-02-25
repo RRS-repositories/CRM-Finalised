@@ -2644,6 +2644,8 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
+        // Sanitize name for S3 folder: replace spaces with underscores for consistent path
+        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -2654,7 +2656,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
 
         // Check for existing file with same name in this category
         let s3FileName = `${baseName}${ext}`;
-        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${safeName}_${contact_id}/Documents/${sanitizedCategory}`;
 
         const nameCheck = await pool.query(
             `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
@@ -2765,6 +2767,8 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
+        // Sanitize name for S3 folder: replace spaces with underscores for consistent path
+        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -2785,16 +2789,16 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
         // Special handling for LOA and Cover Letter - store directly in lender folder with DSAR-compatible naming
         if (category === 'Letter of Authority') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - LOA${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else if (category === 'Cover Letter') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - COVER LETTER${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else {
             // Standard category - store in subfolder
             s3FileName = `${baseName}${ext}`;
-            folderPath = `${first_name}_${last_name}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
+            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
 
             // Check for existing file with same name to handle versioning
             const nameCheck = await pool.query(
@@ -12491,11 +12495,12 @@ crmRouter.post('/documents/upload', upload.single('file'), async (req, res) => {
         if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
         const { first_name, last_name } = contactRes.rows[0];
 
+        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
         const docCategory = category || 'Other';
         const ext = path.extname(fileName);
         const baseName = path.basename(fileName, ext);
         const sanitizedCategory = docCategory.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${safeName}_${contact_id}/Documents/${sanitizedCategory}`;
 
         // Version check
         let s3FileName = `${baseName}${ext}`;
