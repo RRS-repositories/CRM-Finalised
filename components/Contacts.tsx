@@ -1121,11 +1121,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          setShowUploadModal(false);
          setUploadFile(null);
          setUploadCategory('Other');
-         // Refresh per-contact documents after upload
-         await fetchContactDocuments();
       } finally {
          setIsUploadingDocument(false);
          setDocUploadProgress(0);
+         // Always refresh documents after upload attempt (file may be in S3 even if DB update failed)
+         await fetchContactDocuments();
       }
    };
 
@@ -1799,9 +1799,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             xhr.send(formData);
          });
 
-         // Refresh documents list
-         await fetchContactDocuments();
-
          setShowClaimDocUpload(false);
          setClaimDocFile(null);
          setClaimDocCategory('Other');
@@ -1810,6 +1807,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       } finally {
          setIsUploadingClaimDoc(false);
          setClaimDocUploadProgress(0);
+         // Always refresh documents after upload attempt (file may be in S3 even if DB update failed)
+         await fetchContactDocuments();
       }
    };
 

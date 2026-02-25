@@ -3077,6 +3077,8 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
                     if (folder.prefix.includes('/Lenders/') && pathParts.length > 1) {
                         const lenderName = pathParts[0].replace(/_/g, ' ');
                         if (lenderName && lenderName !== baseName) tags.push(lenderName);
+                        // Mark all documents under Lenders/ as claim documents
+                        tags.push('claim-document');
                     }
                     if (category === 'LOA' || category === 'Cover Letter') {
                         const lenderMatch = baseName.match(/ - ([A-Z0-9_ ]+) - (LOA|COVER LETTER)/i);
