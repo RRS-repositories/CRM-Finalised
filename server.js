@@ -50,6 +50,17 @@ const EMAIL_DRAFT_MODE = false; // ENABLED - Lender Selection Form & General Ema
 // NOTE: DSAR emails (worker.js) have separate DRAFT mode control
 // ============================================================================
 
+// ============================================================================
+// PDF GENERATION QUEUE - ensures bulk updates run sequentially, not concurrently
+// ============================================================================
+const pdfQueue = {
+    _chain: Promise.resolve(),
+    enqueue(fn) {
+        this._chain = this._chain.then(fn, fn);
+        return this._chain;
+    }
+};
+
 // --- MATTERMOST CONFIGURATION ---
 const MATTERMOST_URL = process.env.MATTERMOST_URL || 'https://chat.rowanroseclaims.co.uk';
 const MATTERMOST_BOT_TOKEN = process.env.MATTERMOST_BOT_TOKEN || 'quzf9nxpx3bdx8im4abycsgzuw';
@@ -5500,24 +5511,53 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             );
         }
 
-        // Trigger LOA generation for these statuses
+        // Trigger LOA generation for these statuses (queued + staggered to avoid overwhelming OnlyOffice)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            // For Extra Lender Selection Form Sent, skip status update so it stays unchanged
             const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
-            for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
-                    console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
-                });
-            }
+            const casesToProcess = [...result.rows];
+            pdfQueue.enqueue(async () => {
+                console.log(`📋 [PDF Queue] Starting LOA generation for ${casesToProcess.length} cases`);
+                const BATCH_SIZE = 5;
+                const DELAY_BETWEEN_BATCHES_MS = 3000;
+                for (let i = 0; i < casesToProcess.length; i += BATCH_SIZE) {
+                    const batch = casesToProcess.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(
+                        batch.map(updatedCase =>
+                            triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
+                                console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
+                            })
+                        )
+                    );
+                    if (i + BATCH_SIZE < casesToProcess.length) {
+                        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                    }
+                }
+                console.log(`✅ [PDF Queue] LOA generation completed for ${casesToProcess.length} cases`);
+            });
         }
 
-        // If status = "LOA Uploaded", trigger cover letter generation for each case via Lambda (async)
+        // If status = "LOA Uploaded", trigger cover letter generation (queued + staggered)
         if (status === 'LOA Uploaded') {
-            for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'COVER_LETTER').catch(err => {
-                    console.error(`❌ Cover letter generation trigger failed for case ${updatedCase.id}:`, err.message);
-                });
-            }
+            const casesToProcess = [...result.rows];
+            pdfQueue.enqueue(async () => {
+                console.log(`📋 [PDF Queue] Starting cover letter generation for ${casesToProcess.length} cases`);
+                const BATCH_SIZE = 5;
+                const DELAY_BETWEEN_BATCHES_MS = 3000;
+                for (let i = 0; i < casesToProcess.length; i += BATCH_SIZE) {
+                    const batch = casesToProcess.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(
+                        batch.map(updatedCase =>
+                            triggerPdfGenerator(updatedCase.id, 'COVER_LETTER').catch(err => {
+                                console.error(`❌ Cover letter generation trigger failed for case ${updatedCase.id}:`, err.message);
+                            })
+                        )
+                    );
+                    if (i + BATCH_SIZE < casesToProcess.length) {
+                        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                    }
+                }
+                console.log(`✅ [PDF Queue] Cover letter generation completed for ${casesToProcess.length} cases`);
+            });
         }
 
         console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);

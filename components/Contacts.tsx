@@ -3631,8 +3631,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        const isClaimDoc = tags.some(t => t === 'claim-document');
                                        if (category === 'other' && !isClaimDoc) return false;
 
-                                       // 1. Best match: document filename starts with refSpec (contactId+caseId)
-                                       if (refSpec && doc.name.startsWith(refSpec)) return true;
+                                       // 1. Best match: document filename starts with refSpec AND contains the lender name
+                                       if (refSpec && doc.name.startsWith(refSpec)) {
+                                          // For LOA/Cover Letter, also verify lender matches to avoid cross-lender mismatches
+                                          if (sanitizedLender && doc.name.toUpperCase().includes(` - ${sanitizedLender} - `)) return true;
+                                          // For other doc types (uploaded claim docs etc), refSpec match is enough
+                                          if (!doc.name.toUpperCase().includes(' - LOA') && !doc.name.toUpperCase().includes(' - COVER LETTER')) return true;
+                                          // Skip: refSpec matches but lender doesn't (wrong claim)
+                                       }
 
                                        // 2. Match by lender tag (exact match only)
                                        const matchesTag = tags.some(t => t.toLowerCase() === lenderLower);
