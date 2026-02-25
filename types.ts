@@ -96,6 +96,8 @@ export interface Claim {
   startDate?: string;
   daysInStage?: number;
   contactName?: string;
+  caseNumber?: string;
+  createdAt?: string;
 }
 
 export interface PreviousAddressEntry {
@@ -292,8 +294,9 @@ export interface Document {
   id: string;
   name: string;
   type: 'pdf' | 'docx' | 'image' | 'spreadsheet' | 'txt' | 'html';
-  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates';
+  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates' | 'Cover Letter' | 'LOA';
   dateModified: string;
+  createdAt?: string;
   size: string;
   tags: string[];
   associatedContactId?: string;
@@ -424,10 +427,10 @@ export interface Notification {
 
 // Bank Details for Client
 export interface BankDetails {
-  bankName: string;
-  accountName: string;
-  sortCode: string;  // XX-XX-XX format
-  accountNumber: string;  // 8 digits
+  bankName?: string;
+  accountName?: string;
+  sortCode?: string;  // XX-XX-XX format
+  accountNumber?: string;  // 8 digits
 }
 
 // Communication Record (SMS, Email, WhatsApp, Call)

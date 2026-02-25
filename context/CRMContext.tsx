@@ -78,7 +78,7 @@ interface CRMContextType {
   getPipelineStats: () => { totalValue: number; count: number; byStage: Record<string, number> };
 
   // Claims
-  addClaim: (claim: Partial<Claim>) => Promise<{ success: boolean; message: string; id?: string }>;
+  addClaim: (claim: Partial<Claim>) => Promise<{ success: boolean; message: string; id?: string; category3?: boolean; lender?: string }>;
   updateClaim: (claim: Claim) => { success: boolean; message: string };
   deleteClaim: (claimId: string) => Promise<{ success: boolean; message: string }>;
   updateClaimStatus: (claimId: string, newStatus: string) => Promise<{ success: boolean; message: string }>;
@@ -247,6 +247,7 @@ interface CRMContextType {
     firstName?: string;
     lastName?: string;
     fullName?: string;
+    email?: string;
     phone?: string;
     postcode?: string;
     clientId?: string;

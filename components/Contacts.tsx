@@ -557,7 +557,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
    // Document delete state
    const [showDeleteDocConfirm, setShowDeleteDocConfirm] = useState(false);
-   const [docToDelete, setDocToDelete] = useState<{ id: number; name: string } | null>(null);
+   const [docToDelete, setDocToDelete] = useState<{ id: string | number; name: string } | null>(null);
    const [isDeletingDoc, setIsDeletingDoc] = useState(false);
    const [deleteDocProgress, setDeleteDocProgress] = useState(0);
    const [deleteDocConfirmText, setDeleteDocConfirmText] = useState('');
@@ -1622,6 +1622,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          complaintParagraph: '',
          // Section 2: Payment Section
          offerMade: '',
+         feePercent: '',
          totalRefund: '',
          totalDebt: '',
          balanceDueToClient: '',
@@ -1836,7 +1837,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                userId: currentUser.id,
-               userName: currentUser.name
+               userName: currentUser.fullName
             })
          });
 
@@ -5475,7 +5476,7 @@ const Contacts: React.FC = () => {
          previousAddress: newContactData.previousAddress,
          claimValue: Number(newContactData.claimValue),
          status: newContactData.status,
-         source: 'Manual'
+         source: 'Manual Input'
       });
       setShowAddContact(false);
       setNewContactData(INITIAL_FORM_STATE);
