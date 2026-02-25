@@ -513,6 +513,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       complaintParagraph: '',
       // Section 2: Payment Section
       offerMade: '',
+      feePercent: '',
       totalRefund: '',
       totalDebt: '',
       balanceDueToClient: '',
@@ -858,15 +859,19 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }, 200);
 
       try {
-         const res = await fetch(`${API_BASE_URL}/api/documents/${docToDelete.id}`, {
+         const res = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(docToDelete.id)}`, {
             method: 'DELETE'
          });
 
          clearInterval(progressInterval);
 
          if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'Failed to delete document');
+            let errorMsg = 'Failed to delete document';
+            try {
+               const data = await res.json();
+               errorMsg = data.error || errorMsg;
+            } catch { /* response body not valid JSON */ }
+            throw new Error(errorMsg);
          }
 
          setDeleteDocProgress(100);
@@ -1502,9 +1507,21 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
       try {
          if (fullClaim?.loan_details) {
-            parsedLoanDetails = typeof fullClaim.loan_details === 'string'
+            const rawLoans = typeof fullClaim.loan_details === 'string'
                ? JSON.parse(fullClaim.loan_details)
                : fullClaim.loan_details;
+            // Map snake_case DB keys to camelCase frontend keys (handles both formats)
+            parsedLoanDetails = rawLoans.map((loan: any, idx: number) => ({
+               loanNumber: loan.loanNumber ?? loan.loan_number ?? idx + 1,
+               accountNumber: loan.accountNumber ?? loan.account_number ?? '',
+               valueOfLoan: loan.valueOfLoan ?? loan.value_of_loan ?? '',
+               startDate: loan.startDate ?? loan.start_date ?? '',
+               endDate: loan.endDate ?? loan.end_date ?? '',
+               apr: loan.apr ?? '',
+               billedInterestCharges: loan.billedInterestCharges ?? loan.billed_interest_charges ?? '',
+               latePaymentCharges: loan.latePaymentCharges ?? loan.late_payment_charges ?? '',
+               overlimitCharges: loan.overlimitCharges ?? loan.overlimit_charges ?? '',
+            }));
          }
       } catch (e) { console.error('Error parsing loan_details:', e); }
 
@@ -1541,13 +1558,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             billedInterestCharges: fullClaim?.billed_interest_charges || '',
             latePaymentCharges: fullClaim?.late_payment_charges?.toString() || '',
             overlimitCharges: fullClaim?.overlimit_charges || '',
-            totalAmountOfDebt: fullClaim?.total_amount_of_debt || '',
+            totalAmountOfDebt: fullClaim?.total_debt?.toString() || fullClaim?.total_amount_of_debt?.toString() || '',
             claimValue: fullClaim?.claim_value || '',
             creditLimitIncreases: fullClaim?.credit_limit_increases || '',
             dsarReview: fullClaim?.dsar_review || '',
             complaintParagraph: fullClaim?.complaint_paragraph || '',
             // Section 2: Payment Section
             offerMade: fullClaim?.offer_made?.toString() || '',
+            feePercent: fullClaim?.fee_percent?.toString() || '',
             totalRefund: fullClaim?.total_refund?.toString() || '',
             totalDebt: fullClaim?.total_debt?.toString() || '',
             balanceDueToClient: fullClaim?.balance_due_to_client || '',
@@ -1660,7 +1678,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             billed_interest_charges: claimFileForm.billedInterestCharges,
             late_payment_charges: claimFileForm.latePaymentCharges,
             overlimit_charges: claimFileForm.overlimitCharges,
-            total_amount_of_debt: claimFileForm.totalAmountOfDebt,
             claim_value: claimFileForm.claimValue,
             credit_limit_increases: claimFileForm.creditLimitIncreases,
             dsar_review: claimFileForm.dsarReview,
@@ -1668,8 +1685,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
             // Section 2: Payment Section
             offer_made: claimFileForm.offerMade,
+            fee_percent: claimFileForm.feePercent,
             total_refund: claimFileForm.totalRefund,
-            total_debt: claimFileForm.totalDebt,
+            total_debt: claimFileForm.totalAmountOfDebt || claimFileForm.totalDebt,
             balance_due_to_client: claimFileForm.balanceDueToClient,
             our_fees_plus_vat: claimFileForm.ourFeesPlusVat,
             our_fees_minus_vat: claimFileForm.ourFeesMinusVat,
@@ -1962,14 +1980,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   <div className="grid grid-cols-12 gap-6">
                      {/* Personal Information */}
                      <div className="col-span-12 lg:col-span-6">
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                           <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-blue-500 to-indigo-600 flex justify-between items-center">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-navy-700 dark:border-slate-700 overflow-hidden">
+                           <div className="p-4 border-b border-navy-700 dark:border-slate-700 bg-navy-800 flex justify-between items-center rounded-t-xl">
                               <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                                 <User size={14} /> Personal Information
+                                 <User size={14} /> Personal information
                               </h3>
                               <button
                                  onClick={() => setEditingPersonalInfo(!editingPersonalInfo)}
-                                 className="text-xs text-white hover:text-blue-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                                 className="text-xs text-white hover:bg-orange-600 px-3 py-1 rounded bg-orange-500 transition-colors shadow-sm"
                               >
                                  {editingPersonalInfo ? 'Cancel' : 'Edit'}
                               </button>
@@ -2067,14 +2085,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         </div>
 
                         {/* Current Address */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden mt-6">
-                           <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-cyan-500 to-teal-600 flex justify-between items-center">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-navy-700 dark:border-slate-700 overflow-hidden mt-6">
+                           <div className="p-4 border-b border-navy-700 dark:border-slate-700 bg-navy-800 flex justify-between items-center rounded-t-xl">
                               <h3 className="font-bold text-white text-sm flex items-center gap-2">
                                  <MapPin size={14} /> Current Address
                               </h3>
                               <button
                                  onClick={() => setEditingCurrentAddress(!editingCurrentAddress)}
-                                 className="text-xs text-white hover:text-cyan-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                                 className="text-xs text-white hover:bg-white/30 px-3 py-1 rounded border border-white/40 bg-white/10 transition-colors"
                               >
                                  {editingCurrentAddress ? 'Cancel' : 'Edit'}
                               </button>
@@ -2156,8 +2174,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                      {/* Previous Address & Bank Details */}
                      <div className="col-span-12 lg:col-span-6 space-y-6">
                         {/* Previous Addresses (Multiple) */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                           <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-violet-500 to-purple-600 flex justify-between items-center">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-navy-700 dark:border-slate-700 overflow-hidden">
+                           <div className="p-4 border-b border-navy-700 dark:border-slate-700 bg-navy-800 flex justify-between items-center rounded-t-xl">
                               <h3 className="font-bold text-white text-sm flex items-center gap-2">
                                  <History size={14} /> Previous Address{previousAddresses.length > 1 ? 'es' : ''}
                                  {previousAddresses.length > 0 && (
@@ -2169,7 +2187,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               <button
                                  onClick={() => {
                                     if (!editingPreviousAddresses) {
-                                       // Entering edit mode - add a blank address if none exist
                                        if (previousAddresses.length === 0) {
                                           const newAddress: PreviousAddressEntry = {
                                              id: `prev_addr_${Date.now()}`,
@@ -2184,7 +2201,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     }
                                     setEditingPreviousAddresses(!editingPreviousAddresses);
                                  }}
-                                 className="text-xs text-white hover:text-violet-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                                 className="text-xs text-white hover:bg-white/30 px-3 py-1 rounded border border-white/40 bg-white/10 transition-colors"
                               >
                                  {editingPreviousAddresses ? 'Cancel' : 'Edit'}
                               </button>
@@ -2331,14 +2348,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         </div>
 
                         {/* Bank Details */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                           <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-emerald-500 to-green-600 flex justify-between items-center">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-navy-700 dark:border-slate-700 overflow-hidden">
+                           <div className="p-4 border-b border-navy-700 dark:border-slate-700 bg-navy-800 flex justify-between items-center rounded-t-xl">
                               <h3 className="font-bold text-white text-sm flex items-center gap-2">
                                  <Building2 size={14} /> Bank Details
                               </h3>
                               <button
                                  onClick={() => setEditingBankDetails(!editingBankDetails)}
-                                 className="text-xs text-white hover:text-emerald-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                                 className="text-xs text-white hover:bg-white/30 px-3 py-1 rounded border border-white/40 bg-white/10 transition-colors"
                               >
                                  {editingBankDetails ? 'Cancel' : 'Edit'}
                               </button>
@@ -2430,14 +2447,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         </div>
 
                         {/* Extra Lenders */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden mt-6">
-                           <div className="p-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-amber-500 to-orange-600 flex justify-between items-center">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-navy-700 dark:border-slate-700 overflow-hidden mt-6">
+                           <div className="p-4 border-b border-navy-700 dark:border-slate-700 bg-navy-800 flex justify-between items-center rounded-t-xl">
                               <h3 className="font-bold text-white text-sm flex items-center gap-2">
                                  <Briefcase size={14} /> Extra Lenders
                               </h3>
                               <button
                                  onClick={() => setEditingExtraLenders(!editingExtraLenders)}
-                                 className="text-xs text-white hover:text-amber-100 border border-white/30 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                                 className="text-xs text-white hover:bg-white/30 px-3 py-1 rounded border border-white/40 bg-white/10 transition-colors"
                               >
                                  {editingExtraLenders ? 'Cancel' : 'Edit'}
                               </button>
@@ -3292,6 +3309,21 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                 type="text"
                                                 value={claimFileForm.offerMade}
                                                 onChange={(e) => setClaimFileForm({ ...claimFileForm, offerMade: e.target.value })}
+                                                className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                placeholder="0"
+                                             />
+                                          </div>
+                                       </div>
+
+                                       {/* Fee (%) */}
+                                       <div>
+                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Fee (%)</label>
+                                          <div className="flex items-center gap-2">
+                                             <span className="text-sm font-bold text-gray-700 dark:text-gray-200">%</span>
+                                             <input
+                                                type="text"
+                                                value={claimFileForm.feePercent}
+                                                onChange={(e) => setClaimFileForm({ ...claimFileForm, feePercent: e.target.value })}
                                                 className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                                 placeholder="0"
                                              />

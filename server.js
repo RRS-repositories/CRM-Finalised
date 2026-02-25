@@ -201,7 +201,10 @@ crmEvents.init(pool);
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='payment_plan') THEN
                         ALTER TABLE cases ADD COLUMN payment_plan JSONB;
                     END IF;
-                    
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='fee_percent') THEN
+                        ALTER TABLE cases ADD COLUMN fee_percent TEXT;
+                    END IF;
+
                     -- Add intake_lender to contacts table
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='intake_lender') THEN
                         ALTER TABLE contacts ADD COLUMN intake_lender TEXT;
@@ -255,6 +258,14 @@ crmEvents.init(pool);
                         postal_code TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+
+                    -- Add end_date and value_of_loan columns to cases table (for top-level claim fields)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='end_date') THEN
+                        ALTER TABLE cases ADD COLUMN end_date TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='value_of_loan') THEN
+                        ALTER TABLE cases ADD COLUMN value_of_loan TEXT;
+                    END IF;
 
                     -- Add loa_generated to cases table
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='loa_generated') THEN
@@ -5085,11 +5096,12 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
     const {
         lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
         lender_reference, dates_timeline, apr, outstanding_balance,
-        dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+        dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
         billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
         total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
         our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
-        our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan
+        our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan,
+        account_number, start_date, end_date, value_of_loan, claim_value, product_type
     } = req.body;
 
     try {
@@ -5099,21 +5111,23 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
 
         // List of numeric (DECIMAL) fields that cannot accept empty strings
         const numericFields = [
-            'apr', 'outstanding_balance', 'offer_made', 'late_payment_charges',
+            'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
             'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
             'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
             'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
-            'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans'
+            'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
+            'claim_value', 'value_of_loan'
         ];
 
         const fields = {
             lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
             lender_reference, dates_timeline, apr, outstanding_balance,
-            dsar_review, complaint_paragraph, offer_made, late_payment_charges,
+            dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
             billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
             total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
             our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
-            our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan
+            our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan,
+            account_number, start_date, end_date, value_of_loan, claim_value, product_type
         };
 
         for (const [key, value] of Object.entries(fields)) {
@@ -5170,6 +5184,60 @@ app.get('/api/contacts/:id/full', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// ==================== LENDER DIRECTORY ====================
+
+// Load lender directory data once
+const _lendersData = (() => {
+    try {
+        const lendersPath = path.join(__dirname, 'all_lenders_details.json');
+        const content = fs.readFileSync(lendersPath, 'utf-8');
+        return JSON.parse(content.replace(/:\s*NaN/g, ': null'));
+    } catch { return []; }
+})();
+
+// Get full lender directory
+app.get('/api/lenders/directory', (req, res) => {
+    const result = _lendersData.map(l => ({
+        lender: l.lender || null,
+        email: l.email || null,
+        address: l.address ? {
+            company_name: l.address.company_name && l.address.company_name !== 'NaN' ? l.address.company_name : null,
+            first_line_address: l.address.first_line_address && l.address.first_line_address !== 'NaN' ? l.address.first_line_address : null,
+            town_city: l.address.town_city && l.address.town_city !== 'NaN' ? l.address.town_city : null,
+            postcode: l.address.postcode && l.address.postcode !== 'NaN' ? l.address.postcode : null,
+        } : null
+    }));
+    res.json(result);
+});
+
+// Lookup single lender by name (exact or partial match)
+app.get('/api/lenders/lookup', (req, res) => {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name query parameter required' });
+
+    const normalised = name.toUpperCase().trim();
+    let match = _lendersData.find(l => l.lender?.toUpperCase() === normalised);
+    if (!match) {
+        match = _lendersData.find(l => {
+            const u = l.lender?.toUpperCase() || '';
+            return u.includes(normalised) || normalised.includes(u);
+        });
+    }
+
+    if (!match) return res.status(404).json({ error: 'Lender not found' });
+
+    res.json({
+        lender: match.lender || null,
+        email: match.email || null,
+        address: match.address ? {
+            company_name: match.address.company_name && match.address.company_name !== 'NaN' ? match.address.company_name : null,
+            first_line_address: match.address.first_line_address && match.address.first_line_address !== 'NaN' ? match.address.first_line_address : null,
+            town_city: match.address.town_city && match.address.town_city !== 'NaN' ? match.address.town_city : null,
+            postcode: match.address.postcode && match.address.postcode !== 'NaN' ? match.address.postcode : null,
+        } : null
+    });
 });
 
 // Get all cases (for Pipeline view)
@@ -11503,6 +11571,1037 @@ app.post('/api/automations/setup', async (req, res) => {
         res.status(500).json({ success: false, error: err.message, ...results });
     }
 });
+
+// ============================================================================
+// CRM EXTERNAL API - Secured with CRM_API_KEY (for OpenClaw / external use)
+// All routes mounted at /api/crm/*
+// MUST be registered BEFORE the Windmill catch-all proxy below.
+// ============================================================================
+
+function crmApiKeyAuth(req, res, next) {
+    const apiKey = req.headers['x-api-key']
+        || (req.headers.authorization || '').replace('Bearer ', '');
+    if (!apiKey || apiKey !== process.env.CRM_API_KEY) {
+        return res.status(401).json({ error: 'Invalid or missing API key' });
+    }
+    next();
+}
+
+const crmRouter = express.Router();
+crmRouter.use(crmApiKeyAuth);
+
+// ── GET /contacts/:id ── Get contact details
+crmRouter.get('/contacts/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/claims ── Get contact's claims
+crmRouter.get('/contacts/:id/claims', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM cases WHERE contact_id = $1 ORDER BY created_at DESC', [req.params.id]);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/documents ── Get contact's documents
+crmRouter.get('/contacts/:id/documents', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC',
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/dsars ── Get DSAR history for contact's cases
+crmRouter.get('/contacts/:id/dsars', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, lender, loa_generated, dsar_sent, dsar_sent_at, dsar_send_after, status, created_at
+             FROM cases WHERE contact_id = $1 ORDER BY created_at DESC`,
+            [req.params.id]
+        );
+        res.json({ cases: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /search?q= ── Search contacts by name, email, phone, or client_id
+crmRouter.get('/search', async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (!q) return res.status(400).json({ error: 'q query parameter is required' });
+
+        const { rows } = await pool.query(
+            `SELECT id, first_name, last_name, full_name, email, phone, client_id, created_at
+             FROM contacts
+             WHERE full_name ILIKE $1
+                OR first_name ILIKE $1
+                OR last_name ILIKE $1
+                OR email ILIKE $1
+                OR phone ILIKE $1
+                OR client_id ILIKE $1
+             ORDER BY updated_at DESC
+             LIMIT 50`,
+            [`%${q}%`]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /pipelines ── List all claims with contact info (for pipeline view)
+crmRouter.get('/pipelines', async (req, res) => {
+    try {
+        const statusFilter = req.query.status;
+        let query = `
+            SELECT c.*, con.first_name AS contact_first_name, con.last_name AS contact_last_name,
+                   con.full_name AS contact_full_name, con.email AS contact_email
+            FROM cases c
+            LEFT JOIN contacts con ON c.contact_id = con.id
+        `;
+        const params = [];
+        if (statusFilter) {
+            query += ' WHERE c.status = $1';
+            params.push(statusFilter);
+        }
+        query += ' ORDER BY c.created_at DESC';
+        const { rows } = await pool.query(query, params);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /cases/:id ── Get claim details
+crmRouter.get('/cases/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Claim not found' });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /templates/docx ── List document templates (OO templates + DOCX templates)
+crmRouter.get('/templates/docx', async (req, res) => {
+    try {
+        // Get OO templates from DB
+        const ooResult = await pool.query(
+            "SELECT id, name, description, category, s3_key, variable_fields, use_for_loa, use_for_cover_letter, created_at FROM oo_templates WHERE is_active = TRUE ORDER BY updated_at DESC"
+        );
+        const ooTemplates = ooResult.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            category: row.category || 'General',
+            s3Key: row.s3_key,
+            mergeFields: row.variable_fields || [],
+            useForLoa: row.use_for_loa,
+            useForCoverLetter: row.use_for_cover_letter,
+            source: 'oo_templates',
+        }));
+
+        // Get static DOCX templates from S3
+        const docxTemplates = [];
+        if (typeof DOCX_TEMPLATE_KEYS !== 'undefined') {
+            for (const [type, s3Key] of Object.entries(DOCX_TEMPLATE_KEYS)) {
+                try {
+                    await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }));
+                    docxTemplates.push({ type, s3Key, exists: true, source: 'docx_templates' });
+                } catch { docxTemplates.push({ type, s3Key, exists: false, source: 'docx_templates' }); }
+            }
+        }
+
+        res.json({ success: true, templates: [...ooTemplates, ...docxTemplates] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /cases ── Create claim (with duplicate check)
+crmRouter.post('/cases', async (req, res) => {
+    const { contact_id, lender, case_number, status, claim_value, product_type, account_number, start_date } = req.body;
+
+    if (!contact_id || !lender) {
+        return res.status(400).json({ error: 'contact_id and lender are required' });
+    }
+
+    try {
+        const standardizedLender = standardizeLender(lender);
+
+        // Duplicate check
+        const existing = await pool.query(
+            'SELECT id, status FROM cases WHERE contact_id = $1 AND LOWER(lender) = LOWER($2)',
+            [contact_id, standardizedLender]
+        );
+        if (existing.rows.length > 0) {
+            return res.status(409).json({
+                error: `A claim for ${standardizedLender} already exists for this contact`,
+                existingCaseId: existing.rows[0].id,
+                existingStatus: existing.rows[0].status,
+            });
+        }
+
+        // Check Category 3 lender
+        if (isCategory3Lender(standardizedLender)) {
+            const contactRes = await pool.query('SELECT first_name, last_name, email FROM contacts WHERE id = $1', [contact_id]);
+            if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+
+            const confirmToken = generateConfirmationToken();
+            const rejectToken = generateConfirmationToken();
+            await pool.query(
+                'INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent) VALUES ($1, $2, $3, $4, false)',
+                [contact_id, standardizedLender, 'confirm', confirmToken]
+            );
+            await pool.query(
+                'INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent) VALUES ($1, $2, $3, $4, true)',
+                [contact_id, standardizedLender, 'reject', rejectToken]
+            );
+
+            return res.json({
+                success: true,
+                category3: true,
+                message: `${standardizedLender} is a Category 3 lender. Confirmation required.`,
+                lender: standardizedLender,
+            });
+        }
+
+        // Normal creation
+        const dsarSendAfter = lender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+        const { rows } = await pool.query(
+            `INSERT INTO cases (contact_id, case_number, lender, status, claim_value, product_type, account_number, start_date, loa_generated, dsar_send_after)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9) RETURNING *`,
+            [contact_id, case_number || null, standardizedLender, status || 'New Lead', claim_value || null, product_type || null, account_number || null, start_date || null, dsarSendAfter]
+        );
+        await setReferenceSpecified(pool, contact_id, rows[0].id);
+        crmEvents.emit('case.created', { caseId: rows[0].id, contactId: parseInt(contact_id), data: rows[0] });
+        res.json({ success: true, case: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /contacts/:id/notes ── Add note to contact
+crmRouter.post('/contacts/:id/notes', async (req, res) => {
+    const { content, pinned, created_by, created_by_name } = req.body;
+    if (!content) return res.status(400).json({ error: 'content is required' });
+
+    try {
+        const { rows } = await pool.query(
+            'INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [req.params.id, content, pinned || false, created_by || 'openclaw', created_by_name || 'OpenClaw']
+        );
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [req.params.id, 'agent', created_by || 'openclaw', created_by_name || 'OpenClaw', 'note_added', 'notes',
+                `Added note: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`]
+        );
+        crmEvents.emit('note.created', { contactId: parseInt(req.params.id), data: rows[0] });
+        res.json({ success: true, note: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /email/send ── Send email
+crmRouter.post('/email/send', async (req, res) => {
+    const { to, subject, html, text } = req.body;
+    if (!to || !subject || (!html && !text)) {
+        return res.status(400).json({ error: 'to, subject, and html or text are required' });
+    }
+
+    const mailOptions = {
+        from: '"Rowan Rose Solicitors" <info@fastactionclaims.co.uk>',
+        to, subject,
+        text: text || 'Please view this email in a client that supports HTML.',
+        html: html || undefined,
+    };
+
+    if (EMAIL_DRAFT_MODE) {
+        return res.json({ success: true, draft: true, message: 'Email in DRAFT mode - not sent' });
+    }
+
+    try {
+        const info = await transporter.sendMail(mailOptions);
+        res.json({ success: true, messageId: info.messageId });
+    } catch (error) {
+        console.error('[CRM API] Email error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ── POST /communications ── Log communication
+crmRouter.post('/communications', async (req, res) => {
+    const { client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name } = req.body;
+    if (!client_id || !channel || !direction) {
+        return res.status(400).json({ error: 'client_id, channel, and direction are required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO communications (client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [client_id, channel, direction, subject || null, content || null,
+                call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null]
+        );
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [client_id, 'agent', agent_id || 'openclaw', agent_name || 'OpenClaw',
+                `${direction}_${channel}`, 'communication',
+                `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message`]
+        );
+        crmEvents.emit('communication.created', { contactId: parseInt(client_id), data: rows[0] });
+        res.json({ success: true, communication: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /action-logs ── Log action timeline entry
+crmRouter.post('/action-logs', async (req, res) => {
+    const { client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata } = req.body;
+    if (!client_id || !action_type) {
+        return res.status(400).json({ error: 'client_id and action_type are required' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [client_id, claim_id || null, actor_type || 'agent', actor_id || 'openclaw',
+                actor_name || 'OpenClaw', action_type, action_category || 'general',
+                description || '', metadata ? JSON.stringify(metadata) : null]
+        );
+        res.json({ success: true, actionLog: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /workflows/trigger ── Trigger workflow
+crmRouter.post('/workflows/trigger', async (req, res) => {
+    const { client_id, workflow_type, workflow_name, triggered_by, total_steps } = req.body;
+    if (!client_id || !workflow_type) {
+        return res.status(400).json({ error: 'client_id and workflow_type are required' });
+    }
+
+    try {
+        const nextActionAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 2 days
+        const { rows } = await pool.query(
+            `INSERT INTO workflow_triggers (client_id, workflow_type, workflow_name, triggered_by, status, total_steps, next_action_at, next_action_description)
+             VALUES ($1, $2, $3, $4, 'active', $5, $6, 'Send follow-up SMS') RETURNING *`,
+            [client_id, workflow_type, workflow_name || workflow_type, triggered_by || 'openclaw', total_steps || 4, nextActionAt]
+        );
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [client_id, 'agent', 'openclaw', 'OpenClaw', 'workflow_triggered', 'workflow', `Triggered workflow: ${workflow_type}`]
+        );
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /contacts/:id ── Update contact
+crmRouter.patch('/contacts/:id', async (req, res) => {
+    const { id } = req.params;
+    const allowedFields = ['first_name', 'last_name', 'email', 'phone', 'dob',
+        'address_line_1', 'address_line_2', 'city', 'state_county', 'postal_code'];
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updates.push(`${field} = $${paramCount++}`);
+                values.push(req.body[field]);
+            }
+        }
+        if (req.body.first_name !== undefined || req.body.last_name !== undefined) {
+            updates.push(`full_name = $${paramCount++}`);
+            values.push(`${req.body.first_name || ''} ${req.body.last_name || ''}`.trim());
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+        values.push(id);
+        const { rows } = await pool.query(
+            `UPDATE contacts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`,
+            values
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        crmEvents.emit('contact.updated', { contactId: rows[0].id, data: rows[0] });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /cases/:id ── Update claim (status etc)
+crmRouter.patch('/cases/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'status is required' });
+
+    try {
+        const isDSARSent = status === 'DSAR Sent to Lender';
+        const result = await pool.query(
+            `UPDATE cases
+             SET status = $1,
+                 dsar_sent_at = CASE WHEN $3::boolean THEN NOW() ELSE dsar_sent_at END,
+                 dsar_overdue_notified = CASE WHEN $3::boolean THEN false ELSE dsar_overdue_notified END
+             WHERE id = $2 RETURNING *`,
+            [status, id, isDSARSent]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Case not found' });
+
+        crmEvents.emit('case.status_changed', { caseId: parseInt(id), contactId: result.rows[0].contact_id, data: result.rows[0], newStatus: status });
+        res.json(result.rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /cases/bulk/status ── Bulk status update
+crmRouter.patch('/cases/bulk/status', async (req, res) => {
+    const { claimIds, status } = req.body;
+    if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0) {
+        return res.status(400).json({ error: 'claimIds array is required' });
+    }
+    if (!status) return res.status(400).json({ error: 'status is required' });
+
+    try {
+        let result;
+        if (status === 'DSAR Sent to Lender') {
+            result = await pool.query(
+                'UPDATE cases SET status = $1, dsar_sent_at = NOW(), dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *',
+                [status, claimIds]
+            );
+        } else {
+            result = await pool.query(
+                'UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *',
+                [status, claimIds]
+            );
+        }
+        crmEvents.emit('case.bulk_status', { caseIds: claimIds, newStatus: status, count: result.rows.length });
+        res.json({ success: true, updatedCount: result.rows.length, updatedClaims: result.rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /contacts/:id/checklist ── Update document checklist
+crmRouter.patch('/contacts/:id/checklist', async (req, res) => {
+    const { id } = req.params;
+    const { document_checklist, checklist_change } = req.body;
+
+    if (!document_checklist) return res.status(400).json({ error: 'document_checklist object is required' });
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE contacts SET document_checklist = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING *`,
+            [JSON.stringify(document_checklist), id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+
+        if (checklist_change) {
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [id, 'agent', 'openclaw', 'OpenClaw', 'checklist_updated', 'documents',
+                    `Updated checklist: ${checklist_change.field} = ${checklist_change.value}`,
+                    JSON.stringify(checklist_change)]
+            );
+        }
+
+        crmEvents.emit('contact.updated', { contactId: parseInt(id), data: rows[0] });
+        res.json({ success: true, contact: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /contacts/:id/extended ── Update contact extended details (bank, address, checklist, etc.)
+crmRouter.patch('/contacts/:id/extended', async (req, res) => {
+    const { id } = req.params;
+
+    const allowedFields = [
+        'bank_name', 'account_name', 'sort_code', 'bank_account_number',
+        'address_line_1', 'address_line_2', 'city', 'state_county', 'postal_code',
+        'previous_address_line_1', 'previous_address_line_2', 'previous_city',
+        'previous_county', 'previous_postal_code', 'extra_lenders'
+    ];
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updates.push(`${field} = $${paramCount++}`);
+                values.push(req.body[field]);
+            }
+        }
+
+        // Handle JSONB fields separately
+        if (req.body.previous_addresses !== undefined) {
+            updates.push(`previous_addresses = $${paramCount++}`);
+            const val = typeof req.body.previous_addresses === 'string' ? req.body.previous_addresses : JSON.stringify(req.body.previous_addresses);
+            values.push(val);
+        }
+        if (req.body.document_checklist !== undefined) {
+            updates.push(`document_checklist = $${paramCount++}`);
+            const val = typeof req.body.document_checklist === 'string' ? req.body.document_checklist : JSON.stringify(req.body.document_checklist);
+            values.push(val);
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+        values.push(id);
+        const { rows } = await pool.query(
+            `UPDATE contacts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`,
+            values
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+
+        // Sync previous addresses to the previous_addresses table
+        if (req.body.previous_addresses && Array.isArray(req.body.previous_addresses) && req.body.previous_addresses.length > 0) {
+            await pool.query('DELETE FROM previous_addresses WHERE contact_id = $1', [id]);
+            for (const addr of req.body.previous_addresses) {
+                await pool.query(
+                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                    VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [id, addr.line1 || addr.address_line_1 || '', addr.line2 || addr.address_line_2 || '', addr.city || '', addr.county || '', addr.postalCode || addr.postal_code || '']
+                );
+            }
+        }
+
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [id, 'agent', 'openclaw', 'OpenClaw', 'details_updated', 'account', 'Updated contact extended details via CRM API']
+        );
+
+        crmEvents.emit('contact.updated', { contactId: parseInt(id), data: rows[0] });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /documents/generate ── Generate merged DOCX from template + convert to PDF
+crmRouter.post('/documents/generate', async (req, res) => {
+    try {
+        const { s3Key, templateId, variables, contact_id, claim_id, lender, docType } = req.body;
+
+        // Resolve the S3 key from template ID or direct key
+        let templateS3Key = s3Key;
+        if (!templateS3Key && templateId) {
+            const tplResult = await pool.query('SELECT s3_key FROM oo_templates WHERE id = $1', [templateId]);
+            if (tplResult.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+            templateS3Key = tplResult.rows[0].s3_key;
+        }
+        if (!templateS3Key) return res.status(400).json({ error: 's3Key or templateId is required' });
+
+        console.log(`[CRM API] Generating document from template: ${templateS3Key}`);
+        console.log(`[CRM API] Variables received:`, Object.keys(variables || {}));
+
+        // 1. Download template DOCX from S3
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: templateS3Key });
+        const s3Response = await s3Client.send(getCmd);
+        const chunks = [];
+        for await (const chunk of s3Response.Body) { chunks.push(chunk); }
+        const templateBuffer = Buffer.concat(chunks);
+
+        // 2. Replace variables using Docxtemplater (handles Word XML tag splitting)
+        let docxBuffer = templateBuffer;
+        if (variables && Object.keys(variables).length > 0) {
+            // Flatten dot-notation keys for Docxtemplater
+            // e.g. { 'client.fullName': 'John' } → { client: { fullName: 'John' } }
+            // But also keep flat keys so both {client.fullName} and {fullName} work
+            const flatData = {};
+            const nestedData = {};
+            for (const [key, value] of Object.entries(variables)) {
+                const cleanKey = key.replace(/^\{\{/, '').replace(/\}\}$/, '');
+                flatData[cleanKey] = String(value || '');
+                // Build nested object for dot notation
+                const parts = cleanKey.split('.');
+                if (parts.length === 2) {
+                    if (!nestedData[parts[0]]) nestedData[parts[0]] = {};
+                    nestedData[parts[0]][parts[1]] = String(value || '');
+                }
+            }
+            const mergeData = { ...flatData, ...nestedData };
+
+            try {
+                // Protect {{IMAGE ...}} tags from Docxtemplater by temporarily replacing them
+                const JSZipPre = (await import('jszip')).default;
+                const preZip = await JSZipPre.loadAsync(templateBuffer);
+                const preXml = await preZip.file('word/document.xml')?.async('string');
+                if (preXml) {
+                    const protectedXml = preXml.replace(/\{\{IMAGE ([^}]+)\}\}/g, '__IMAGE_PLACEHOLDER_$1__');
+                    preZip.file('word/document.xml', protectedXml);
+                }
+                const preBuffer = Buffer.from(await preZip.generateAsync({ type: 'nodebuffer' }));
+
+                const zip = new PizZip(preBuffer);
+                const doc = new Docxtemplater(zip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                    delimiters: { start: '{{', end: '}}' },
+                });
+                doc.render(mergeData);
+                const postBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+
+                // Restore {{IMAGE ...}} tags after Docxtemplater
+                const postZip = await JSZipPre.loadAsync(postBuffer);
+                const postXml = await postZip.file('word/document.xml')?.async('string');
+                if (postXml) {
+                    const restoredXml = postXml.replace(/__IMAGE_PLACEHOLDER_([^_]+)__/g, '{{IMAGE $1}}');
+                    postZip.file('word/document.xml', restoredXml);
+                }
+                docxBuffer = Buffer.from(await postZip.generateAsync({ type: 'nodebuffer' }));
+                console.log(`[CRM API] Docxtemplater merge successful`);
+            } catch (dtErr) {
+                // If Docxtemplater fails (e.g. malformed tags), fall back to manual replacement
+                console.warn(`[CRM API] Docxtemplater failed, falling back to manual replacement:`, dtErr.message);
+                const JSZip = (await import('jszip')).default;
+                const zip = await JSZip.loadAsync(templateBuffer);
+
+                const xmlFiles = ['word/document.xml'];
+                zip.folder('word').forEach((relativePath) => {
+                    if (/^(header|footer)\d*\.xml$/.test(relativePath)) {
+                        xmlFiles.push(`word/${relativePath}`);
+                    }
+                });
+
+                for (const xmlFile of xmlFiles) {
+                    const fileContent = await zip.file(xmlFile)?.async('string');
+                    if (!fileContent) continue;
+                    let modified = fileContent;
+
+                    // Strip XML tags from inside {{ }} so replacement can match
+                    modified = modified.replace(
+                        /\{\{(?:[^}]|\}(?!\}))*\}\}/g,
+                        (match) => match.replace(/<[^>]*>/g, '')
+                    );
+
+                    for (const [key, value] of Object.entries(flatData)) {
+                        modified = modified.split(`{{${key}}}`).join(String(value || ''));
+                        modified = modified.split(`{{ ${key} }}`).join(String(value || ''));
+                    }
+                    zip.file(xmlFile, modified);
+                }
+                docxBuffer = Buffer.from(await zip.generateAsync({ type: 'nodebuffer' }));
+            }
+        }
+
+        // 2b. Handle {{IMAGE signatureImage}} — inject signature PNG into DOCX
+        if (contact_id) {
+            try {
+                const JSZipImg = (await import('jszip')).default;
+                const zipForImg = await JSZipImg.loadAsync(docxBuffer);
+                const docXml = await zipForImg.file('word/document.xml')?.async('string');
+
+                if (docXml && docXml.includes('{{IMAGE signatureImage}}')) {
+                    // Fetch signature from contact's S3 folder
+                    const sigContact = await pool.query('SELECT first_name, last_name, signature_url FROM contacts WHERE id = $1', [contact_id]);
+                    let signatureBuffer = null;
+
+                    if (sigContact.rows.length > 0) {
+                        const { first_name: fn, last_name: ln, signature_url } = sigContact.rows[0];
+                        // Try direct S3 key first
+                        const sigKey = `${fn}_${ln}_${contact_id}/Signatures/signature.png`;
+                        try {
+                            const sigResp = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: sigKey }));
+                            const sigChunks = [];
+                            for await (const chunk of sigResp.Body) sigChunks.push(chunk);
+                            signatureBuffer = Buffer.concat(sigChunks);
+                            console.log(`[CRM API] Signature loaded from S3: ${sigKey} (${signatureBuffer.length} bytes)`);
+                        } catch (sigErr) {
+                            console.warn(`[CRM API] Signature not found at ${sigKey}`);
+                        }
+                    }
+
+                    if (signatureBuffer) {
+                        // Add image to DOCX zip
+                        zipForImg.file('word/media/signature.png', signatureBuffer);
+
+                        // Add relationship for the image
+                        const relsPath = 'word/_rels/document.xml.rels';
+                        let relsXml = await zipForImg.file(relsPath)?.async('string') || '';
+                        const rId = 'rIdSignature1';
+                        if (!relsXml.includes(rId)) {
+                            relsXml = relsXml.replace(
+                                '</Relationships>',
+                                `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/signature.png"/></Relationships>`
+                            );
+                            zipForImg.file(relsPath, relsXml);
+                        }
+
+                        // Replace {{IMAGE signatureImage}} text with inline drawing XML
+                        // Image size: 200x80 px → EMU (1px = 9525 EMU)
+                        const widthEmu = 200 * 9525;
+                        const heightEmu = 80 * 9525;
+                        const drawingXml = `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${widthEmu}" cy="${heightEmu}"/><wp:docPr id="100" name="Signature"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="100" name="signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${widthEmu}" cy="${heightEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+
+                        const modifiedXml = docXml.replace(
+                            /(<w:r[^>]*>)((?:<w:rPr>[\s\S]*?<\/w:rPr>)?)<w:t[^>]*>\{\{IMAGE signatureImage\}\}<\/w:t>(<\/w:r>)/,
+                            `$1$2${drawingXml}$3`
+                        );
+                        zipForImg.file('word/document.xml', modifiedXml);
+                        docxBuffer = Buffer.from(await zipForImg.generateAsync({ type: 'nodebuffer' }));
+                        console.log(`[CRM API] Signature image injected into DOCX`);
+                    } else {
+                        // No signature found — replace tag with "Signed Electronically"
+                        const modifiedXml = docXml.split('{{IMAGE signatureImage}}').join('Signed Electronically');
+                        zipForImg.file('word/document.xml', modifiedXml);
+                        docxBuffer = Buffer.from(await zipForImg.generateAsync({ type: 'nodebuffer' }));
+                        console.log(`[CRM API] No signature found, using text fallback`);
+                    }
+                }
+            } catch (imgErr) {
+                console.warn(`[CRM API] Signature injection failed (non-fatal):`, imgErr.message);
+            }
+        }
+
+        // 3. Convert DOCX → PDF using LibreOffice (preferred) or Puppeteer fallback
+        let pdfBuffer;
+        let conversionMethod;
+        const libreOfficePath = await findLibreOffice();
+
+        if (libreOfficePath) {
+            console.log(`[CRM API] Using LibreOffice at: ${libreOfficePath}`);
+            pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+            conversionMethod = 'libreoffice';
+        } else {
+            console.log('[CRM API] LibreOffice not found, using Puppeteer fallback');
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+            conversionMethod = 'puppeteer';
+        }
+
+        // 4. Build S3 output path: {firstName}_{lastName}_{contactId}/{lender}/{reference} - {fullName} - {lender} - {docType}.pdf
+        const timestamp = Date.now();
+        let outputKey;
+        let outputDocxKey;
+        let displayName;
+
+        if (contact_id) {
+            const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contact_id]);
+            if (contactRes.rows.length > 0) {
+                const { first_name, last_name } = contactRes.rows[0];
+                const sanitize = (s) => (s || '').replace(/[<>:"/\\|?*]/g, '').trim();
+                const folderName = sanitize(`${first_name}_${last_name}_${contact_id}`);
+                const fullName = `${first_name || ''} ${last_name || ''}`.trim();
+                const lenderName = sanitize(lender || variables?.['claim.lender'] || variables?.['{{claim.lender}}'] || 'General');
+                const documentType = sanitize(docType || 'LOA');
+
+                // Build reference: {contactId}{claimId} e.g. 22909067676
+                // Look up reference_specified from case if claim_id provided
+                let reference = String(contact_id);
+                if (claim_id) {
+                    const caseRes = await pool.query('SELECT reference_specified FROM cases WHERE id = $1', [claim_id]);
+                    if (caseRes.rows.length > 0 && caseRes.rows[0].reference_specified) {
+                        reference = caseRes.rows[0].reference_specified;
+                    } else {
+                        reference = `${contact_id}${claim_id}`;
+                    }
+                }
+
+                displayName = `${reference} - ${fullName} - ${lenderName} - ${documentType}.pdf`;
+                outputKey = `${folderName}/${lenderName}/${displayName}`;
+                outputDocxKey = `${folderName}/${lenderName}/${reference} - ${fullName} - ${lenderName} - ${documentType}.docx`;
+            }
+        }
+
+        // Fallback to generic path if no contact info
+        if (!outputKey) {
+            displayName = `crm-generated-${timestamp}.pdf`;
+            outputKey = `documents/generated/${displayName}`;
+            outputDocxKey = `documents/generated/crm-generated-${timestamp}.docx`;
+        }
+
+        console.log(`[CRM API] Output path: ${outputKey}`);
+
+        // 5. Upload generated PDF to S3
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: outputKey,
+            Body: pdfBuffer,
+            ContentType: 'application/pdf',
+        }));
+
+        const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputKey }), { expiresIn: 604800 });
+
+        // 6. Optionally attach to contact's documents
+        let document = null;
+        if (contact_id) {
+            const docResult = await pool.query(
+                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, 'pdf', $3, $4, $5, $6) RETURNING *`,
+                [contact_id, displayName, docType || 'LOA', downloadUrl,
+                    `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
+                    [docType || 'LOA', 'Generated', lender || 'Template'].filter(Boolean)]
+            );
+            document = docResult.rows[0];
+            crmEvents.emit('document.uploaded', { documentId: document.id, contactId: parseInt(contact_id), data: document });
+        }
+
+        // Also upload the filled DOCX for reference
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: outputDocxKey,
+            Body: docxBuffer,
+            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }));
+        const docxDownloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputDocxKey }), { expiresIn: 604800 });
+
+        console.log(`[CRM API] Document generated: ${outputKey} (${(pdfBuffer.length / 1024).toFixed(1)} KB) via ${conversionMethod}`);
+
+        res.json({
+            success: true,
+            pdf: { s3Key: outputKey, downloadUrl, size: pdfBuffer.length },
+            docx: { s3Key: outputDocxKey, downloadUrl: docxDownloadUrl, size: docxBuffer.length },
+            conversionMethod,
+            document,
+        });
+    } catch (err) {
+        console.error('[CRM API] Document generation error:', err);
+        res.status(500).json({ error: 'Failed to generate document: ' + err.message });
+    }
+});
+
+// ── POST /documents/generate-pdf ── Convert DOCX → PDF (standalone conversion)
+crmRouter.post('/documents/generate-pdf', upload.single('file'), async (req, res) => {
+    try {
+        let docxBuffer;
+
+        // Accept either file upload or S3 key
+        if (req.file) {
+            docxBuffer = req.file.buffer;
+        } else if (req.body.s3Key) {
+            const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: req.body.s3Key });
+            const s3Response = await s3Client.send(getCmd);
+            const chunks = [];
+            for await (const chunk of s3Response.Body) { chunks.push(chunk); }
+            docxBuffer = Buffer.concat(chunks);
+        } else {
+            return res.status(400).json({ error: 'Provide a file upload or s3Key' });
+        }
+
+        console.log(`[CRM API] Converting DOCX to PDF (${(docxBuffer.length / 1024).toFixed(1)} KB)`);
+
+        const libreOfficePath = await findLibreOffice();
+        let pdfBuffer;
+        let conversionMethod;
+
+        if (libreOfficePath) {
+            pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+            conversionMethod = 'libreoffice';
+        } else {
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+            conversionMethod = 'puppeteer';
+        }
+
+        // Upload PDF to S3
+        const outputKey = `documents/generated/converted-${Date.now()}.pdf`;
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: outputKey,
+            Body: pdfBuffer,
+            ContentType: 'application/pdf',
+        }));
+
+        const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputKey }), { expiresIn: 604800 });
+
+        console.log(`[CRM API] PDF converted: ${outputKey} (${(pdfBuffer.length / 1024).toFixed(1)} KB) via ${conversionMethod}`);
+
+        res.json({
+            success: true,
+            s3Key: outputKey,
+            downloadUrl,
+            size: pdfBuffer.length,
+            conversionMethod,
+        });
+    } catch (err) {
+        console.error('[CRM API] PDF conversion error:', err);
+        res.status(500).json({ error: 'Failed to convert to PDF: ' + err.message });
+    }
+});
+
+// ── POST /documents/upload ── Upload document to contact's S3 folder
+crmRouter.post('/documents/upload', upload.single('file'), async (req, res) => {
+    try {
+        const { contact_id, category, name } = req.body;
+        let fileBuffer, fileName, fileMimetype;
+
+        // Accept file upload or base64-encoded content
+        if (req.file) {
+            fileBuffer = req.file.buffer;
+            fileName = name || req.file.originalname;
+            fileMimetype = req.file.mimetype;
+        } else if (req.body.base64 && req.body.fileName) {
+            fileBuffer = Buffer.from(req.body.base64, 'base64');
+            fileName = req.body.fileName;
+            fileMimetype = req.body.contentType || 'application/octet-stream';
+        } else if (req.body.s3Key && req.body.fileName) {
+            // Copy from existing S3 key
+            const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: req.body.s3Key });
+            const s3Response = await s3Client.send(getCmd);
+            const chunks = [];
+            for await (const chunk of s3Response.Body) { chunks.push(chunk); }
+            fileBuffer = Buffer.concat(chunks);
+            fileName = req.body.fileName;
+            fileMimetype = s3Response.ContentType || 'application/octet-stream';
+        } else {
+            return res.status(400).json({ error: 'Provide file upload, base64+fileName, or s3Key+fileName' });
+        }
+
+        if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
+
+        // Get contact name for folder
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contact_id]);
+        if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        const { first_name, last_name } = contactRes.rows[0];
+
+        const docCategory = category || 'Other';
+        const ext = path.extname(fileName);
+        const baseName = path.basename(fileName, ext);
+        const sanitizedCategory = docCategory.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+        const folderPath = `${first_name}_${last_name}_${contact_id}/Documents/${sanitizedCategory}`;
+
+        // Version check
+        let s3FileName = `${baseName}${ext}`;
+        const nameCheck = await pool.query(
+            'SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3',
+            [contact_id, `${baseName}%${ext}`, docCategory]
+        );
+        if (nameCheck.rows.length > 0) {
+            let maxVersion = 0;
+            const regex = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?\\${ext}$`);
+            nameCheck.rows.forEach(row => {
+                const match = row.name.match(regex);
+                if (match) {
+                    const ver = match[1] ? parseInt(match[1]) : 0;
+                    if (ver >= maxVersion) maxVersion = ver;
+                }
+            });
+            s3FileName = `${baseName} (${maxVersion + 1})${ext}`;
+        }
+
+        const key = `${folderPath}/${s3FileName}`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+            Body: fileBuffer,
+            ContentType: fileMimetype,
+        }));
+
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
+
+        // Determine document type
+        const extLower = ext.toLowerCase().replace('.', '');
+        let docType = 'unknown';
+        if (['pdf'].includes(extLower)) docType = 'pdf';
+        else if (['doc', 'docx'].includes(extLower)) docType = 'docx';
+        else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(extLower)) docType = 'image';
+        else if (['xls', 'xlsx', 'csv'].includes(extLower)) docType = 'spreadsheet';
+        else if (['txt'].includes(extLower)) docType = 'txt';
+
+        const { rows } = await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [contact_id, s3FileName, docType, docCategory, s3Url,
+                `${(fileBuffer.length / 1024).toFixed(1)} KB`,
+                [docCategory, 'Uploaded', `Original: ${fileName}`]]
+        );
+
+        crmEvents.emit('document.uploaded', { documentId: rows[0].id, contactId: parseInt(contact_id), data: rows[0] });
+        console.log(`[CRM API] Uploaded "${s3FileName}" → "${key}" for contact ${contact_id}`);
+        res.json({ success: true, document: rows[0], s3Key: key });
+    } catch (err) {
+        console.error('[CRM API] Upload error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── PATCH /cases/:id/extended ── Update detailed claim fields (loan details, APR, charges, etc.)
+crmRouter.patch('/cases/:id/extended', async (req, res) => {
+    const { id } = req.params;
+
+    const numericFields = [
+        'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
+        'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+        'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
+        'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
+        'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
+        'claim_value', 'value_of_loan'
+    ];
+
+    const allowedFields = [
+        'lender_other', 'finance_type', 'finance_type_other', 'finance_types', 'number_of_loans', 'loan_details',
+        'lender_reference', 'dates_timeline', 'apr', 'outstanding_balance',
+        'dsar_review', 'complaint_paragraph', 'offer_made', 'fee_percent', 'late_payment_charges',
+        'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+        'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
+        'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
+        'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'spec_status', 'payment_plan',
+        'account_number', 'start_date', 'end_date', 'value_of_loan', 'claim_value', 'product_type'
+    ];
+
+    try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updates.push(`${field} = $${paramCount++}`);
+                if (numericFields.includes(field) && req.body[field] === '') {
+                    values.push(null);
+                } else {
+                    values.push(req.body[field]);
+                }
+            }
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+        values.push(id);
+        const { rows } = await pool.query(
+            `UPDATE cases SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`,
+            values
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Claim not found' });
+
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [rows[0].contact_id, id, 'agent', 'openclaw', 'OpenClaw', 'claim_updated', 'claims', 'Updated claim extended details via CRM API']
+        );
+
+        crmEvents.emit('case.updated', { caseId: parseInt(id), contactId: rows[0].contact_id, data: rows[0] });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/notifications ── Get notifications for a contact
+crmRouter.get('/contacts/:id/notifications', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM persistent_notifications
+             WHERE contact_id = $1
+             ORDER BY created_at DESC LIMIT 50`,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /notifications ── Create notification
+crmRouter.post('/notifications', async (req, res) => {
+    const { type, title, message, link, contact_id, contact_name, user_id } = req.body;
+    if (!type || !title) return res.status(400).json({ error: 'type and title are required' });
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO persistent_notifications (user_id, type, title, message, link, contact_id, contact_name, is_read, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, false, NOW()) RETURNING *`,
+            [user_id || null, type, title, message || null, link || null, contact_id || null, contact_name || null]
+        );
+        res.json({ success: true, notification: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mount the CRM API router BEFORE the Windmill catch-all proxy
+app.use('/api/crm', crmRouter);
+console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)');
 
 // ============================================================================
 // WINDMILL REVERSE-PROXY CATCH-ALL

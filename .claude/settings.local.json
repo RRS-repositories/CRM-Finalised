@@ -90,7 +90,20 @@
       "Bash(export AWS_SECRET_ACCESS_KEY=f3SvrztUmJhVEvqH5wPE9HjdF/O3rEyLrOLitpwN)",
       "Bash(export AWS_DEFAULT_REGION=eu-north-1:*)",
       "Bash(sort:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(CRM_KEY=\"crm_fb056b51da087b652e45ea31f44ffe9e952074d5025a4a784717d6e38398237c\")",
+      "Bash(__NEW_LINE_01deefc2509e4212__ echo \"=== 1. Test Auth: No key \\(should 401\\) ===\")",
+      "Bash(__NEW_LINE_8a3872dc101609bd__ echo \"=== 2. Test Auth: Wrong key \\(should 401\\) ===\")",
+      "Bash(__NEW_LINE_c61da757eb607929__ echo \"=== 3. GET /contacts/:id \\(should return contact\\) ===\")",
+      "Bash(__NEW_LINE_a23ccfcadd1a2d21__ echo \"=== 4. GET /contacts/:id/claims ===\")",
+      "Bash(__NEW_LINE_5b664d53f1503cc1__ echo \"=== 5. GET /contacts/:id/documents ===\")",
+      "Bash(__NEW_LINE_9e44216df3069e35__ echo \"=== 6. GET /contacts/:id/dsars ===\")",
+      "Bash(__NEW_LINE_4b0ceffc88d5d98c__ echo \"=== 1. Auth: No key ===\")",
+      "Bash(CRM_KEY=\"crm_fb056b51da087b652e45ea31f44ffe9e952074d5025a4a784717d6e38398237c\" echo \"=== 1. Auth: No key \\(expect 401\\) ===\" curl -s -w \"\\\\nSTATUS: %{http_code}\" http://localhost:5000/api/crm/contacts/1 echo \"\" echo \"\" echo \"=== 2. Auth: Wrong key \\(expect 401\\) ===\" curl -s -w \"\\\\nSTATUS: %{http_code}\" -H \"x-api-key: wrong\" http://localhost:5000/api/crm/contacts/1 echo \"\" echo \"\" echo \"=== 3. GET /contacts/1 ===\" curl -s -w \"\\\\nSTATUS: %{http_code}\" -H \"x-api-key: $CRM_KEY\" \"http://localhost:5000/api/crm/contacts/1\" cat /c/Users/Admin/crm_test.json)",
+      "Read(//c/Users/Admin/**)",
+      "Bash(ngrok http 5000)",
+      "Bash(ngrok http 5000 --log=stdout --log-format=logfmt)",
+      "Bash(npm run dev)"
     ]
   }
 }
