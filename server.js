@@ -5432,24 +5432,49 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
             );
         }
 
-        // Trigger LOA generation for these statuses
+        // Trigger LOA generation for these statuses (staggered to avoid overwhelming OnlyOffice)
         if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
-            // For Extra Lender Selection Form Sent, skip status update so it stays unchanged
             const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
-            for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
-                    console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
-                });
-            }
+            const BATCH_SIZE = 5;
+            const DELAY_BETWEEN_BATCHES_MS = 3000;
+            (async () => {
+                for (let i = 0; i < result.rows.length; i += BATCH_SIZE) {
+                    const batch = result.rows.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(
+                        batch.map(updatedCase =>
+                            triggerPdfGenerator(updatedCase.id, 'LOA', skipStatusUpdate).catch(err => {
+                                console.error(`❌ LOA generation trigger failed for case ${updatedCase.id}:`, err.message);
+                            })
+                        )
+                    );
+                    if (i + BATCH_SIZE < result.rows.length) {
+                        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                    }
+                }
+                console.log(`✅ LOA generation completed for ${result.rows.length} cases (batched ${BATCH_SIZE} at a time)`);
+            })().catch(err => console.error('❌ Batched LOA generation error:', err.message));
         }
 
-        // If status = "LOA Uploaded", trigger cover letter generation for each case via Lambda (async)
+        // If status = "LOA Uploaded", trigger cover letter generation for each case (staggered to avoid overwhelming OnlyOffice)
         if (status === 'LOA Uploaded') {
-            for (const updatedCase of result.rows) {
-                triggerPdfGenerator(updatedCase.id, 'COVER_LETTER').catch(err => {
-                    console.error(`❌ Cover letter generation trigger failed for case ${updatedCase.id}:`, err.message);
-                });
-            }
+            const BATCH_SIZE = 5;
+            const DELAY_BETWEEN_BATCHES_MS = 3000;
+            (async () => {
+                for (let i = 0; i < result.rows.length; i += BATCH_SIZE) {
+                    const batch = result.rows.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(
+                        batch.map(updatedCase =>
+                            triggerPdfGenerator(updatedCase.id, 'COVER_LETTER').catch(err => {
+                                console.error(`❌ Cover letter generation trigger failed for case ${updatedCase.id}:`, err.message);
+                            })
+                        )
+                    );
+                    if (i + BATCH_SIZE < result.rows.length) {
+                        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                    }
+                }
+                console.log(`✅ Cover letter generation completed for ${result.rows.length} cases (batched ${BATCH_SIZE} at a time)`);
+            })().catch(err => console.error('❌ Batched cover letter generation error:', err.message));
         }
 
         console.log(`✅ Bulk updated ${result.rows.length} cases to status: ${status}`);
