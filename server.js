@@ -942,7 +942,7 @@ async function generateIrlMultipleLenderPdf({
     // 7. Upload to S3
     const sanitizedFolder = folderPath.replace(/\s+/g, '_');
     const fileName = `IRL_Multiple_Lender_Form_${contactId}.pdf`;
-    const s3Key = `${sanitizedFolder}${fileName}`;
+    const s3Key = `${sanitizedFolder}Documents/Other/${fileName}`;
 
     await s3Client.send(new PutObjectCommand({
         Bucket: BUCKET_NAME,
