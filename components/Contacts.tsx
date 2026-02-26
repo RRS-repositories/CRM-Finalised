@@ -482,6 +482,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
    // Extra Lenders (free text)
    const [extraLenders, setExtraLenders] = useState('');
+   const [hadCCJ, setHadCCJ] = useState(false);
+   const [victimOfScam, setVictimOfScam] = useState(false);
+   const [problematicGambling, setProblematicGambling] = useState(false);
+   const [bettingCompanies, setBettingCompanies] = useState('');
 
    // Personal info edit form
    const [personalInfoForm, setPersonalInfoForm] = useState({
@@ -702,6 +706,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          if (contact.extraLenders) {
             setExtraLenders(contact.extraLenders);
          }
+         // Initialize LOA additional questions
+         setHadCCJ(contact.hadCCJ || false);
+         setVictimOfScam(contact.victimOfScam || false);
+         setProblematicGambling(contact.problematicGambling || false);
+         setBettingCompanies(contact.bettingCompanies || '');
       }
    }, [contact]);
 
@@ -2539,9 +2548,45 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     </div>
                                  </div>
                               ) : (
-                                 extraLenders ? (
-                                    <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                                       {extraLenders}
+                                 (extraLenders || hadCCJ || victimOfScam || problematicGambling || bettingCompanies) ? (
+                                    <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                                       {extraLenders && (
+                                          <div className="whitespace-pre-wrap">{extraLenders}</div>
+                                       )}
+                                       {(hadCCJ || victimOfScam || problematicGambling) && (
+                                          <>
+                                             <hr className="border-gray-300 dark:border-slate-600" />
+                                             <div className="space-y-1">
+                                                {hadCCJ && (
+                                                   <div className="flex items-center gap-2">
+                                                      <span className="text-green-600 font-bold">&#10003;</span>
+                                                      <span>Had a CCJ in the last 6 years</span>
+                                                   </div>
+                                                )}
+                                                {victimOfScam && (
+                                                   <div className="flex items-center gap-2">
+                                                      <span className="text-green-600 font-bold">&#10003;</span>
+                                                      <span>Been a victim of a scam in the last 6 years</span>
+                                                   </div>
+                                                )}
+                                                {problematicGambling && (
+                                                   <div className="flex items-center gap-2">
+                                                      <span className="text-green-600 font-bold">&#10003;</span>
+                                                      <span>Experienced problematic gambling in the last 10 years</span>
+                                                   </div>
+                                                )}
+                                             </div>
+                                          </>
+                                       )}
+                                       {bettingCompanies && (
+                                          <>
+                                             <hr className="border-gray-300 dark:border-slate-600" />
+                                             <div>
+                                                <span className="font-medium">Previous Betting Companies:</span>{' '}
+                                                {bettingCompanies}
+                                             </div>
+                                          </>
+                                       )}
                                     </div>
                                  ) : (
                                     <p className="text-gray-400 italic text-sm text-center py-4">No extra lenders specified</p>

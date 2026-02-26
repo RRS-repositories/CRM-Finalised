@@ -158,6 +158,12 @@ export interface Contact {
 
   // Extra Lenders (free text)
   extraLenders?: string;
+
+  // LOA Additional Questions
+  hadCCJ?: boolean;
+  victimOfScam?: boolean;
+  problematicGambling?: boolean;
+  bettingCompanies?: string;
 }
 
 export interface ClientFormData {
@@ -600,6 +606,7 @@ export interface LenderFormSubmission {
   hadCCJ: boolean;
   victimOfScam: boolean;
   problematicGambling: boolean;
+  bettingCompanies: string;
 }
 
 export interface ActionTimelineEntry {

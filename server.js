@@ -662,6 +662,316 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
     }
 }
 
+// ============================================================================
+// IRL MULTIPLE LENDER FORM PDF GENERATION (DOCX Template Approach)
+// ============================================================================
+
+/**
+ * Lender variable mapping for the IRL Multiple Lender Form DOCX template.
+ *
+ * In the DOCX template (edited via OnlyOffice), each lender checkbox is a variable:
+ *   {{aqua}}  Aqua              {{barclays_credit_card}}  Barclays Credit Card
+ *   {{fluid}} Fluid             {{luma}}                  Luma
+ *
+ * The code replaces each variable with ☑ (selected) or ☐ (not selected).
+ *
+ * Map key = UPPERCASE lender name (as it comes from the LOA form selection)
+ * Map value = variable name used in the DOCX template (without {{ }})
+ */
+const IRL_LENDER_VARIABLES = {
+    // ─── CREDIT CARDS ───
+    'AQUA':                 'aqua',
+    'BARCLAYS CREDIT CARD': 'barclays_credit_card',
+    'BIP CREDIT CARD':      'bip_credit_card',
+    'CAPITAL ONE':          'capital_one',
+    'FLUID':                'fluid',
+    'LUMA':                 'luma',
+    'MARBLES':              'marbles',
+    'MBNA':                 'mbna',
+    'OCEAN':                'ocean',
+    'REVOLUT CREDIT CARD':  'revolut_credit_card',
+    'VANQUIS':              'vanquis',
+    'WAVE':                 'wave',
+    'ZABLE':                'zable',
+    'ZILCH':                'zilch',
+    'ZOPA':                 'zopa',
+    '118 118 MONEY':        'money_118',
+
+    // ─── PAYDAY / SHORT-TERM LOANS ───
+    'ADMIRAL LOANS':        'admiral_loans',
+    'ANICO FINANCE':        'anico_finance',
+    'AVANT CREDIT':         'avant_credit',
+    'BAMBOO':               'bamboo',
+    'BETTER BORROW':        'better_borrow',
+    'CREDIT SPRING':        'credit_spring',
+    'CASH ASAP':            'cash_asap',
+    'CASH FLOAT':           'cash_float',
+    'CAR CASH POINT':       'car_cash_point',
+    'CREATION FINANCE':     'creation_finance',
+    'CASTLE COMMUNITY BANK':'castle_community_bank',
+    'DRAFTY LOANS':         'drafty_loans',
+    'EVOLUTION MONEY':      'evolution_money',
+    'EVERY DAY LENDING':    'every_day_lending',
+    'FERNOVO':              'fernovo',
+    'FAIR FINANCE':         'fair_finance',
+    'FINIO LOANS':          'finio_loans',
+    'FINTERN':              'fintern',
+    'FLURO':                'fluro',
+    'GAMBLING':             'gambling_lender',
+    'KOYO LOANS':           'koyo_loans',
+    'LIKELY LOANS':         'likely_loans',
+    'LOANS2GO':             'loans2go',
+    'Loans 2 Go':           'loans2go',
+    'LOANS BY MAL':         'loans_by_mal',
+    'LOGBOOK LENDING':      'logbook_lending',
+    'LOGBOOK MONEY':        'logbook_money',
+    'LENDING STREAM':       'lending_stream',
+    'LENDABLE':             'lendable',
+    'LIFE STYLE LOANS':     'life_style_loans',
+    'MY COMMUNITY FINANCE': 'my_community_finance',
+    'MY KREDIT':            'my_kredit',
+    'MY FINANCE CLUB':      'my_finance_club',
+    'MONEY BOAT':           'money_boat',
+    'MR LENDER':            'mr_lender',
+    'MONEY LINE':           'money_line',
+    'MY COMMUNITY BANK':    'my_community_bank',
+    'MONTHLY ADVANCE LOANS':'monthly_advance_loans',
+    'NOVUNA':               'novuna',
+    'OPOLO':                'opolo',
+    'PM LOANS':             'pm_loans',
+    'POLAR FINANCE':        'polar_finance',
+    'POST OFFICE MONEY':    'post_office_money',
+    'PROGRESSIVE MONEY':    'progressive_money',
+    'PLATA FINANCE':        'plata_finance',
+    'PLEND':                'plend',
+    'QUID MARKET':          'quid_market',
+    'QUICK LOANS':          'quick_loans',
+    'SKYLINE DIRECT':       'skyline_direct',
+    'SALAD MONEY':          'salad_money',
+    'SAVVY LOANS':          'savvy_loans',
+    'SALARY FINANCE (NEYBER)': 'salary_finance',
+    'SNAP FINANCE':         'snap_finance',
+    'SHAWBROOK':            'shawbrook',
+    'THE ONE STOP MONEY SHOP': 'one_stop_money_shop',
+    'TM ADVANCES':          'tm_advances',
+    'TANDEM':               'tandem',
+    '118 LOANS':            'loans_118',
+    'WAGESTREAM':           'wagestream',
+    'CONSOLADATION LOAN':   'consoladation_loan',
+
+    // ─── GUARANTOR LOANS ───
+    'GUARANTOR MY LOAN':    'guarantor_my_loan',
+    'HERO LOANS':           'hero_loans',
+    'JUO LOANS':            'juo_loans',
+    'SUCO':                 'suco',
+    'UK CREDIT':            'uk_credit',
+    '1 PLUS 1':             'one_plus_one',
+
+    // ─── LOGBOOK LOANS / PAWNBROKERS ───
+    'CASH CONVERTERS':      'cash_converters',
+    'H&T PAWNBROKERS':      'ht_pawnbrokers',
+
+    // ─── CATALOGUES ───
+    'FASHION WORLD':        'fashion_world',
+    'JD WILLIAMS':          'jd_williams',
+    'SIMPLY BE':            'simply_be',
+    'VERY CATALOGUE':       'very_catalogue',
+
+    // ─── CAR FINANCE ───
+    'ADVANTAGE FINANCE':    'advantage_finance',
+    'AUDI / VOLKSWAGEN FINANCE / SKODA': 'audi_vw_skoda',
+    'BLUE MOTOR FINANCE':   'blue_motor_finance',
+    'CLOSE BROTHERS':       'close_brothers',
+    'HALIFAX / BANK OF SCOTLAND': 'halifax_bos',
+    'MONEY WAY':            'money_way',
+    'MOTONOVO':             'motonovo',
+    'MONEY BARN':           'money_barn',
+    'OODLE':                'oodle',
+    'PSA FINANCE':          'psa_finance',
+    'RCI FINANCIAL':        'rci_financial',
+
+    // ─── OVERDRAFTS ───
+    'HALIFAX OVERDRAFT':    'halifax_overdraft',
+    'BARCLAYS OVERDRAFT':   'barclays_overdraft',
+    'CO-OP BANK OVERDRAFT': 'coop_overdraft',
+    'LLOYDS OVERDRAFT':     'lloyds_overdraft',
+    'TSB OVERDRAFT OVERDRAFT': 'tsb_overdraft',
+    'NATWEST / RBS OVERDRAFT': 'natwest_rbs_overdraft',
+    'HSBC OVERDRAFT':       'hsbc_overdraft',
+    'SANTANDER OVERDRAFT':  'santander_overdraft',
+};
+
+/**
+ * Generate IRL Multiple Lender Form PDF using DOCX template + OnlyOffice conversion.
+ *
+ * The DOCX template should contain variables like:
+ *   {{aqua}}          → replaced with ☑ or ☐
+ *   {{had_ccj}}       → replaced with ☑ or ☐
+ *   {{betting_companies}} → replaced with text
+ *   {{client_id}}     → replaced with contact ID
+ *   {{signatureImage}} → replaced with signature image
+ *   {{today}}         → replaced with today's date
+ */
+async function generateIrlMultipleLenderPdf({
+    contactId, contact, selectedLenders, hadCCJ, victimOfScam,
+    problematicGambling, bettingCompanies, signatureBase64, folderPath
+}) {
+    console.log(`[IRL PDF] Starting DOCX-based generation for contact ${contactId} with ${selectedLenders.length} lenders`);
+
+    // 1. Find the IRL template DOCX in oo_templates
+    let templateS3Key = null;
+    try {
+        const templateRes = await pool.query(
+            `SELECT s3_key FROM oo_templates WHERE name ILIKE '%irl%multiple%lender%' AND is_active = TRUE ORDER BY updated_at DESC LIMIT 1`
+        );
+        if (templateRes.rows.length > 0) {
+            templateS3Key = templateRes.rows[0].s3_key;
+        }
+    } catch (e) {
+        console.warn('[IRL PDF] Could not query oo_templates:', e.message);
+    }
+
+    if (!templateS3Key) {
+        throw new Error('IRL Multiple Lender Form DOCX template not found in oo_templates. Upload it via OnlyOffice template manager.');
+    }
+
+    console.log(`[IRL PDF] Using template: ${templateS3Key}`);
+
+    // 2. Download DOCX template from S3
+    const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: templateS3Key });
+    const s3Response = await s3Client.send(getCmd);
+    const chunks = [];
+    for await (const chunk of s3Response.Body) { chunks.push(chunk); }
+    const templateBuffer = Buffer.concat(chunks);
+
+    // 3. Build checkbox variables — ☑ for selected, ☐ for not selected
+    const CHECKED = '☑';
+    const UNCHECKED = '☐';
+
+    const selectedSet = new Set(selectedLenders.map(l => l.toUpperCase().trim()));
+    const lenderVars = {};
+    for (const [lenderName, varName] of Object.entries(IRL_LENDER_VARIABLES)) {
+        lenderVars[varName] = selectedSet.has(lenderName.toUpperCase()) ? CHECKED : UNCHECKED;
+    }
+
+    // 4. Build all template variables
+    const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+
+    const templateVars = {
+        // Lender checkboxes
+        ...lenderVars,
+
+        // Additional questions
+        had_ccj: hadCCJ ? CHECKED : UNCHECKED,
+        victim_of_scam: victimOfScam ? CHECKED : UNCHECKED,
+        problematic_gambling: problematicGambling ? CHECKED : UNCHECKED,
+
+        // Text fields
+        client_id: String(contactId),
+        client_name: fullName,
+        betting_companies: bettingCompanies || '',
+        today: today,
+        date: today,
+
+        // Signature image (docx-templates format)
+        signatureImage: signatureBase64 ? {
+            _type: 'image',
+            data: signatureBase64.split(',')[1],
+            extension: '.png',
+            width: 5,
+            height: 2.5,
+        } : '',
+    };
+
+    // 5. Fill DOCX template using Docxtemplater
+    console.log('[IRL PDF] Filling DOCX template with variables...');
+    let docxBuffer;
+    try {
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+            delimiters: { start: '{{', end: '}}' },
+        });
+        doc.render(templateVars);
+        docxBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+        console.log('[IRL PDF] DOCX template filled successfully');
+    } catch (dtErr) {
+        console.warn(`[IRL PDF] Docxtemplater failed, trying manual replacement:`, dtErr.message);
+        // Fallback: manual XML string replacement
+        const JSZip = (await import('jszip')).default;
+        const jszip = await JSZip.loadAsync(templateBuffer);
+        const xmlFiles = ['word/document.xml'];
+        jszip.folder('word')?.forEach((relativePath) => {
+            if (/^(header|footer)\d*\.xml$/.test(relativePath)) {
+                xmlFiles.push(`word/${relativePath}`);
+            }
+        });
+        for (const xmlFile of xmlFiles) {
+            let content = await jszip.file(xmlFile)?.async('string');
+            if (!content) continue;
+            for (const [key, value] of Object.entries(templateVars)) {
+                if (typeof value === 'string') {
+                    // Handle Word XML tag splitting: {{va</w:t></w:r><w:r><w:t>riable}}
+                    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const splitTagPattern = new RegExp(
+                        '\\{\\{' + escapedKey.split('').join('[^}]*?') + '\\}\\}',
+                        'g'
+                    );
+                    content = content.replace(splitTagPattern, value);
+                    // Also try simple replacement
+                    content = content.replace(new RegExp(`\\{\\{${escapedKey}\\}\\}`, 'g'), value);
+                }
+            }
+            jszip.file(xmlFile, content);
+        }
+        docxBuffer = Buffer.from(await jszip.generateAsync({ type: 'nodebuffer' }));
+    }
+
+    // 6. Convert DOCX to PDF
+    console.log('[IRL PDF] Converting DOCX to PDF...');
+    let pdfBuffer;
+    const libreOfficePath = await findLibreOffice();
+    if (libreOfficePath) {
+        pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+    } else {
+        pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+    }
+
+    // 7. Upload to S3
+    const sanitizedFolder = folderPath.replace(/\s+/g, '_');
+    const fileName = `IRL_Multiple_Lender_Form_${contactId}.pdf`;
+    const s3Key = `${sanitizedFolder}${fileName}`;
+
+    await s3Client.send(new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: s3Key,
+        Body: pdfBuffer,
+        ContentType: 'application/pdf',
+    }));
+
+    const downloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }), { expiresIn: 604800 });
+
+    // 8. Insert document record
+    await pool.query(
+        `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+            contactId,
+            fileName,
+            'pdf',
+            'Legal',
+            downloadUrl,
+            `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
+            ['IRL Multiple Lender Form', 'LOA Form', 'Generated']
+        ]
+    );
+
+    console.log(`[IRL PDF] ✅ Generated and uploaded: ${s3Key} (${(pdfBuffer.length / 1024).toFixed(1)} KB)`);
+    return { s3Key, downloadUrl };
+}
+
 // --- OPENAI CLIENT ---
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -5000,7 +5310,7 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
         previous_address_line_1, previous_address_line_2, previous_city,
         previous_county, previous_postal_code, previous_addresses,
         document_checklist, checklist_change, actor_id, actor_name,
-        extra_lenders
+        extra_lenders, had_ccj, victim_of_scam, problematic_gambling, betting_companies
     } = req.body;
 
     try {
@@ -5040,6 +5350,10 @@ app.patch('/api/contacts/:id/extended', async (req, res) => {
             updates.push(`extra_lenders = $${paramCount++}`);
             values.push(extra_lenders);
         }
+        if (had_ccj !== undefined) { updates.push(`had_ccj = $${paramCount++}`); values.push(had_ccj); }
+        if (victim_of_scam !== undefined) { updates.push(`victim_of_scam = $${paramCount++}`); values.push(victim_of_scam); }
+        if (problematic_gambling !== undefined) { updates.push(`problematic_gambling = $${paramCount++}`); values.push(problematic_gambling); }
+        if (betting_companies !== undefined) { updates.push(`betting_companies = $${paramCount++}`); values.push(betting_companies); }
 
         if (updates.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
@@ -5964,6 +6278,10 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                             <label class="flex items-center gap-4 p-3 rounded-lg hover:bg-amber-100 cursor-pointer"><input type="checkbox" id="scam" name="scam" class="shrink-0"><span class="text-amber-900 font-medium">Have you been a victim of a scam in the last 6 years?</span></label>
                             <label class="flex items-center gap-4 p-3 rounded-lg hover:bg-amber-100 cursor-pointer"><input type="checkbox" id="gambling" name="gambling" class="shrink-0"><span class="text-amber-900 font-medium">Have you experienced problematic gambling in the last 10 years?</span></label>
                         </div>
+                        <div id="bettingCompaniesSection" class="mt-4 p-3 rounded-lg bg-amber-100 border border-amber-300" style="display: ${contact.intake_lender && contact.intake_lender.toUpperCase() === 'GAMBLING' ? 'block' : 'none'};">
+                            <label for="bettingCompanies" class="block text-amber-900 font-medium mb-2">Previous Betting Companies (please list all)</label>
+                            <textarea id="bettingCompanies" name="bettingCompanies" rows="3" class="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm bg-white text-gray-900 resize-y" placeholder="e.g. Bet365, William Hill, Paddy Power..."></textarea>
+                        </div>
                     </div>
 
                     <div class="mt-10 p-6 bg-slate-50 rounded-xl border-2 border-slate-300">
@@ -6053,6 +6371,16 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             hasSignature = false; placeholder.style.display = 'block';
         }
 
+        // Show/hide betting companies based on gambling checkbox
+        const gamblingCheckbox = document.getElementById('gambling');
+        const bettingSection = document.getElementById('bettingCompaniesSection');
+        if (gamblingCheckbox && bettingSection) {
+            gamblingCheckbox.addEventListener('change', function() {
+                bettingSection.style.display = this.checked ? 'block' : bettingSection.dataset.initiallyShown === 'true' ? 'block' : 'none';
+            });
+            bettingSection.dataset.initiallyShown = bettingSection.style.display !== 'none' ? 'true' : 'false';
+        }
+
         document.getElementById('lenderForm').addEventListener('submit', async e => {
             e.preventDefault();
             const selectedLenders = Array.from(document.querySelectorAll('input[name="lenders"]:checked')).map(cb => cb.value);
@@ -6072,7 +6400,8 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
                         signature2Data: canvas.toDataURL('image/png'),
                         hadCCJ: document.getElementById('ccj').checked,
                         victimOfScam: document.getElementById('scam').checked,
-                        problematicGambling: document.getElementById('gambling').checked
+                        problematicGambling: document.getElementById('gambling').checked,
+                        bettingCompanies: document.getElementById('bettingCompanies') ? document.getElementById('bettingCompanies').value.trim() : ''
                     })
                 });
                 const result = await response.json();
@@ -6102,7 +6431,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
 
 // Submit LOA form
 app.post('/api/submit-loa-form', async (req, res) => {
-    const { uniqueId, selectedLenders, signature2Data, hadCCJ, victimOfScam, problematicGambling } = req.body;
+    const { uniqueId, selectedLenders, signature2Data, hadCCJ, victimOfScam, problematicGambling, bettingCompanies } = req.body;
 
     if (!uniqueId || !selectedLenders || !signature2Data) {
         return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -6150,7 +6479,12 @@ app.post('/api/submit-loa-form', async (req, res) => {
         const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
 
         // --- UPDATE DB IMMEDIATELY ---
-        await pool.query('UPDATE contacts SET loa_submitted = true WHERE id = $1', [contactId]);
+        await pool.query(
+            `UPDATE contacts SET loa_submitted = true, extra_lenders = $2,
+             had_ccj = $3, victim_of_scam = $4, problematic_gambling = $5, betting_companies = $6
+             WHERE id = $1`,
+            [contactId, selectedLenders.join(', '), hadCCJ || false, victimOfScam || false, problematicGambling || false, bettingCompanies || null]
+        );
 
         // --- IMMEDIATE RESPONSE ---
         res.json({ success: true, message: 'Form submitted successfully' });
@@ -6405,6 +6739,24 @@ app.post('/api/submit-loa-form', async (req, res) => {
                         );
                     }
                     console.log(`[Background LOA] Marked ${loaCompleted.rows.length} LOA documents as Completed`);
+                }
+
+                // Generate IRL Multiple Lender Form PDF
+                try {
+                    await generateIrlMultipleLenderPdf({
+                        contactId,
+                        contact,
+                        selectedLenders,
+                        hadCCJ: hadCCJ || false,
+                        victimOfScam: victimOfScam || false,
+                        problematicGambling: problematicGambling || false,
+                        bettingCompanies: bettingCompanies || '',
+                        signatureBase64,
+                        folderPath
+                    });
+                    console.log(`[Background LOA] IRL Multiple Lender Form PDF generated for contact ${contactId}`);
+                } catch (pdfErr) {
+                    console.error(`[Background LOA] IRL Multiple Lender Form PDF generation failed:`, pdfErr.message);
                 }
 
                 console.log(`[Background LOA] ✅ ALL TASKS COMPLETED for contact ${contactId}`);
@@ -12061,7 +12413,8 @@ crmRouter.patch('/contacts/:id/extended', async (req, res) => {
         'bank_name', 'account_name', 'sort_code', 'bank_account_number',
         'address_line_1', 'address_line_2', 'city', 'state_county', 'postal_code',
         'previous_address_line_1', 'previous_address_line_2', 'previous_city',
-        'previous_county', 'previous_postal_code', 'extra_lenders'
+        'previous_county', 'previous_postal_code', 'extra_lenders',
+        'had_ccj', 'victim_of_scam', 'problematic_gambling', 'betting_companies'
     ];
 
     try {

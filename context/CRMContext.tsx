@@ -656,7 +656,11 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             sortCode: c.sort_code || '',
             accountNumber: c.bank_account_number || ''
           },
-          extraLenders: c.extra_lenders
+          extraLenders: c.extra_lenders,
+          hadCCJ: c.had_ccj || false,
+          victimOfScam: c.victim_of_scam || false,
+          problematicGambling: c.problematic_gambling || false,
+          bettingCompanies: c.betting_companies || '',
         }));
 
         // Append to existing contacts
@@ -760,6 +764,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             accountNumber: c.bank_account_number || ''
           },
           extraLenders: c.extra_lenders,
+          hadCCJ: c.had_ccj || false,
+          victimOfScam: c.victim_of_scam || false,
+          problematicGambling: c.problematic_gambling || false,
+          bettingCompanies: c.betting_companies || '',
           clientId: c.client_id
         }));
 
@@ -1002,6 +1010,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 accountNumber: c.bank_account_number || ''
               },
               extraLenders: c.extra_lenders,
+              hadCCJ: c.had_ccj || false,
+              victimOfScam: c.victim_of_scam || false,
+              problematicGambling: c.problematic_gambling || false,
+              bettingCompanies: c.betting_companies || '',
               clientId: c.client_id
             }));
             setContacts(mappedContacts);

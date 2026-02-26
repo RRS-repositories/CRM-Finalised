@@ -200,6 +200,21 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS extra_lenders TEXT;
     `);
 
+    // Add LOA additional questions columns
+    console.log('Adding LOA additional question columns to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS had_ccj BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS victim_of_scam BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS problematic_gambling BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS betting_companies TEXT;
+    `);
+
     // Add ip_address column - client IP when signature form was signed
     console.log('Adding ip_address column to contacts...');
     await pool.query(`
