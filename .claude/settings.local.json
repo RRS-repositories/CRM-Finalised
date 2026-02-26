@@ -103,7 +103,8 @@
       "Read(//c/Users/Admin/**)",
       "Bash(ngrok http 5000)",
       "Bash(ngrok http 5000 --log=stdout --log-format=logfmt)",
-      "Bash(npm run dev)"
+      "Bash(npm run dev)",
+      "Bash(openssl rand -hex 32)"
     ]
   }
 }

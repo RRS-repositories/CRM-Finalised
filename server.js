@@ -12646,6 +12646,391 @@ crmRouter.post('/notifications', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /contacts/:id/active-workflow ── Get active workflow for a contact
+crmRouter.get('/contacts/:id/active-workflow', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM workflow_triggers
+             WHERE client_id = $1 AND status = 'active'
+             ORDER BY triggered_at DESC LIMIT 1`,
+            [req.params.id]
+        );
+        res.json({
+            has_active_workflow: rows.length > 0,
+            active_workflow: rows[0] || null
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /contacts/:id/active-workflow ── Update or cancel active workflow
+crmRouter.patch('/contacts/:id/active-workflow', async (req, res) => {
+    const { id } = req.params;
+    const { status, current_step, next_action_at, next_action_description, cancelled_by, metadata } = req.body;
+
+    try {
+        // Find the active workflow for this contact
+        const active = await pool.query(
+            `SELECT * FROM workflow_triggers WHERE client_id = $1 AND status = 'active' ORDER BY triggered_at DESC LIMIT 1`,
+            [id]
+        );
+        if (active.rows.length === 0) return res.status(404).json({ error: 'No active workflow found for this contact' });
+
+        const workflowId = active.rows[0].id;
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (status !== undefined) {
+            updates.push(`status = $${paramCount++}`);
+            values.push(status);
+            if (status === 'cancelled') {
+                updates.push(`cancelled_at = NOW()`);
+                updates.push(`cancelled_by = $${paramCount++}`);
+                values.push(cancelled_by || 'openclaw');
+            }
+            if (status === 'completed') {
+                updates.push(`completed_at = NOW()`);
+            }
+        }
+        if (current_step !== undefined) { updates.push(`current_step = $${paramCount++}`); values.push(current_step); }
+        if (next_action_at !== undefined) { updates.push(`next_action_at = $${paramCount++}`); values.push(next_action_at); }
+        if (next_action_description !== undefined) { updates.push(`next_action_description = $${paramCount++}`); values.push(next_action_description); }
+        if (metadata !== undefined) {
+            updates.push(`metadata = $${paramCount++}`);
+            values.push(typeof metadata === 'string' ? metadata : JSON.stringify(metadata));
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+        values.push(workflowId);
+        const { rows } = await pool.query(
+            `UPDATE workflow_triggers SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+            values
+        );
+
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [id, 'agent', 'openclaw', 'OpenClaw', 'workflow_updated', 'workflow',
+                `Updated active workflow: ${rows[0].workflow_name || rows[0].workflow_type} → ${status || 'step ' + current_step}`]
+        );
+
+        crmEvents.emit('contact.updated', { contactId: parseInt(id), data: rows[0] });
+        res.json({ success: true, workflow: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/workflow-queue ── Get queued (pending) workflows for a contact
+crmRouter.get('/contacts/:id/workflow-queue', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM workflow_triggers
+             WHERE client_id = $1
+             ORDER BY
+                CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'completed' THEN 2 WHEN 'cancelled' THEN 3 END,
+                triggered_at DESC`,
+            [req.params.id]
+        );
+        const active = rows.find(r => r.status === 'active') || null;
+        const queued = rows.filter(r => r.status === 'pending');
+        const history = rows.filter(r => r.status === 'completed' || r.status === 'cancelled');
+        res.json({ active_workflow: active, queued_workflows: queued, workflow_history: history, total: rows.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /contacts/:id/workflow-queue ── Add, reorder, or remove queued workflows
+crmRouter.patch('/contacts/:id/workflow-queue', async (req, res) => {
+    const { id } = req.params;
+    const { action, workflow_id, workflow_type, workflow_name, triggered_by, total_steps, metadata } = req.body;
+
+    try {
+        if (action === 'add' || action === 'queue') {
+            // Queue a new workflow as 'pending'
+            if (!workflow_type) return res.status(400).json({ error: 'workflow_type is required' });
+            const { rows } = await pool.query(
+                `INSERT INTO workflow_triggers (client_id, workflow_type, workflow_name, triggered_by, status, total_steps, metadata)
+                 VALUES ($1, $2, $3, $4, 'pending', $5, $6) RETURNING *`,
+                [id, workflow_type, workflow_name || workflow_type, triggered_by || 'openclaw', total_steps || 4,
+                    metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null]
+            );
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [id, 'agent', 'openclaw', 'OpenClaw', 'workflow_queued', 'workflow', `Queued workflow: ${workflow_type}`]
+            );
+            return res.json({ success: true, action: 'queued', workflow: rows[0] });
+        }
+
+        if (action === 'promote') {
+            // Promote a pending workflow to active (cancel current active first)
+            if (!workflow_id) return res.status(400).json({ error: 'workflow_id is required for promote' });
+            await pool.query(
+                `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'openclaw'
+                 WHERE client_id = $1 AND status = 'active'`, [id]
+            );
+            const nextActionAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+            const { rows } = await pool.query(
+                `UPDATE workflow_triggers SET status = 'active', triggered_at = NOW(), next_action_at = $1
+                 WHERE id = $2 AND client_id = $3 RETURNING *`,
+                [nextActionAt, workflow_id, id]
+            );
+            if (rows.length === 0) return res.status(404).json({ error: 'Workflow not found' });
+            return res.json({ success: true, action: 'promoted', workflow: rows[0] });
+        }
+
+        if (action === 'remove' || action === 'cancel') {
+            if (!workflow_id) return res.status(400).json({ error: 'workflow_id is required for remove' });
+            const { rows } = await pool.query(
+                `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1
+                 WHERE id = $2 AND client_id = $3 RETURNING *`,
+                [triggered_by || 'openclaw', workflow_id, id]
+            );
+            if (rows.length === 0) return res.status(404).json({ error: 'Workflow not found' });
+            return res.json({ success: true, action: 'removed', workflow: rows[0] });
+        }
+
+        res.status(400).json({ error: 'Invalid action. Use: add, queue, promote, remove, cancel' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/conversation-history ── Get conversation history (communications + notes)
+crmRouter.get('/contacts/:id/conversation-history', async (req, res) => {
+    const { id } = req.params;
+    const { channel, limit: queryLimit, offset: queryOffset } = req.query;
+
+    try {
+        const limitVal = Math.min(parseInt(queryLimit) || 50, 200);
+        const offsetVal = parseInt(queryOffset) || 0;
+
+        // Build communications subquery — $1 is always contact id
+        let commQuery = `SELECT id, channel, direction, subject, content, agent_id, agent_name, timestamp, 'communication' as source
+                         FROM communications WHERE client_id = $1`;
+        const params = [id];
+        let paramIdx = 2;
+
+        if (channel) {
+            commQuery += ` AND channel = $${paramIdx++}`;
+            params.push(channel);
+        }
+
+        // Notes subquery reuses $1 for the same contact id
+        const notesQuery = `SELECT id, 'note' as channel, 'internal' as direction, NULL as subject, content, created_by as agent_id, created_by_name as agent_name, created_at as timestamp, 'note' as source
+                            FROM notes WHERE client_id = $1`;
+
+        const limitParam = paramIdx++;
+        const offsetParam = paramIdx++;
+        params.push(limitVal, offsetVal);
+
+        const combinedQuery = `
+            SELECT * FROM (
+                (${commQuery})
+                UNION ALL
+                (${notesQuery})
+            ) combined
+            ORDER BY timestamp DESC
+            LIMIT $${limitParam} OFFSET $${offsetParam}`;
+
+        const { rows } = await pool.query(combinedQuery, params);
+
+        // Get total count
+        const countResult = await pool.query(
+            `SELECT
+                (SELECT COUNT(*) FROM communications WHERE client_id = $1) +
+                (SELECT COUNT(*) FROM notes WHERE client_id = $1) as total`,
+            [id]
+        );
+
+        res.json({
+            conversation_history: rows,
+            total: parseInt(countResult.rows[0].total),
+            limit: limitVal,
+            offset: offsetVal
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /contacts/:id/address-lookup ── Lookup UK address by postcode
+crmRouter.post('/contacts/:id/address-lookup', async (req, res) => {
+    const { postcode } = req.body;
+    if (!postcode) return res.status(400).json({ error: 'postcode is required' });
+
+    try {
+        // Use free postcodes.io API (no API key needed)
+        const cleanPostcode = postcode.replace(/\s+/g, '').toUpperCase();
+        const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(cleanPostcode)}`);
+        const data = await response.json();
+
+        if (data.status !== 200 || !data.result) {
+            return res.status(404).json({ error: 'Postcode not found', postcode: cleanPostcode });
+        }
+
+        const result = data.result;
+        const address = {
+            postcode: result.postcode,
+            city: result.admin_district || result.parish || '',
+            county: result.admin_county || result.region || '',
+            country: result.country,
+            latitude: result.latitude,
+            longitude: result.longitude,
+            ward: result.admin_ward || '',
+            district: result.admin_district || ''
+        };
+
+        res.json({ success: true, address });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /templates/email ── List all available email templates
+crmRouter.get('/templates/email', async (req, res) => {
+    try {
+        // Get DB templates
+        const { rows } = await pool.query(
+            `SELECT template_type, name, variables, updated_at, updated_by FROM html_templates ORDER BY template_type`
+        );
+
+        // Get file-based templates
+        const path = await import('path');
+        const fs = await import('fs');
+        const fileTemplates = [
+            { type: 'LOA', name: 'Letter of Authority', file: 'loa-template.html' },
+            { type: 'COVER_LETTER', name: 'Cover Letter', file: 'cover-letter-template.html' },
+        ];
+        const available = [];
+
+        // Add DB templates
+        for (const row of rows) {
+            available.push({ template_type: row.template_type, name: row.name, source: 'database', updated_at: row.updated_at });
+        }
+
+        // Add file templates (if not already in DB)
+        const dbTypes = rows.map(r => r.template_type);
+        for (const ft of fileTemplates) {
+            if (!dbTypes.includes(ft.type)) {
+                const templatePath = path.join(process.cwd(), 'templates', ft.file);
+                try { fs.accessSync(templatePath); available.push({ template_type: ft.type, name: ft.name, source: 'file', updated_at: null }); } catch {}
+            }
+        }
+
+        res.json({ success: true, templates: available });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /templates/email/:type ── Get email template by type
+crmRouter.get('/templates/email/:type', async (req, res) => {
+    const rawType = req.params.type.toUpperCase();
+
+    // Alias map: normalise common alternative names to canonical types
+    const aliasMap = {
+        'LOA': 'LOA',
+        'LETTER_OF_AUTHORITY': 'LOA',
+        'LOA_COVER': 'LOA',
+        'COVER_LETTER': 'COVER_LETTER',
+        'COVER': 'COVER_LETTER',
+        'COVERLETTER': 'COVER_LETTER',
+        'DSAR': 'DSAR',
+        'DSAR_REQUEST': 'DSAR',
+        'FOLLOW_UP': 'FOLLOW_UP',
+        'FOLLOWUP': 'FOLLOW_UP',
+        'WELCOME': 'WELCOME',
+        'ONBOARDING': 'WELCOME',
+        'COMPLAINT': 'COMPLAINT',
+        'FOS_COMPLAINT': 'COMPLAINT',
+    };
+
+    const type = aliasMap[rawType] || rawType;
+
+    try {
+        // First check html_templates table in DB
+        const { rows } = await pool.query(
+            `SELECT template_type, name, html_content, variables, updated_at, updated_by
+             FROM html_templates WHERE template_type = $1`,
+            [type]
+        );
+
+        if (rows.length > 0) {
+            return res.json({ success: true, template: rows[0] });
+        }
+
+        // Fallback: check for file-based templates
+        const path = await import('path');
+        const fs = await import('fs');
+        const templateMap = {
+            'LOA': 'loa-template.html',
+            'COVER_LETTER': 'cover-letter-template.html',
+        };
+
+        const fileName = templateMap[type];
+        if (fileName) {
+            const templatePath = path.join(process.cwd(), 'templates', fileName);
+            try {
+                const htmlContent = fs.readFileSync(templatePath, 'utf-8');
+                return res.json({
+                    success: true,
+                    template: {
+                        template_type: type,
+                        name: type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                        html_content: htmlContent,
+                        variables: '{{clientFullName}}, {{clientAddress}}, {{clientPostcode}}, {{clientDOB}}, {{clientEmail}}, {{lenderName}}, {{lenderAddress}}, {{signatureImage}}, {{today}}',
+                        updated_at: null,
+                        updated_by: 'system',
+                        isDefault: true
+                    }
+                });
+            } catch (fileErr) { /* file not found, fall through */ }
+        }
+
+        // List what IS available so the caller knows
+        const allDB = await pool.query(`SELECT template_type FROM html_templates`);
+        const availableTypes = [...new Set([...allDB.rows.map(r => r.template_type), 'LOA', 'COVER_LETTER'])];
+        res.status(404).json({
+            error: `Email template '${rawType}' not found (resolved to '${type}')`,
+            available_types: availableTypes
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /cases/:id/extended ── Get case with all extended fields
+crmRouter.get('/cases/:id/extended', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT c.*,
+                    ct.first_name as contact_first_name, ct.last_name as contact_last_name,
+                    ct.full_name as contact_full_name, ct.email as contact_email,
+                    ct.phone as contact_phone, ct.client_id as contact_client_id
+             FROM cases c
+             LEFT JOIN contacts ct ON c.contact_id = ct.id
+             WHERE c.id = $1`,
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Claim not found' });
+
+        const caseData = rows[0];
+
+        // Also fetch related documents
+        const docs = await pool.query(
+            `SELECT id, name, type, category, url, document_status, created_at
+             FROM documents WHERE contact_id = $1
+             ORDER BY created_at DESC`,
+            [caseData.contact_id]
+        );
+
+        // Fetch DSAR info
+        const dsarInfo = {
+            loa_generated: caseData.loa_generated || false,
+            dsar_sent: caseData.dsar_sent || false,
+            dsar_sent_at: caseData.dsar_sent_at || null,
+            dsar_send_after: caseData.dsar_send_after || null,
+            dsar_overdue_notified: caseData.dsar_overdue_notified || false
+        };
+
+        res.json({
+            ...caseData,
+            dsar_info: dsarInfo,
+            documents: docs.rows
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mount the CRM API router BEFORE the Windmill catch-all proxy
 app.use('/api/crm', crmRouter);
 console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)');

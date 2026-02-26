@@ -19,6 +19,25 @@ import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUME
 import { API_BASE_URL } from '../src/config';
 import BulkImport from './BulkImport';
 
+// Date format helpers: ISO (YYYY-MM-DD) <-> display (dd/mm/yyyy)
+const isoToDisplay = (iso: string): string => {
+   if (!iso) return '';
+   const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+   if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+   return iso; // Already in dd/mm/yyyy or unknown format
+};
+const displayToIso = (display: string): string => {
+   if (!display) return '';
+   const match = display.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+   if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+   return display; // Already in ISO or unknown format
+};
+// Strip trailing .0 from account numbers (e.g. 97826608.0 → 97826608)
+const stripTrailingDotZero = (val: any): string => {
+   if (val == null) return '';
+   return val.toString().replace(/\.0$/, '');
+};
+
 // Tab definitions for the 7-tab structure
 type ContactTab = 'personal' | 'claims' | 'communication' | 'subworkflow' | 'notes' | 'documents' | 'timeline';
 
@@ -493,7 +512,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [viewingClaimId, setViewingClaimId] = useState<string | null>(null);
    const [claimFileData, setClaimFileData] = useState<any>(null);
    // Accordion state for claim sections (null = all collapsed, 'details' | 'payment' | 'paymentPlan')
-   const [expandedClaimSection, setExpandedClaimSection] = useState<'details' | 'payment' | 'paymentPlan' | null>(null);
+   const [expandedClaimSection, setExpandedClaimSection] = useState<'details' | 'payment' | 'paymentPlan' | null>('details');
    const [claimFileForm, setClaimFileForm] = useState({
       // Section 1: Claim Details
       lender: '',
@@ -1473,15 +1492,28 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (autosaveData) {
          try {
             const parsed = JSON.parse(autosaveData);
-            // Restore autosaved form data
-            setClaimFileForm(parsed.claimFileForm);
-            // Still fetch the full claim for claimFileData but don't overwrite form
+            // Fetch full claim to compare timestamps
             const fullClaim = await fetchFullClaim(claimId);
             setClaimFileData(fullClaim);
-            return; // Exit early, autosaved data restored
+
+            // If DB updated_at is newer than autosave timestamp, discard autosave
+            if (fullClaim?.updated_at && parsed.timestamp) {
+               const dbTime = new Date(fullClaim.updated_at).getTime();
+               if (dbTime > parsed.timestamp) {
+                  localStorage.removeItem(autosaveKey);
+                  // Fall through to populate from fresh DB data
+               } else {
+                  // Autosave is newer, restore it
+                  setClaimFileForm(parsed.claimFileForm);
+                  return;
+               }
+            } else {
+               // No DB timestamp to compare, restore autosave
+               setClaimFileForm(parsed.claimFileForm);
+               return;
+            }
          } catch (e) {
             console.error('Error restoring autosaved data:', e);
-            // If parsing fails, continue with normal flow
             localStorage.removeItem(autosaveKey);
          }
       }
@@ -1505,6 +1537,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          }
       } catch (e) { console.error('Error parsing finance_types:', e); }
 
+      // If no finance_types but finance_type (singular) contains a JSON array like ["Payday"], parse it
+      if (!parsedFinanceTypes.length && fullClaim?.finance_type) {
+         try {
+            const parsed = JSON.parse(fullClaim.finance_type);
+            if (Array.isArray(parsed)) {
+               parsedFinanceTypes = parsed.map((ft: string) => ({ financeType: ft, accountNumber: '' }));
+            }
+         } catch (e) { /* not JSON, just a plain string - ignore */ }
+      }
+
       try {
          if (fullClaim?.loan_details) {
             const rawLoans = typeof fullClaim.loan_details === 'string'
@@ -1513,10 +1555,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             // Map snake_case DB keys to camelCase frontend keys (handles both formats)
             parsedLoanDetails = rawLoans.map((loan: any, idx: number) => ({
                loanNumber: loan.loanNumber ?? loan.loan_number ?? idx + 1,
-               accountNumber: loan.accountNumber ?? loan.account_number ?? '',
+               accountNumber: stripTrailingDotZero(loan.accountNumber ?? loan.account_number ?? ''),
                valueOfLoan: loan.valueOfLoan ?? loan.value_of_loan ?? '',
-               startDate: loan.startDate ?? loan.start_date ?? '',
-               endDate: loan.endDate ?? loan.end_date ?? '',
+               startDate: isoToDisplay(loan.startDate ?? loan.start_date ?? ''),
+               endDate: isoToDisplay(loan.endDate ?? loan.end_date ?? ''),
                apr: loan.apr ?? '',
                billedInterestCharges: loan.billedInterestCharges ?? loan.billed_interest_charges ?? '',
                latePaymentCharges: loan.latePaymentCharges ?? loan.late_payment_charges ?? '',
@@ -1524,6 +1566,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             }));
          }
       } catch (e) { console.error('Error parsing loan_details:', e); }
+
+      // Fallback: if loan_details[0] has empty fields, use top-level claim columns
+      if (parsedLoanDetails.length > 0 && fullClaim) {
+         const loan0 = parsedLoanDetails[0];
+         if (!loan0.accountNumber) loan0.accountNumber = stripTrailingDotZero(fullClaim?.account_number || '');
+         if (!loan0.valueOfLoan) loan0.valueOfLoan = fullClaim?.value_of_loan || '';
+         if (!loan0.startDate) loan0.startDate = isoToDisplay(fullClaim?.start_date || '');
+         if (!loan0.endDate) loan0.endDate = isoToDisplay(fullClaim?.end_date || '');
+         if (!loan0.apr) loan0.apr = fullClaim?.apr?.toString() || '';
+         parsedLoanDetails[0] = loan0;
+      }
 
       try {
          if (fullClaim?.payment_plan) {
@@ -1577,7 +1630,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             // Section 3: Payment Plan
             paymentPlan: parsedPaymentPlan,
             // Legacy fields
-            accountNumber: fullClaim?.account_number || basicClaim?.accountNumber || '',
+            accountNumber: stripTrailingDotZero(fullClaim?.account_number || basicClaim?.accountNumber || ''),
             lenderReference: fullClaim?.lender_reference || '',
             datesTimeline: fullClaim?.dates_timeline || '',
             apr: fullClaim?.apr?.toString() || '',
@@ -1673,8 +1726,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             finance_type_other: claimFileForm.financeTypeOther,
             account_number: claimFileForm.accountNumber, // Legacy
             number_of_loans: claimFileForm.numberOfLoans ? parseInt(claimFileForm.numberOfLoans) : 1,
-            // Dynamic loan details (stored as JSON)
-            loan_details: JSON.stringify(claimFileForm.loanDetails),
+            // Dynamic loan details (stored as JSON) - convert dd/mm/yyyy dates back to ISO
+            loan_details: JSON.stringify(claimFileForm.loanDetails.map(loan => ({
+               ...loan,
+               startDate: displayToIso(loan.startDate),
+               endDate: displayToIso(loan.endDate),
+            }))),
             // Charges fields
             billed_interest_charges: claimFileForm.billedInterestCharges,
             late_payment_charges: claimFileForm.latePaymentCharges,
@@ -3125,7 +3182,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                       <div>
                                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Start Date</label>
                                                          <input
-                                                            type="date"
+                                                            type="text"
                                                             value={loan.startDate || ''}
                                                             onChange={(e) => {
                                                                const updated = [...claimFileForm.loanDetails];
@@ -3133,12 +3190,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                                setClaimFileForm({ ...claimFileForm, loanDetails: updated });
                                                             }}
                                                             className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                            placeholder="dd/mm/yyyy"
                                                          />
                                                       </div>
                                                       <div>
                                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">End Date</label>
                                                          <input
-                                                            type="date"
+                                                            type="text"
                                                             value={loan.endDate || ''}
                                                             onChange={(e) => {
                                                                const updated = [...claimFileForm.loanDetails];
@@ -3146,6 +3204,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                                setClaimFileForm({ ...claimFileForm, loanDetails: updated });
                                                             }}
                                                             className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                            placeholder="dd/mm/yyyy"
                                                          />
                                                       </div>
                                                       <div>
