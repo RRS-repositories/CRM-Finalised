@@ -27,6 +27,8 @@ import juice from 'juice';
 import { generateCoverLetterFromTemplate } from './coverletter.js';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
+import { createReport } from 'docx-templates';
+import { convertDocxToPdf } from './oo-converter.js';
 import jwt from 'jsonwebtoken';
 import crmEvents from './services/crmEvents.js';
 import { generatePdfFromCase } from './pdf-generator.js';
@@ -697,7 +699,8 @@ const IRL_LENDER_VARIABLES = {
     'ZOPA':                 'zopa',
     '118 118 MONEY':        'money_118',
 
-    // ─── PAYDAY / SHORT-TERM LOANS ───
+    // ─── PAYDAY / SHORT-TERM LOANS (also includes 118 Loans) ───
+    '118 LOANS':            'loans_118',
     'ADMIRAL LOANS':        'admiral_loans',
     'ANICO FINANCE':        'anico_finance',
     'AVANT CREDIT':         'avant_credit',
@@ -755,9 +758,19 @@ const IRL_LENDER_VARIABLES = {
     'THE ONE STOP MONEY SHOP': 'one_stop_money_shop',
     'TM ADVANCES':          'tm_advances',
     'TANDEM':               'tandem',
-    '118 LOANS':            'loans_118',
     'WAGESTREAM':           'wagestream',
-    'CONSOLADATION LOAN':   'consoladation_loan',
+    'CASH 4 U NOW':         'cash_4_u_now',
+    'FUND OURSELVES':       'fund_ourselves',
+    'LIVE LEND':            'live_lend',
+    'ONDAL FINANCE':        'ondal_finance',
+    'PML LOANS':            'pml_loans',
+    'RATE SETTER':          'rate_setter',
+    'REEVO':                'reevo',
+    'TICK TOCK LOANS':      'tick_tock_loans',
+    'UPDRAFT':              'updraft',
+
+    // ─── CONSOLIDATION / OTHER LOANS ───
+    'CONSOLIDATION LOAN':   'consolidation_loan',
 
     // ─── GUARANTOR LOANS ───
     'GUARANTOR MY LOAN':    'guarantor_my_loan',
@@ -787,36 +800,46 @@ const IRL_LENDER_VARIABLES = {
     'MOTONOVO':             'motonovo',
     'MONEY BARN':           'money_barn',
     'OODLE':                'oodle',
+    'OODLE CAR FINANCE':    'oodle',
     'PSA FINANCE':          'psa_finance',
     'RCI FINANCIAL':        'rci_financial',
+    'BLACKHORSE':           'blackhorse',
+    'BMW / MINI / ALPHERA FINANCE': 'bmw_mini_alphera',
+    'SANTANDER CONSUMER FINANCE': 'santander_consumer',
+    'VAUXHALL FINANCE':     'vauxhall_finance',
 
     // ─── OVERDRAFTS ───
     'HALIFAX OVERDRAFT':    'halifax_overdraft',
     'BARCLAYS OVERDRAFT':   'barclays_overdraft',
     'CO-OP BANK OVERDRAFT': 'coop_overdraft',
     'LLOYDS OVERDRAFT':     'lloyds_overdraft',
-    'TSB OVERDRAFT OVERDRAFT': 'tsb_overdraft',
+    'TSB OVERDRAFT':        'tsb_overdraft',
     'NATWEST / RBS OVERDRAFT': 'natwest_rbs_overdraft',
     'HSBC OVERDRAFT':       'hsbc_overdraft',
     'SANTANDER OVERDRAFT':  'santander_overdraft',
 };
 
 /**
- * Generate IRL Multiple Lender Form PDF using DOCX template + OnlyOffice conversion.
+ * Generate IRL Multiple Lender Form PDF using DOCX template + createReport + OnlyOffice.
  *
- * The DOCX template should contain variables like:
- *   {{aqua}}          → replaced with ☑ or ☐
- *   {{had_ccj}}       → replaced with ☑ or ☐
- *   {{betting_companies}} → replaced with text
- *   {{client_id}}     → replaced with contact ID
- *   {{signatureImage}} → replaced with signature image
- *   {{today}}         → replaced with today's date
+ * Uses createReport (docx-templates) — same engine as LOA & Cover Letter — which:
+ *   - Handles images natively (signature embedding)
+ *   - Handles {{variables}} split across Word XML runs
+ *
+ * Template variables:
+ *   {{aqua}}, {{capital_one}}, etc.  → ☑ or ☐
+ *   {{had_ccj}}, {{victim_of_scam}}, {{problematic_gambling}} → ☑ or ☐
+ *   {{betting_companies}} → text
+ *   {{client_id}} → "Full Name - ID"
+ *   {{claim.lender}} → intake lender name
+ *   {{signatureImage}} → signature PNG image
+ *   {{today}} → formatted date
  */
 async function generateIrlMultipleLenderPdf({
     contactId, contact, selectedLenders, hadCCJ, victimOfScam,
     problematicGambling, bettingCompanies, signatureBase64, folderPath
 }) {
-    console.log(`[IRL PDF] Starting DOCX-based generation for contact ${contactId} with ${selectedLenders.length} lenders`);
+    console.log(`[IRL PDF] Starting generation for contact ${contactId} with ${selectedLenders.length} lenders`);
 
     // 1. Find the IRL template DOCX in oo_templates
     let templateS3Key = null;
@@ -832,7 +855,7 @@ async function generateIrlMultipleLenderPdf({
     }
 
     if (!templateS3Key) {
-        throw new Error('IRL Multiple Lender Form DOCX template not found in oo_templates. Upload it via OnlyOffice template manager.');
+        throw new Error('IRL Multiple Lender Form DOCX template not found in oo_templates.');
     }
 
     console.log(`[IRL PDF] Using template: ${templateS3Key}`);
@@ -868,75 +891,78 @@ async function generateIrlMultipleLenderPdf({
         problematic_gambling: problematicGambling ? CHECKED : UNCHECKED,
 
         // Text fields
-        client_id: String(contactId),
+        client_id: `${fullName} - ${contactId}`,
         client_name: fullName,
         betting_companies: bettingCompanies || '',
         today: today,
         date: today,
 
-        // Signature image (docx-templates format)
+        // Nested object for {{claim.lender}} in template
+        claim: { lender: contact.intake_lender || '' },
+
+        // Signature image (docx-templates native image format)
         signatureImage: signatureBase64 ? {
             _type: 'image',
             data: signatureBase64.split(',')[1],
             extension: '.png',
             width: 5,
             height: 2.5,
-        } : '',
+        } : null,
     };
 
-    // 5. Fill DOCX template using Docxtemplater
-    console.log('[IRL PDF] Filling DOCX template with variables...');
+    // 5. Fill DOCX template using createReport (same engine as LOA & Cover Letter)
+    console.log('[IRL PDF] Filling DOCX template with createReport...');
     let docxBuffer;
     try {
-        const zip = new PizZip(templateBuffer);
-        const doc = new Docxtemplater(zip, {
-            paragraphLoop: true,
-            linebreaks: true,
-            delimiters: { start: '{{', end: '}}' },
+        docxBuffer = await createReport({
+            template: templateBuffer,
+            data: templateVars,
+            cmdDelimiter: ['{{', '}}'],
         });
-        doc.render(templateVars);
-        docxBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-        console.log('[IRL PDF] DOCX template filled successfully');
-    } catch (dtErr) {
-        console.warn(`[IRL PDF] Docxtemplater failed, trying manual replacement:`, dtErr.message);
-        // Fallback: manual XML string replacement
-        const JSZip = (await import('jszip')).default;
-        const jszip = await JSZip.loadAsync(templateBuffer);
-        const xmlFiles = ['word/document.xml'];
-        jszip.folder('word')?.forEach((relativePath) => {
-            if (/^(header|footer)\d*\.xml$/.test(relativePath)) {
-                xmlFiles.push(`word/${relativePath}`);
+        console.log('[IRL PDF] DOCX template filled successfully via createReport');
+    } catch (crErr) {
+        console.warn('[IRL PDF] createReport failed, falling back to Docxtemplater:', crErr.message);
+        // Fallback: use Docxtemplater (won't handle images but at least fills text)
+        try {
+            const zip = new PizZip(templateBuffer);
+            const doc = new Docxtemplater(zip, {
+                paragraphLoop: true,
+                linebreaks: true,
+                delimiters: { start: '{{', end: '}}' },
+            });
+            // Flatten nested objects for Docxtemplater
+            const flatVars = { ...templateVars };
+            if (flatVars.claim) {
+                flatVars['claim.lender'] = flatVars.claim.lender;
+                delete flatVars.claim;
             }
-        });
-        for (const xmlFile of xmlFiles) {
-            let content = await jszip.file(xmlFile)?.async('string');
-            if (!content) continue;
-            for (const [key, value] of Object.entries(templateVars)) {
-                if (typeof value === 'string') {
-                    // Handle Word XML tag splitting: {{va</w:t></w:r><w:r><w:t>riable}}
-                    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const splitTagPattern = new RegExp(
-                        '\\{\\{' + escapedKey.split('').join('[^}]*?') + '\\}\\}',
-                        'g'
-                    );
-                    content = content.replace(splitTagPattern, value);
-                    // Also try simple replacement
-                    content = content.replace(new RegExp(`\\{\\{${escapedKey}\\}\\}`, 'g'), value);
-                }
+            // Remove image objects (Docxtemplater can't handle them)
+            if (flatVars.signatureImage && typeof flatVars.signatureImage === 'object') {
+                flatVars.signatureImage = '[Signature]';
             }
-            jszip.file(xmlFile, content);
+            doc.render(flatVars);
+            docxBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+            console.log('[IRL PDF] Fallback: Docxtemplater filled successfully');
+        } catch (dtErr) {
+            console.error('[IRL PDF] Both createReport and Docxtemplater failed:', dtErr.message);
+            throw new Error('Failed to fill IRL template: ' + crErr.message);
         }
-        docxBuffer = Buffer.from(await jszip.generateAsync({ type: 'nodebuffer' }));
     }
 
-    // 6. Convert DOCX to PDF
-    console.log('[IRL PDF] Converting DOCX to PDF...');
+    // 6. Convert DOCX to PDF using OnlyOffice (same as LOA & Cover Letter)
+    console.log('[IRL PDF] Converting DOCX to PDF via OnlyOffice...');
     let pdfBuffer;
-    const libreOfficePath = await findLibreOffice();
-    if (libreOfficePath) {
-        pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
-    } else {
-        pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+    try {
+        pdfBuffer = await convertDocxToPdf(docxBuffer, `IRL_Form_${contactId}.docx`);
+        console.log('[IRL PDF] OnlyOffice conversion successful');
+    } catch (ooErr) {
+        console.warn('[IRL PDF] OnlyOffice failed, trying LibreOffice/Puppeteer fallback:', ooErr.message);
+        const libreOfficePath = await findLibreOffice();
+        if (libreOfficePath) {
+            pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+        } else {
+            pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+        }
     }
 
     // 7. Upload to S3
