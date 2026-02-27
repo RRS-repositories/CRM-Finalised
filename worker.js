@@ -335,9 +335,12 @@ function getLenderAddress(lenderName) {
     // Normalize the lender name for comparison
     let normalizedInput = lenderName.toUpperCase().trim();
 
-    // Normalize LOANS2GO variants to standard name
+    // Normalize name variants to standard names
     if (normalizedInput === 'LOANS2GO') {
         normalizedInput = 'LOANS 2 GO';
+    }
+    if (normalizedInput === 'MONEYBOAT') {
+        normalizedInput = 'MONEY BOAT';
     }
 
     // Try exact match first
@@ -371,9 +374,12 @@ function getLenderEmail(lenderName) {
     // Normalize the lender name for comparison
     let normalizedInput = lenderName.toUpperCase().trim();
 
-    // Normalize LOANS2GO variants to standard name
+    // Normalize name variants to standard names
     if (normalizedInput === 'LOANS2GO') {
         normalizedInput = 'LOANS 2 GO';
+    }
+    if (normalizedInput === 'MONEYBOAT') {
+        normalizedInput = 'MONEY BOAT';
     }
 
     // Try exact match first

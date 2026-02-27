@@ -735,6 +735,7 @@ const IRL_LENDER_VARIABLES = {
     'MY KREDIT':            'my_kredit',
     'MY FINANCE CLUB':      'my_finance_club',
     'MONEY BOAT':           'money_boat',
+    'MONEYBOAT':            'money_boat',
     'MR LENDER':            'mr_lender',
     'MONEY LINE':           'money_line',
     'MY COMMUNITY BANK':    'my_community_bank',
