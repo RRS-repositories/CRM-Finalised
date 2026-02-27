@@ -104,7 +104,9 @@
       "Bash(ngrok http 5000)",
       "Bash(ngrok http 5000 --log=stdout --log-format=logfmt)",
       "Bash(npm run dev)",
-      "Bash(openssl rand -hex 32)"
+      "Bash(openssl rand -hex 32)",
+      "Bash(TaskOutput bxld1ucnl)",
+      "Bash(\"/c/Users/Admin/cloudflared.exe\" --version)"
     ]
   }
 }

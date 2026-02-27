@@ -3333,7 +3333,34 @@ app.post('/api/upload-manual', upload.single('document'), async (req, res) => {
 
 app.get('/api/documents', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT * FROM documents ORDER BY created_at DESC');
+        const { contact_id, claim_id, lender } = req.query;
+        const conditions = [];
+        const params = [];
+
+        if (contact_id) {
+            params.push(parseInt(contact_id));
+            conditions.push(`contact_id = $${params.length}`);
+        }
+
+        // claim_id → resolve lender name from cases table
+        if (claim_id) {
+            const claimRes = await pool.query('SELECT lender FROM cases WHERE id = $1', [parseInt(claim_id)]);
+            if (claimRes.rows.length > 0 && claimRes.rows[0].lender) {
+                params.push(claimRes.rows[0].lender);
+                conditions.push(`tags @> ARRAY[$${params.length}]::text[]`);
+            } else {
+                return res.json([]); // claim not found or no lender
+            }
+        } else if (lender) {
+            params.push(lender);
+            conditions.push(`tags @> ARRAY[$${params.length}]::text[]`);
+        }
+
+        let query = 'SELECT * FROM documents';
+        if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+        query += ' ORDER BY created_at DESC';
+
+        const { rows } = await pool.query(query, params);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3341,6 +3368,15 @@ app.get('/api/documents', async (req, res) => {
 app.get('/api/contacts/:id/documents', async (req, res) => {
     try {
         const contactId = req.params.id;
+        const { claim_id, lender: lenderParam } = req.query;
+
+        // Resolve lender filter from claim_id if provided
+        let lenderFilter = lenderParam || null;
+        if (claim_id && !lenderFilter) {
+            const claimRes = await pool.query('SELECT lender FROM cases WHERE id = $1 AND contact_id = $2', [parseInt(claim_id), parseInt(contactId)]);
+            if (claimRes.rows.length === 0) return res.status(404).json({ error: 'Claim not found for this contact' });
+            lenderFilter = claimRes.rows[0].lender || null;
+        }
 
         // Get contact info for S3 folder path
         const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
@@ -3381,15 +3417,23 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
             return res.json([]); // No S3 folder for this contact
         }
 
-        console.log(`[Documents] S3 folder for contact ${contactId}: ${baseFolder}`);
+        console.log(`[Documents] S3 folder for contact ${contactId}: ${baseFolder}${lenderFilter ? ` (lender: ${lenderFilter})` : ''}`);
 
-        // Scan all relevant S3 subfolders
-        const foldersToScan = [
-            { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
-            { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
-            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
-            { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
-        ];
+        // Scan S3 subfolders — when a lender filter is active, only scan that lender's subfolder
+        let foldersToScan;
+        if (lenderFilter) {
+            const sanitizedLender = lenderFilter.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+            foldersToScan = [
+                { prefix: `${baseFolder}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }
+            ];
+        } else {
+            foldersToScan = [
+                { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
+                { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
+                { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
+                { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
+            ];
+        }
         const documents = [];
 
         const extToType = {
@@ -12051,14 +12095,213 @@ crmRouter.get('/contacts/:id/claims', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /contacts/:id/documents ── Get contact's documents
+// ── GET /contacts/:id/documents ── Get contact's documents from S3 + DB
+// Supports: ?claim_id=<id>  or  ?lender=<name>  to filter to a single lender/claim
 crmRouter.get('/contacts/:id/documents', async (req, res) => {
     try {
-        const { rows } = await pool.query(
-            'SELECT * FROM documents WHERE contact_id = $1 ORDER BY created_at DESC',
-            [req.params.id]
+        const contactId = req.params.id;
+        const { claim_id, lender: lenderParam } = req.query;
+
+        // Resolve lender filter
+        let lenderFilter = lenderParam || null;
+        if (claim_id && !lenderFilter) {
+            const claimRes = await pool.query(
+                'SELECT lender FROM cases WHERE id = $1 AND contact_id = $2',
+                [parseInt(claim_id), parseInt(contactId)]
+            );
+            if (claimRes.rows.length === 0) return res.status(404).json({ error: 'Claim not found for this contact' });
+            lenderFilter = claimRes.rows[0].lender || null;
+        }
+
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
+        if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        const { first_name, last_name } = contactRes.rows[0];
+
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+
+        // Resolve S3 base folder
+        const nameCandidates = new Set([
+            `${first_name}_${last_name}`.replace(/\s+/g, '_'),
+            `${first_name}_${last_name}`,
+            `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+        ]);
+        let baseFolder = null;
+        for (const name of nameCandidates) {
+            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: `${name}_${contactId}/`, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) { baseFolder = `${name}_${contactId}/`; break; }
+        }
+        if (!baseFolder) {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
+            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
+            if (match) baseFolder = match.Prefix;
+        }
+        if (!baseFolder) return res.json([]);
+
+        // Build folder list — narrow to lender subfolder when filter is active
+        let foldersToScan;
+        if (lenderFilter) {
+            const sanitizedLender = lenderFilter.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+            foldersToScan = [{ prefix: `${baseFolder}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }];
+        } else {
+            foldersToScan = [
+                { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
+                { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
+                { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
+                { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
+            ];
+        }
+
+        const extToType = { pdf: 'pdf', doc: 'docx', docx: 'docx', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', xls: 'spreadsheet', xlsx: 'spreadsheet', txt: 'txt', html: 'html' };
+        const documents = [];
+
+        for (const folder of foldersToScan) {
+            let continuationToken;
+            do {
+                const result = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: folder.prefix, ContinuationToken: continuationToken }));
+                continuationToken = result.NextContinuationToken;
+                if (!result.Contents) continue;
+                for (const obj of result.Contents) {
+                    if (obj.Key.endsWith('/')) continue;
+                    const relativePath = obj.Key.substring(folder.prefix.length);
+                    if (!relativePath) continue;
+                    const pathParts = relativePath.split('/');
+                    const baseName = pathParts[pathParts.length - 1];
+                    const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
+
+                    let category = folder.defaultCategory;
+                    if (baseName.includes('Cover_Letter') || baseName.includes('COVER LETTER')) category = 'Cover Letter';
+                    else if (baseName.includes('_LOA') || baseName.includes(' - LOA.pdf') || baseName.includes(' - LOA ')) category = 'LOA';
+                    if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
+                    if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
+                    if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
+                    if (folder.prefix.includes('Terms-and-Conditions')) category = 'Legal';
+
+                    const tags = [];
+                    if (folder.prefix.includes('/Lenders/') && pathParts.length > 1) {
+                        const lenderName = pathParts[0].replace(/_/g, ' ');
+                        if (lenderName && lenderName !== baseName) tags.push(lenderName);
+                        tags.push('claim-document');
+                    }
+
+                    documents.push({
+                        id: obj.Key,
+                        contact_id: parseInt(contactId),
+                        name: baseName,
+                        type: extToType[ext] || 'unknown',
+                        category,
+                        s3_key: obj.Key,
+                        size: obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown',
+                        tags,
+                        created_at: obj.LastModified || new Date()
+                    });
+                }
+            } while (continuationToken);
+        }
+
+        documents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        res.json(documents);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/:id/claims/:claimId/documents ── Documents for a specific claim/lender
+crmRouter.get('/contacts/:id/claims/:claimId/documents', async (req, res) => {
+    try {
+        const contactId = req.params.id;
+        const claimId = req.params.claimId;
+
+        // Fetch claim — verify it belongs to this contact
+        const claimRes = await pool.query(
+            `SELECT id, lender, loa_generated, loa_file_url, cover_letter_file_url, dsar_sent, status, reference_specified
+             FROM cases WHERE id = $1 AND contact_id = $2`,
+            [parseInt(claimId), parseInt(contactId)]
         );
-        res.json(rows);
+        if (claimRes.rows.length === 0) return res.status(404).json({ error: 'Claim not found for this contact' });
+        const claim = claimRes.rows[0];
+        const lender = claim.lender;
+
+        if (!lender) return res.json({ claim, documents: [] });
+
+        const sanitizedLender = lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+
+        // Resolve contact S3 base folder
+        const contactRes = await pool.query('SELECT first_name, last_name FROM contacts WHERE id = $1', [contactId]);
+        if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        const { first_name, last_name } = contactRes.rows[0];
+
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+        const nameCandidates = new Set([
+            `${first_name}_${last_name}`.replace(/\s+/g, '_'),
+            `${first_name}_${last_name}`,
+            `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+        ]);
+        let baseFolder = null;
+        for (const name of nameCandidates) {
+            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: `${name}_${contactId}/`, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) { baseFolder = `${name}_${contactId}/`; break; }
+        }
+        if (!baseFolder) {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
+            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
+            if (match) baseFolder = match.Prefix;
+        }
+
+        const documents = [];
+        const extToType = { pdf: 'pdf', doc: 'docx', docx: 'docx', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', xls: 'spreadsheet', xlsx: 'spreadsheet', txt: 'txt', html: 'html' };
+
+        if (baseFolder) {
+            const lenderPrefix = `${baseFolder}Lenders/${sanitizedLender}/`;
+            let continuationToken;
+            do {
+                const result = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: lenderPrefix, ContinuationToken: continuationToken }));
+                continuationToken = result.NextContinuationToken;
+                if (!result.Contents) break;
+                for (const obj of result.Contents) {
+                    if (obj.Key.endsWith('/')) continue;
+                    const relativePath = obj.Key.substring(lenderPrefix.length);
+                    if (!relativePath) continue;
+                    const pathParts = relativePath.split('/');
+                    const baseName = pathParts[pathParts.length - 1];
+                    const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
+
+                    let category = 'LOA';
+                    if (baseName.includes('Cover_Letter') || baseName.toUpperCase().includes('COVER LETTER')) category = 'Cover Letter';
+                    else if (baseName.toUpperCase().includes(' - LOA') || baseName.toUpperCase().includes('_LOA')) category = 'LOA';
+                    else if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
+                    else if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
+                    else if (relativePath.includes('/Other/')) category = 'Other';
+                    else if (pathParts.length > 1) category = pathParts[pathParts.length - 2].replace(/_/g, ' ');
+
+                    documents.push({
+                        id: obj.Key,
+                        contact_id: parseInt(contactId),
+                        claim_id: parseInt(claimId),
+                        lender,
+                        name: baseName,
+                        type: extToType[ext] || 'unknown',
+                        category,
+                        s3_key: obj.Key,
+                        size: obj.Size ? `${(obj.Size / 1024).toFixed(1)} KB` : 'Unknown',
+                        tags: [lender, 'claim-document'],
+                        created_at: obj.LastModified || new Date()
+                    });
+                }
+            } while (continuationToken);
+        }
+
+        documents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        res.json({
+            claim: {
+                id: claim.id,
+                lender: claim.lender,
+                status: claim.status,
+                reference_number: claim.reference_specified,
+                loa_generated: claim.loa_generated,
+                dsar_sent: claim.dsar_sent
+            },
+            documents,
+            total: documents.length
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -13428,6 +13671,96 @@ crmRouter.get('/cases/:id/extended', async (req, res) => {
             documents: docs.rows
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /documents/extract-text ── Extract readable text from a document in S3
+// Query params: s3_key=<encoded S3 object key>
+// Supports: PDF (pdfjs), DOCX/DOC (mammoth), TXT, HTML
+// Designed for AI / bot consumption (OpenClaw etc.)
+crmRouter.get('/documents/extract-text', async (req, res) => {
+    try {
+        const s3Key = req.query.s3_key;
+        if (!s3Key) return res.status(400).json({ error: 'Missing s3_key query parameter' });
+
+        // Fetch raw bytes from S3
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        let s3Obj;
+        try {
+            s3Obj = await s3Client.send(getCmd);
+        } catch (e) {
+            return res.status(404).json({ error: 'Document not found in S3', s3_key: s3Key });
+        }
+
+        // Stream → Buffer
+        const chunks = [];
+        for await (const chunk of s3Obj.Body) chunks.push(chunk);
+        const buffer = Buffer.concat(chunks);
+
+        const fileName = s3Key.split('/').pop();
+        const ext = fileName.split('.').pop().toLowerCase();
+        const MAX_CHARS = 100000; // ~100KB of text is plenty for an AI
+
+        let text = '';
+        let pageCount = null;
+        let method = '';
+
+        if (ext === 'pdf') {
+            // PDF text extraction via pdfjs-dist
+            const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+            const loadingTask = getDocument({ data: new Uint8Array(buffer), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true });
+            const pdfDoc = await loadingTask.promise;
+            pageCount = pdfDoc.numPages;
+            const pageTexts = [];
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                const page = await pdfDoc.getPage(i);
+                const content = await page.getTextContent();
+                const pageText = content.items.map(item => item.str).join(' ').replace(/\s+/g, ' ').trim();
+                pageTexts.push(`[Page ${i}]\n${pageText}`);
+            }
+            text = pageTexts.join('\n\n');
+            method = 'pdfjs';
+
+        } else if (ext === 'docx' || ext === 'doc') {
+            // DOCX text extraction via mammoth
+            const mammoth = await import('mammoth');
+            const result = await mammoth.extractRawText({ buffer });
+            text = result.value;
+            method = 'mammoth';
+
+        } else if (ext === 'txt') {
+            text = buffer.toString('utf8');
+            method = 'raw';
+
+        } else if (ext === 'html' || ext === 'htm') {
+            // Strip HTML tags for plain text
+            text = buffer.toString('utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            method = 'html-strip';
+
+        } else {
+            return res.status(415).json({
+                error: `Unsupported file type: .${ext}`,
+                supported: ['pdf', 'docx', 'doc', 'txt', 'html']
+            });
+        }
+
+        const truncated = text.length > MAX_CHARS;
+        if (truncated) text = text.slice(0, MAX_CHARS);
+
+        res.json({
+            file_name: fileName,
+            s3_key: s3Key,
+            file_type: ext,
+            method,
+            pages: pageCount,
+            char_count: text.length,
+            word_count: text.split(/\s+/).filter(Boolean).length,
+            truncated,
+            text
+        });
+    } catch (err) {
+        console.error('[extract-text] Error:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Mount the CRM API router BEFORE the Windmill catch-all proxy
