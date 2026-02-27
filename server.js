@@ -5788,13 +5788,18 @@ app.delete('/api/contacts/:id', async (req, res) => {
 // When status = "Sale", auto-generate sales_signature_token and trigger Zapier webhook
 app.patch('/api/cases/:id', async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, userId, userName } = req.body;
 
     if (!status) {
         return res.status(400).json({ error: 'Status is required' });
     }
 
     try {
+        // Fetch old status before updating
+        const oldStatusResult = await pool.query(`SELECT status, contact_id, lender FROM cases WHERE id = $1`, [id]);
+        const oldStatus = oldStatusResult.rows.length > 0 ? oldStatusResult.rows[0].status : null;
+        const contactId = oldStatusResult.rows.length > 0 ? oldStatusResult.rows[0].contact_id : null;
+
         let salesSignatureToken = null;
 
         // If status is "Sale", generate a unique token for this claim
@@ -5884,6 +5889,27 @@ app.patch('/api/cases/:id', async (req, res) => {
             });
         }
 
+        // Log status change to action_logs
+        if (contactId && oldStatus !== status) {
+            try {
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                     VALUES ($1, $2, $3, $4, $5, 'status_changed', 'claims', $6, $7, NOW())`,
+                    [
+                        contactId,
+                        parseInt(id),
+                        userId ? 'agent' : 'system',
+                        userId || 'system',
+                        userName || 'System',
+                        `Claim status changed from "${oldStatus || 'None'}" to "${status}" for ${updatedCase.lender}`,
+                        JSON.stringify({ old_status: oldStatus, new_status: status, lender: updatedCase.lender, case_id: parseInt(id) })
+                    ]
+                );
+            } catch (logErr) {
+                console.error('Error logging status change:', logErr);
+            }
+        }
+
         console.log(`✅ Updated case ${id} status to: ${status}`);
         crmEvents.emit('case.status_changed', { caseId: parseInt(id), contactId: updatedCase.contact_id, data: updatedCase, newStatus: status });
         res.json(updatedCase);
@@ -5895,7 +5921,7 @@ app.patch('/api/cases/:id', async (req, res) => {
 
 // Bulk Update Case Status (optimized for multiple claims)
 app.patch('/api/cases/bulk/status', async (req, res) => {
-    const { claimIds, status } = req.body;
+    const { claimIds, status, userId, userName } = req.body;
 
     if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0) {
         return res.status(400).json({ error: 'claimIds array is required' });
@@ -5906,6 +5932,16 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
     }
 
     try {
+        // Fetch old statuses before updating
+        const oldStatusResult = await pool.query(
+            `SELECT id, status, contact_id, lender FROM cases WHERE id = ANY($1::int[])`,
+            [claimIds]
+        );
+        const oldStatusMap = {};
+        oldStatusResult.rows.forEach(row => {
+            oldStatusMap[row.id] = { status: row.status, contact_id: row.contact_id, lender: row.lender };
+        });
+
         // Use a single query with ANY to update all claims at once
         // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
         let result;
@@ -5919,6 +5955,31 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
                 `UPDATE cases SET status = $1 WHERE id = ANY($2::int[]) RETURNING *`,
                 [status, claimIds]
             );
+        }
+
+        // Log status changes to action_logs for each updated claim
+        try {
+            for (const updatedCase of result.rows) {
+                const old = oldStatusMap[updatedCase.id];
+                const oldStatus = old ? old.status : null;
+                if (oldStatus !== status) {
+                    await pool.query(
+                        `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+                         VALUES ($1, $2, $3, $4, $5, 'status_changed', 'claims', $6, $7, NOW())`,
+                        [
+                            updatedCase.contact_id,
+                            updatedCase.id,
+                            userId ? 'agent' : 'system',
+                            userId || 'system',
+                            userName || 'System',
+                            `Claim status changed from "${oldStatus || 'None'}" to "${status}" for ${updatedCase.lender}`,
+                            JSON.stringify({ old_status: oldStatus, new_status: status, lender: updatedCase.lender, case_id: updatedCase.id })
+                        ]
+                    );
+                }
+            }
+        } catch (logErr) {
+            console.error('Error logging bulk status changes:', logErr);
         }
 
         // Trigger LOA generation for these statuses (queued + staggered to avoid overwhelming OnlyOffice)

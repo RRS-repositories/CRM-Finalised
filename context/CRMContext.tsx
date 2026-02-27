@@ -1692,7 +1692,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const response = await fetch(`${API_BASE_URL}/cases/${claimId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: newStatus, userId: currentUser?.id, userName: currentUser?.fullName })
       });
 
       if (!response.ok) {
@@ -1751,7 +1751,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const response = await fetch(`${API_BASE_URL}/cases/bulk/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claimIds, status: newStatus })
+        body: JSON.stringify({ claimIds, status: newStatus, userId: currentUser?.id, userName: currentUser?.fullName })
       });
 
       if (!response.ok) {
