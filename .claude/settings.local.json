@@ -105,8 +105,9 @@
       "Bash(ngrok http 5000 --log=stdout --log-format=logfmt)",
       "Bash(npm run dev)",
       "Bash(openssl rand -hex 32)",
-      "Bash(TaskOutput bxld1ucnl)",
-      "Bash(\"/c/Users/Admin/cloudflared.exe\" --version)"
+      "Bash(PGPASSWORD=admin123 psql -h rowan-rose-solicitors-clients-list.cjme82cqwljz.eu-north-1.rds.amazonaws.com -U postgres -d client_credentials -c \"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_data JSONB; ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_submitted BOOLEAN DEFAULT false; ALTER TABLE contacts ADD COLUMN IF NOT EXISTS signature_questionnaire_url TEXT;\")",
+      "Bash(git fetch origin main)",
+      "Bash(git stash)"
     ]
   }
 }

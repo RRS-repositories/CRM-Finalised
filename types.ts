@@ -164,6 +164,18 @@ export interface Contact {
   victimOfScam?: boolean;
   problematicGambling?: boolean;
   bettingCompanies?: string;
+
+  // Questionnaire
+  questionnaireData?: {
+    questions: Record<string, boolean>;
+    isGambler?: boolean;
+    previousBettingCompanies?: string;
+    estimatedGamblingLosses?: string;
+    additionalInformation?: string;
+    submittedAt: string;
+  };
+  questionnaireSubmitted?: boolean;
+  signatureQuestionnaireUrl?: string;
 }
 
 export interface ClientFormData {

@@ -661,6 +661,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           victimOfScam: c.victim_of_scam || false,
           problematicGambling: c.problematic_gambling || false,
           bettingCompanies: c.betting_companies || '',
+          questionnaireData: c.questionnaire_data || undefined,
+          questionnaireSubmitted: c.questionnaire_submitted || false,
+          signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
         }));
 
         // Append to existing contacts
@@ -768,6 +771,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           victimOfScam: c.victim_of_scam || false,
           problematicGambling: c.problematic_gambling || false,
           bettingCompanies: c.betting_companies || '',
+          questionnaireData: c.questionnaire_data || undefined,
+          questionnaireSubmitted: c.questionnaire_submitted || false,
+          signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
           clientId: c.client_id
         }));
 
@@ -1014,6 +1020,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               victimOfScam: c.victim_of_scam || false,
               problematicGambling: c.problematic_gambling || false,
               bettingCompanies: c.betting_companies || '',
+              questionnaireData: c.questionnaire_data || undefined,
+              questionnaireSubmitted: c.questionnaire_submitted || false,
+              signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
               clientId: c.client_id
             }));
             setContacts(mappedContacts);

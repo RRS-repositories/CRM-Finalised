@@ -221,6 +221,18 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
     `);
 
+    // Add questionnaire columns
+    console.log('Adding questionnaire columns to contacts...');
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_data JSONB;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_submitted BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS signature_questionnaire_url TEXT;
+    `);
+
     // Add extended claim fields to cases table
     console.log('Adding extended claim fields to cases...');
     await pool.query(`

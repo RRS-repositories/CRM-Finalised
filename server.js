@@ -6862,6 +6862,753 @@ app.post('/api/submit-loa-form', async (req, res) => {
     }
 });
 
+// ============================================
+// Combined Questionnaire Form (GET + POST)
+// ============================================
+
+// Serve Combined Questionnaire form page
+app.get('/questionnaire/:contactId', async (req, res) => {
+    const { contactId } = req.params;
+
+    try {
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name, full_name, client_id, questionnaire_submitted FROM contacts WHERE id = $1',
+            [contactId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).send(`<!DOCTYPE html><html><head><title>Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#EF4444;}</style></head><body><h1>Contact Not Found</h1><p>This questionnaire link is not valid. Please contact Rowan Rose Solicitors for assistance.</p></body></html>`);
+        }
+
+        const contact = contactRes.rows[0];
+        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
+        const clientRef = contact.client_id || `RR-${contact.id}`;
+
+        if (contact.questionnaire_submitted) {
+            return res.status(400).send(`<!DOCTYPE html><html><head><title>Already Submitted</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#F59E0B;}</style></head><body><h1>Already Submitted</h1><p>This questionnaire has already been submitted. Thank you.</p></body></html>`);
+        }
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Questionnaire - ${contactName}</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Inter"', '"Lato"', 'sans-serif'],
+                        serif: ['"Playfair Display"', 'serif'],
+                    },
+                    colors: {
+                        brand: { orange: '#F18F01' }
+                    }
+                }
+            }
+        }
+    <\/script>
+    <style>
+        input[type="checkbox"] { width: 28px !important; height: 28px !important; accent-color: #F18F01; cursor: pointer; flex-shrink: 0; }
+        .q-row:hover { background: #fff7ed; }
+        .q-row.checked { background: #fff7ed; border-color: #F18F01; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .section-header { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen w-full bg-slate-50 font-sans flex flex-col md:flex-row">
+
+        <!-- MOBILE HEADER -->
+        <div class="md:hidden bg-[#0f172a] p-6 flex items-center gap-3 shrink-0">
+            <img src="/rr-logo.png" alt="Logo" class="w-12 h-12 rounded-full shadow-lg" />
+            <h1 class="font-serif text-2xl tracking-wide text-white">Rowan Rose Solicitors</h1>
+        </div>
+
+        <!-- LEFT PANEL -->
+        <div class="order-3 md:order-1 md:w-5/12 lg:w-1/3 bg-[#0f172a] text-white flex flex-col justify-between shrink-0 shadow-2xl z-20 relative overflow-y-auto">
+            <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
+            <div class="absolute bottom-0 left-0 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
+
+            <div class="relative z-10 h-full flex flex-col p-8 md:p-12">
+                <div class="hidden md:flex items-center gap-3 mb-8 shrink-0">
+                    <img src="/rr-logo.png" alt="Logo" class="w-16 h-16 rounded-full shadow-lg" />
+                    <h1 class="font-serif text-3xl tracking-wide">Rowan Rose Solicitors</h1>
+                </div>
+
+                <div class="flex-1">
+                    <h2 class="text-2xl font-serif font-light leading-tight mb-4 text-brand-orange">Multi Discipline Law Firm in the Heart of Manchester</h2>
+                    <p class="text-slate-300 font-light leading-relaxed text-sm mb-8 border-l-2 border-slate-700 pl-4">Rowan Rose is a high-end boutique law firm committed to delivering the highest quality of service and advice.</p>
+
+                    <h3 class="text-lg font-serif text-white mb-6 border-b border-slate-700 pb-2">Why Choose Us</h3>
+
+                    <div class="space-y-4">
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-scale-balanced text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Expertise</h4><p class="text-slate-400 text-xs leading-relaxed">We have the expertise to handle a wide range of legal matters.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-bullseye text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Accuracy</h4><p class="text-slate-400 text-xs leading-relaxed">Accurate, comprehensive and detailed legal advice.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-shield-halved text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Reliability</h4><p class="text-slate-400 text-xs leading-relaxed">Well-versed in providing reliable legal advice.</p></div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i class="fas fa-sterling-sign text-brand-orange text-lg"></i></div>
+                            <div><h4 class="text-brand-orange font-medium text-base mb-1">Cost Effective</h4><p class="text-slate-400 text-xs leading-relaxed">Best value services without compromising quality.</p></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-10 border-t border-slate-700 pt-7">
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-4"><div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700"><i class="fas fa-envelope text-brand-orange text-lg"></i></div><a href="mailto:info@rowanrose.co.uk" class="text-white hover:text-brand-orange text-sm">info@rowanrose.co.uk</a></div>
+                            <div class="flex items-center gap-4"><div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700"><i class="fas fa-phone text-brand-orange text-lg"></i></div><a href="tel:01615330444" class="text-white hover:text-brand-orange text-sm">0161 533 0444</a></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL -->
+        <div class="order-2 md:order-2 flex-1 bg-white relative overflow-y-auto">
+            <div class="max-w-4xl mx-auto p-6 md:p-12 lg:p-16">
+                <h1 class="text-3xl md:text-4xl font-serif text-slate-800 mb-2">Client Questionnaire</h1>
+                <p class="text-slate-600 text-lg mb-2">Please answer the following questions honestly and to the best of your knowledge.</p>
+
+                <div class="mb-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div class="flex gap-8">
+                        <div><span class="text-slate-500 text-sm">Client Reference:</span> <span class="font-semibold text-slate-800">${clientRef}</span></div>
+                        <div><span class="text-slate-500 text-sm">Client Name:</span> <span class="font-semibold text-slate-800">${contactName}</span></div>
+                    </div>
+                </div>
+
+                <div id="errorMessage" class="hidden bg-red-50 text-red-700 p-4 rounded-xl border border-red-200 mb-6 font-medium"></div>
+
+                <form id="questionnaireForm">
+
+                    <!-- ==================== IRL SECTION ==================== -->
+
+                    <!-- INCOME & FINANCIAL BACKGROUND -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-sterling-sign mr-2"></i>INCOME & FINANCIAL BACKGROUND</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q1"><span class="text-slate-700">Were you employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q2"><span class="text-slate-700">Were you self-employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q3"><span class="text-slate-700">Were you on benefits at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q4"><span class="text-slate-700">Was your income less than &pound;20,000 per annum at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q5"><span class="text-slate-700">Was your income more than &pound;20,000 per annum at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing on time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q7"><span class="text-slate-700">Did you have other loans / credit at the same time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q8"><span class="text-slate-700">Were you borrowing from other lenders to make repayments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Did the lender check your income before approving the loan?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q10"><span class="text-slate-700">Did the lender check your outgoings before approving the loan?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q11"><span class="text-slate-700">Were you in an IVA or Debt Management Plan at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q12"><span class="text-slate-700">Had you ever been declared bankrupt before taking the loan?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Did you use the loan / credit to pay for essentials (rent, food, bills)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q14"><span class="text-slate-700">Were you relying on credit to get through the month?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q15"><span class="text-slate-700">Did you miss any repayments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Were you charged late fees or penalty charges?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- CURRENT & PREVIOUS HEALTH CONDITIONS -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-heart-pulse mr-2"></i>CURRENT & PREVIOUS HEALTH CONDITIONS</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q17"><span class="text-slate-700">Do you or have you suffered from anxiety?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q18"><span class="text-slate-700">Do you or have you suffered from depression?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q19"><span class="text-slate-700">Do you or have you suffered from stress-related illness?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q20"><span class="text-slate-700">Do you or have you suffered from a physical disability?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q21"><span class="text-slate-700">Do you or have you suffered from a learning disability?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q22"><span class="text-slate-700">Were you on medication at the time of taking out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q23"><span class="text-slate-700">Did your health condition affect your ability to manage finances?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q24"><span class="text-slate-700">Did the lender ask about your health or mental wellbeing?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q25"><span class="text-slate-700">Did your health condition worsen due to the financial pressure?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q26"><span class="text-slate-700">Did you inform the lender about your health condition?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q27"><span class="text-slate-700">Did the lender offer any support or adjustments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q28"><span class="text-slate-700">Were you receiving any form of care or support at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q29"><span class="text-slate-700">Did you feel pressured into taking the loan despite your condition?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q30"><span class="text-slate-700">Have you sought medical help as a result of financial stress?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q31"><span class="text-slate-700">Has the debt had a negative impact on your relationships or home life?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- PERSONAL & LIFESTYLE -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-user mr-2"></i>PERSONAL & LIFESTYLE</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q32"><span class="text-slate-700">Were you a single parent at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q33"><span class="text-slate-700">Did you have dependants relying on your income?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q34"><span class="text-slate-700">Were you in a vulnerable situation (e.g. domestic abuse, bereavement)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q35"><span class="text-slate-700">Did you feel the lender took advantage of your situation?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q36"><span class="text-slate-700">Were you under 25 years old when you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q37"><span class="text-slate-700">Did you fully understand the terms and conditions of the loan?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q38"><span class="text-slate-700">Did the lender explain the total cost of borrowing clearly?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q39"><span class="text-slate-700">Were you given enough time to consider the loan agreement?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q40"><span class="text-slate-700">Have you ever been contacted by debt collectors regarding this loan?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- ==================== GAMBLING TOGGLE ==================== -->
+                    <div class="mb-8 p-5 bg-amber-50 rounded-xl border-2 border-amber-300">
+                        <label class="flex items-center gap-4 cursor-pointer">
+                            <input type="checkbox" id="gamblerToggle" name="gamblerToggle">
+                            <span class="text-amber-900 font-bold text-lg">I am or have been a gambler</span>
+                        </label>
+                        <p class="text-amber-700 text-sm mt-2 ml-12">Tick this box if the gambling section below applies to you.</p>
+                    </div>
+
+                    <!-- ==================== GAMBLING SECTION (hidden by default) ==================== -->
+                    <div id="gamblingSection" style="display:none;">
+
+                        <!-- Previous Betting Companies & Losses -->
+                        <div class="mb-8 p-5 bg-amber-50 rounded-xl border border-amber-200">
+                            <div class="mb-4">
+                                <label for="previousBettingCompanies" class="block text-amber-900 font-semibold mb-2">Previous Betting Companies (please list all)</label>
+                                <textarea id="previousBettingCompanies" name="previousBettingCompanies" rows="3" class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900 resize-y" placeholder="e.g. Bet365, William Hill, Paddy Power..."></textarea>
+                            </div>
+                            <div>
+                                <label for="estimatedGamblingLosses" class="block text-amber-900 font-semibold mb-2">Estimated Gambling Losses (&pound;)</label>
+                                <input type="text" id="estimatedGamblingLosses" name="estimatedGamblingLosses" class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900" placeholder="e.g. 5000">
+                            </div>
+                        </div>
+
+                        <!-- SELF-EXCLUSION & PROBLEM GAMBLING -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-ban mr-2"></i>SELF-EXCLUSION & PROBLEM GAMBLING</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q41"><span class="text-slate-700">Did you ever self-exclude from any gambling platform?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q42"><span class="text-slate-700">Were you able to re-open your account after self-excluding?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did you register with GAMSTOP or any other self-exclusion scheme?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Did the gambling operator contact you with offers after you self-excluded?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q45"><span class="text-slate-700">Did you feel the operator failed to protect you as a problem gambler?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- VIP STATUS & AFFORDABILITY -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-crown mr-2"></i>VIP STATUS & AFFORDABILITY</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q46"><span class="text-slate-700">Were you given VIP status or placed in a loyalty / rewards scheme?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q47"><span class="text-slate-700">Did the operator carry out affordability checks on your account?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q48"><span class="text-slate-700">Were you spending beyond your means on gambling?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- TERMS & CONDITIONS -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-file-contract mr-2"></i>TERMS & CONDITIONS</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q49"><span class="text-slate-700">Did you read and understand the terms and conditions?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q50"><span class="text-slate-700">Were the terms and conditions clearly presented to you?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q51"><span class="text-slate-700">Were there any hidden terms that you were not made aware of?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- IDENTITY & SOURCE OF FUNDS -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-id-card mr-2"></i>IDENTITY & SOURCE OF FUNDS</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q52"><span class="text-slate-700">Were you asked to verify your identity when opening your account?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q53"><span class="text-slate-700">Were you asked about your source of funds?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Did you provide false information to the operator about your finances?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- DEPOSITS & WITHDRAWALS -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-money-bill-transfer mr-2"></i>DEPOSITS & WITHDRAWALS</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q55"><span class="text-slate-700">Did your deposits increase significantly over time?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q56"><span class="text-slate-700">Did you experience delays or issues when trying to withdraw funds?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q57"><span class="text-slate-700">Did you reverse withdrawals to continue gambling?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- GAMBLING LOSSES & INTERVENTION -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-chart-line mr-2"></i>GAMBLING LOSSES & INTERVENTION</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q58"><span class="text-slate-700">Did you chase your losses by gambling more?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q59"><span class="text-slate-700">Did anyone (family, friends) intervene or express concern about your gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Did the operator intervene or set any limits on your account?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- BONUSES & PROMOTIONS -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES & PROMOTIONS</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Were you offered free bets, bonuses, or promotions to encourage gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q62"><span class="text-slate-700">Did these offers encourage you to gamble more than you intended?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- TECHNICAL ISSUES -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-laptop-code mr-2"></i>TECHNICAL ISSUES</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q63"><span class="text-slate-700">Did you experience any technical issues (glitches, errors) while gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q64"><span class="text-slate-700">Did technical issues result in financial loss?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- COMPLAINTS & DISPUTES -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gavel mr-2"></i>COMPLAINTS & DISPUTES</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q65"><span class="text-slate-700">Have you previously made a complaint to the gambling operator?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q66"><span class="text-slate-700">Was your complaint resolved to your satisfaction?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Have you escalated any complaint to an ombudsman or ADR service?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- REGULATORY COMPLIANCE -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q68"><span class="text-slate-700">Do you believe the operator failed to comply with gambling regulations?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q69"><span class="text-slate-700">Were you allowed to gamble when you should have been restricted?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q70"><span class="text-slate-700">Did the operator fail to display responsible gambling information clearly?</span></label>
+                            </div>
+                        </div>
+
+                        <!-- BANK RESPONSIBILITY -->
+                        <div class="mb-8">
+                            <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3></div>
+                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q71"><span class="text-slate-700">Did your bank allow gambling transactions despite signs of financial difficulty?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">Did you ask your bank to block gambling transactions?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q73"><span class="text-slate-700">Did your bank offer support or signpost you to gambling support services?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q74"><span class="text-slate-700">Were gambling transactions visible on your bank statements?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">Did you use credit facilities (overdraft, credit card) to fund gambling?</span></label>
+                            </div>
+                        </div>
+
+                    </div>
+                    <!-- END GAMBLING SECTION -->
+
+                    <!-- ADDITIONAL INFORMATION -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-comment-dots mr-2"></i>ADDITIONAL INFORMATION</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl p-5">
+                            <p class="text-slate-500 text-sm mb-3">Please provide any additional information that may be relevant to your claim.</p>
+                            <textarea id="additionalInformation" name="additionalInformation" rows="5" class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white text-gray-900 resize-y" placeholder="Type any additional details here..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- DECLARATION & SIGNATURE -->
+                    <div class="mt-10 p-6 bg-slate-50 rounded-xl border-2 border-slate-300">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-3">Declaration</h3>
+                        <div class="text-center p-4 bg-white rounded-lg border border-slate-200 mb-4">
+                            <p class="text-slate-700 text-sm leading-relaxed">I, <span class="font-bold text-brand-orange">${contactName}</span>, confirm that the information provided in this questionnaire is true and accurate to the best of my knowledge. I authorise Rowan Rose Solicitors to use this information in connection with my claim.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label for="printName" class="block text-slate-600 text-sm font-medium mb-1">Print Name</label>
+                                <input type="text" id="printName" name="printName" value="${contactName}" class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900" readonly>
+                            </div>
+                            <div>
+                                <label for="signDate" class="block text-slate-600 text-sm font-medium mb-1">Date</label>
+                                <input type="text" id="signDate" name="signDate" value="${new Date().toLocaleDateString('en-GB')}" class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900" readonly>
+                            </div>
+                        </div>
+
+                        <h3 class="text-lg font-semibold text-slate-800 mb-1">Your Signature</h3>
+                        <p class="text-slate-500 text-sm mb-4">Sign below to confirm your declaration</p>
+                        <div class="relative bg-white border-2 border-slate-300 rounded-xl overflow-hidden">
+                            <canvas id="signatureCanvas" class="w-full cursor-crosshair" style="height:180px;touch-action:none;"></canvas>
+                            <div id="signaturePlaceholder" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-300 text-2xl italic pointer-events-none">Sign here</div>
+                        </div>
+                        <div class="flex justify-between items-center mt-3">
+                            <span class="text-slate-400 text-sm">Draw with finger or mouse</span>
+                            <button type="button" onclick="clearSignature()" class="text-slate-500 hover:text-red-500 text-sm font-semibold uppercase">Clear</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="w-full mt-8 py-5 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl shadow-lg hover:shadow-xl transition-all uppercase tracking-wide">Submit Questionnaire</button>
+                </form>
+
+                <div id="loading" class="hidden text-center py-16">
+                    <div class="w-12 h-12 border-4 border-slate-200 border-t-brand-orange rounded-full mx-auto" style="animation:spin 1s linear infinite;"></div>
+                    <p class="mt-4 text-slate-600">Submitting your questionnaire...</p>
+                </div>
+
+                <div id="success" class="hidden text-center py-16">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-check text-3xl text-green-600"></i></div>
+                    <h2 class="text-2xl font-bold text-green-700 mb-2">Questionnaire Submitted Successfully!</h2>
+                    <p class="text-slate-600">Thank you. We will review your information and be in touch shortly.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle gambling section
+        const gamblerToggle = document.getElementById('gamblerToggle');
+        const gamblingSection = document.getElementById('gamblingSection');
+        gamblerToggle.addEventListener('change', function() {
+            gamblingSection.style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Checked row styling
+        document.querySelectorAll('.q-row input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', function() {
+                this.closest('.q-row').classList.toggle('checked', this.checked);
+            });
+        });
+
+        // Signature canvas
+        const canvas = document.getElementById('signatureCanvas');
+        const ctx = canvas.getContext('2d');
+        const placeholder = document.getElementById('signaturePlaceholder');
+        let isDrawing = false, hasSignature = false;
+
+        function resizeCanvas() {
+            const ratio = window.devicePixelRatio || 1;
+            const width = canvas.parentElement.clientWidth;
+            canvas.width = width * ratio; canvas.height = 180 * ratio;
+            canvas.style.width = width + 'px'; canvas.style.height = '180px';
+            ctx.scale(ratio, ratio); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        function hidePlaceholder() { placeholder.style.display = 'none'; hasSignature = true; }
+
+        canvas.addEventListener('mousedown', e => { isDrawing = true; const r = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); });
+        canvas.addEventListener('mousemove', e => { if (!isDrawing) return; const r = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - r.left, e.clientY - r.top); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('mouseout', () => isDrawing = false);
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0], r = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); isDrawing = true; });
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!isDrawing) return; const t = e.touches[0], r = canvas.getBoundingClientRect(); ctx.lineTo(t.clientX - r.left, t.clientY - r.top); ctx.stroke(); hidePlaceholder(); });
+        canvas.addEventListener('touchend', e => { e.preventDefault(); isDrawing = false; });
+
+        function clearSignature() {
+            const ratio = window.devicePixelRatio || 1;
+            ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.scale(ratio, ratio); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            hasSignature = false; placeholder.style.display = 'block';
+        }
+
+        // Form submission
+        document.getElementById('questionnaireForm').addEventListener('submit', async e => {
+            e.preventDefault();
+
+            if (!hasSignature) { alert('Please provide your signature.'); return; }
+
+            // Collect all question answers
+            const questions = {};
+            for (let i = 1; i <= 75; i++) {
+                const cb = document.querySelector('input[name="q' + i + '"]');
+                questions['q' + i] = cb ? cb.checked : false;
+            }
+
+            const payload = {
+                contactId: ${contact.id},
+                questions: questions,
+                isGambler: gamblerToggle.checked,
+                previousBettingCompanies: document.getElementById('previousBettingCompanies') ? document.getElementById('previousBettingCompanies').value.trim() : '',
+                estimatedGamblingLosses: document.getElementById('estimatedGamblingLosses') ? document.getElementById('estimatedGamblingLosses').value.trim() : '',
+                additionalInformation: document.getElementById('additionalInformation').value.trim(),
+                signatureData: canvas.toDataURL('image/png')
+            };
+
+            document.getElementById('questionnaireForm').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch('/api/submit-questionnaire', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                document.getElementById('loading').style.display = 'none';
+                if (result.success) {
+                    document.getElementById('success').style.display = 'block';
+                } else {
+                    document.getElementById('errorMessage').textContent = result.message || 'Error submitting questionnaire.';
+                    document.getElementById('errorMessage').classList.remove('hidden');
+                    document.getElementById('questionnaireForm').style.display = 'block';
+                }
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('errorMessage').textContent = 'Error submitting questionnaire. Please try again.';
+                document.getElementById('errorMessage').classList.remove('hidden');
+                document.getElementById('questionnaireForm').style.display = 'block';
+            }
+        });
+    <\/script>
+</body>
+</html>`);
+    } catch (error) {
+        console.error('Error serving questionnaire form:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Submit Combined Questionnaire
+app.post('/api/submit-questionnaire', async (req, res) => {
+    const { contactId, questions, isGambler, previousBettingCompanies, estimatedGamblingLosses, additionalInformation, signatureData } = req.body;
+
+    if (!contactId || !questions || !signatureData) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // Verify contact exists and hasn't already submitted
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name, questionnaire_submitted FROM contacts WHERE id = $1',
+            [contactId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contact not found' });
+        }
+
+        const contact = contactRes.rows[0];
+
+        if (contact.questionnaire_submitted) {
+            return res.status(400).json({ success: false, message: 'Questionnaire has already been submitted.', alreadySubmitted: true });
+        }
+
+        // Build JSONB data
+        const questionnaireData = {
+            questions,
+            isGambler: isGambler || false,
+            previousBettingCompanies: previousBettingCompanies || '',
+            estimatedGamblingLosses: estimatedGamblingLosses || '',
+            additionalInformation: additionalInformation || '',
+            submittedAt: new Date().toISOString()
+        };
+
+        // --- UPDATE DB IMMEDIATELY ---
+        await pool.query(
+            'UPDATE contacts SET questionnaire_data = $1, questionnaire_submitted = true WHERE id = $2',
+            [JSON.stringify(questionnaireData), contactId]
+        );
+
+        // --- IMMEDIATE RESPONSE ---
+        res.json({ success: true, message: 'Questionnaire submitted successfully' });
+
+        // --- BACKGROUND PROCESSING ---
+        (async () => {
+            try {
+                console.log(`[Background Questionnaire] Starting processing for contact ${contactId}...`);
+
+                const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+
+                // 1. Upload Signature to S3
+                const base64Data = signatureData.replace(/^data:image\/png;base64,/, '');
+                const signatureBuffer = Buffer.from(base64Data, 'base64');
+                const signatureKey = `${folderPath}Signatures/signature_questionnaire.png`;
+
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: signatureKey,
+                    Body: signatureBuffer,
+                    ContentType: 'image/png'
+                }));
+
+                // Generate presigned URL
+                const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
+
+                // 2. Update contact with signature URL
+                await pool.query('UPDATE contacts SET signature_questionnaire_url = $1 WHERE id = $2', [signatureUrl, contactId]);
+
+                // 3. Save signature to documents table
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [contactId, 'Signature_Questionnaire.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Questionnaire']]
+                );
+
+                // 4. Log action
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                     VALUES ($1, 'client', $2, 'questionnaire_submitted', 'forms', $3, $4)`,
+                    [
+                        contactId,
+                        String(contactId),
+                        `Client submitted combined questionnaire`,
+                        JSON.stringify({ isGambler: isGambler || false, questionsAnswered: Object.values(questions).filter(v => v === true).length })
+                    ]
+                );
+
+                // 5. Generate Questionnaire PDF from combined_questionnaire template
+                try {
+                    console.log('[Background Questionnaire] Generating PDF from combined_questionnaire template...');
+
+                    // Find template in oo_templates
+                    const templateRes = await pool.query(
+                        `SELECT s3_key FROM oo_templates WHERE name ILIKE '%combined_questionnaire%' AND is_active = TRUE ORDER BY updated_at DESC LIMIT 1`
+                    );
+
+                    if (templateRes.rows.length === 0) {
+                        console.warn('[Background Questionnaire] combined_questionnaire template not found in oo_templates, skipping PDF generation');
+                    } else {
+                        const templateS3Key = templateRes.rows[0].s3_key;
+                        console.log(`[Background Questionnaire] Using template: ${templateS3Key}`);
+
+                        // Download template from S3
+                        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: templateS3Key });
+                        const s3Resp = await s3Client.send(getCmd);
+                        const chunks = [];
+                        for await (const chunk of s3Resp.Body) { chunks.push(chunk); }
+                        const templateBuffer = Buffer.concat(chunks);
+
+                        // Build template variables
+                        const CHECKED = '☑';
+                        const UNCHECKED = '☐';
+                        const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+                        const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+
+                        const templateVars = {
+                            // All 75 question checkboxes: q1...q75
+                            ...Object.fromEntries(
+                                Array.from({ length: 75 }, (_, i) => {
+                                    const key = `q${i + 1}`;
+                                    return [key, questions[key] ? CHECKED : UNCHECKED];
+                                })
+                            ),
+
+                            // Gambler toggle
+                            isGambler: isGambler ? CHECKED : UNCHECKED,
+
+                            // Text fields
+                            previousBettingCompanies: previousBettingCompanies || '',
+                            estimatedGamblingLosses: estimatedGamblingLosses || '',
+                            additionalInformation: additionalInformation || '',
+
+                            // Client details
+                            client_id: contact.client_id || `RR-${contactId}`,
+                            client_name: fullName,
+                            print_name: fullName,
+                            today: today,
+                            date: today,
+
+                            // Signature image
+                            signatureImage: signatureBuffer ? {
+                                _type: 'image',
+                                data: signatureBuffer.toString('base64'),
+                                extension: '.png',
+                                width: 5,
+                                height: 2.5,
+                            } : null,
+                        };
+
+                        // Pre-process: ensure {{signatureImage}} uses IMAGE command
+                        let processedTemplate = templateBuffer;
+                        try {
+                            const tZip = new PizZip(templateBuffer);
+                            const docXml = tZip.file('word/document.xml');
+                            if (docXml) {
+                                let xml = docXml.asText();
+                                xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage}}');
+                                xml = xml.replace(/\{\{signatureImage/g, '{{IMAGE signatureImage');
+                                tZip.file('word/document.xml', xml);
+                                processedTemplate = tZip.generate({ type: 'nodebuffer' });
+                            }
+                        } catch (ppErr) {
+                            console.warn('[Background Questionnaire] Template pre-processing skipped:', ppErr.message);
+                        }
+
+                        // Fill template with createReport
+                        let docxBuffer;
+                        try {
+                            docxBuffer = await createReport({
+                                template: processedTemplate,
+                                data: templateVars,
+                                cmdDelimiter: ['{{', '}}'],
+                            });
+                            console.log('[Background Questionnaire] DOCX template filled via createReport');
+                        } catch (crErr) {
+                            console.warn('[Background Questionnaire] createReport failed, trying Docxtemplater:', crErr.message);
+                            const zip = new PizZip(templateBuffer);
+                            const doc = new Docxtemplater(zip, {
+                                paragraphLoop: true,
+                                linebreaks: true,
+                                delimiters: { start: '{{', end: '}}' },
+                            });
+                            const flatVars = { ...templateVars };
+                            if (flatVars.signatureImage && typeof flatVars.signatureImage === 'object') {
+                                flatVars.signatureImage = '[Signature]';
+                            }
+                            doc.render(flatVars);
+                            docxBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+                        }
+
+                        // Convert DOCX to PDF via OnlyOffice
+                        let pdfBuffer;
+                        try {
+                            pdfBuffer = await convertDocxToPdf(docxBuffer, `Questionnaire_${contactId}.docx`);
+                            console.log('[Background Questionnaire] OnlyOffice conversion successful');
+                        } catch (ooErr) {
+                            console.warn('[Background Questionnaire] OnlyOffice failed, trying fallback:', ooErr.message);
+                            const libreOfficePath = await findLibreOffice();
+                            if (libreOfficePath) {
+                                pdfBuffer = await convertWithLibreOffice(docxBuffer, 'pdf', libreOfficePath);
+                            } else {
+                                pdfBuffer = await convertDocxToPdfWithPuppeteer(docxBuffer);
+                            }
+                        }
+
+                        // Upload PDF to S3
+                        const sanitizedFolder = folderPath.replace(/\s+/g, '_');
+                        const pdfFileName = `Combined_Questionnaire_${contactId}.pdf`;
+                        const pdfS3Key = `${sanitizedFolder}Documents/Other/${pdfFileName}`;
+
+                        await s3Client.send(new PutObjectCommand({
+                            Bucket: BUCKET_NAME,
+                            Key: pdfS3Key,
+                            Body: pdfBuffer,
+                            ContentType: 'application/pdf',
+                        }));
+
+                        const pdfDownloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: pdfS3Key }), { expiresIn: 604800 });
+
+                        // Save PDF document record
+                        await pool.query(
+                            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                            [
+                                contactId,
+                                pdfFileName,
+                                'pdf',
+                                'Legal',
+                                pdfDownloadUrl,
+                                `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
+                                ['Combined Questionnaire', 'Generated']
+                            ]
+                        );
+
+                        console.log(`[Background Questionnaire] PDF generated and uploaded: ${pdfS3Key}`);
+                    }
+                } catch (pdfErr) {
+                    console.error('[Background Questionnaire] PDF generation failed:', pdfErr.message);
+                }
+
+                console.log(`[Background Questionnaire] All tasks completed for contact ${contactId}`);
+
+            } catch (err) {
+                console.error('[Background Questionnaire] Background Processing Error:', err);
+            }
+        })();
+
+    } catch (error) {
+        console.error('Submit Questionnaire Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 // Get action timeline for a contact
 app.get('/api/contacts/:id/action-timeline', async (req, res) => {
     const { id } = req.params;
