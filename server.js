@@ -6289,9 +6289,10 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         }
     </script>
     <style>
-        input[type="checkbox"] { width: 40px !important; height: 40px !important; accent-color: #F18F01; cursor: pointer; }
+        input[type="checkbox"] { width: 28px !important; height: 28px !important; accent-color: #F18F01; cursor: pointer; flex-shrink: 0; }
         .lender-row:hover { background: #fff7ed; }
         .lender-row.checked { background: #fff7ed; border-color: #F18F01; }
+        .section-header { background: linear-gradient(135deg, #0f172a, #1e293b); }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
@@ -6411,17 +6412,34 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         const lenderCategories = ${JSON.stringify(filteredCategories)};
         const container = document.getElementById('lenderCategories');
 
+        const categoryIcons = {
+            'CREDIT CARDS': 'fa-credit-card',
+            'PAYDAY LOANS / LOANS': 'fa-money-bill-wave',
+            'GUARANTOR LOANS': 'fa-handshake',
+            'LOGBOOK LOANS / PAWNBROKERS': 'fa-car',
+            'CATALOGUES': 'fa-shopping-bag',
+            'CAR FINANCE': 'fa-car-side',
+            'OVERDRAFTS': 'fa-building-columns'
+        };
+
         lenderCategories.forEach((category, catIndex) => {
             const section = document.createElement('div');
+            section.className = 'mb-8';
             const title = category.title.replace('TICK THE ', '').replace(' WHICH APPLY TO YOU :', '');
-            section.innerHTML = '<h3 class="text-lg font-semibold text-slate-700 mb-3 pb-2 border-b-2 border-brand-orange inline-block">' + title + '</h3>';
+            const iconClass = Object.entries(categoryIcons).find(([k]) => title.toUpperCase().includes(k))?.[1] || 'fa-list';
+
+            const header = document.createElement('div');
+            header.className = 'section-header text-white px-5 py-3 rounded-t-xl';
+            header.innerHTML = '<h3 class="text-lg font-semibold tracking-wide"><i class="fas ' + iconClass + ' mr-2"></i>' + title + '</h3>';
+            section.appendChild(header);
+
             const list = document.createElement('div');
-            list.className = 'space-y-2';
+            list.className = 'border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100';
             category.lenders.forEach((lender, lenderIndex) => {
                 const id = 'lender_' + catIndex + '_' + lenderIndex;
                 const row = document.createElement('label');
-                row.className = 'lender-row flex items-center gap-4 p-3 rounded-lg border border-transparent hover:border-orange-200 cursor-pointer transition-all';
-                row.innerHTML = '<input type="checkbox" id="' + id + '" name="lenders" value="' + lender + '" class="shrink-0"><span class="text-slate-700 font-medium">' + lender + '</span>';
+                row.className = 'lender-row flex items-center gap-4 p-4 cursor-pointer transition-all';
+                row.innerHTML = '<input type="checkbox" id="' + id + '" name="lenders" value="' + lender + '"><span class="text-slate-700 font-medium">' + lender + '</span>';
                 row.querySelector('input').addEventListener('change', function() { row.classList.toggle('checked', this.checked); });
                 list.appendChild(row);
             });

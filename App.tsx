@@ -138,23 +138,18 @@ const AppContent = () => {
     );
   }
 
-  // Show loading spinner while initial data is being fetched
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
-
   return (
     <Suspense fallback={<ModuleLoader />}>
     <Routes>
-      {/* Public standalone routes - NO sidebar/layout (must be first to take priority) */}
+      {/* Public standalone routes - NO sidebar/layout, render immediately without CRM data */}
       <Route path="/intake/vanquis" element={<LenderIntake lenderType="VANQUIS" />} />
       <Route path="/intake/loans2go" element={<LenderIntake lenderType="LOANS2GO" />} />
       <Route path="/intake/gambling" element={<LenderIntake lenderType="GAMBLING" />} />
       <Route path="/loa-form/*" element={<LoaSelectionForm />} />
       <Route path="/confirm-lender/*" element={<LenderConfirmation />} />
 
-      {/* All other routes wrapped in Layout with sidebar */}
-      <Route path="*" element={
+      {/* All other routes: wait for CRM data before rendering */}
+      <Route path="*" element={isLoading ? <LoadingSpinner /> :
         <>
           <Layout
             currentView={currentView}
