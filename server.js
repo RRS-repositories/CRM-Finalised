@@ -910,12 +910,32 @@ async function generateIrlMultipleLenderPdf({
         } : null,
     };
 
-    // 5. Fill DOCX template using createReport (same engine as LOA & Cover Letter)
+    // 5. Pre-process: ensure {{signatureImage}} uses IMAGE command ({{IMAGE signatureImage}})
+    //    createReport requires the IMAGE keyword for image objects
+    let processedTemplate = templateBuffer;
+    try {
+        const tZip = new PizZip(templateBuffer);
+        const docXml = tZip.file('word/document.xml');
+        if (docXml) {
+            let xml = docXml.asText();
+            // Replace {{signatureImage}} with {{IMAGE signatureImage}} if IMAGE keyword is missing
+            xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage}}');
+            // Also handle split runs: {{signatureImage might be split across runs
+            xml = xml.replace(/\{\{signatureImage/g, '{{IMAGE signatureImage');
+            tZip.file('word/document.xml', xml);
+            processedTemplate = tZip.generate({ type: 'nodebuffer' });
+            console.log('[IRL PDF] Pre-processed template: ensured IMAGE command for signature');
+        }
+    } catch (ppErr) {
+        console.warn('[IRL PDF] Template pre-processing skipped:', ppErr.message);
+    }
+
+    // 6. Fill DOCX template using createReport (same engine as LOA & Cover Letter)
     console.log('[IRL PDF] Filling DOCX template with createReport...');
     let docxBuffer;
     try {
         docxBuffer = await createReport({
-            template: templateBuffer,
+            template: processedTemplate,
             data: templateVars,
             cmdDelimiter: ['{{', '}}'],
         });
