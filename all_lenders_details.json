@@ -1460,6 +1460,16 @@
         }
     },
     {
+        "lender": "ONDAL FINANCE",
+        "email": "complaints@ondal.co.uk",
+        "address": {
+            "company_name": "Ondal Group Limited",
+            "first_line_address": "71-75 Shelton Street",
+            "town_city": "London",
+            "postcode": "WC2H 9JQ"
+        }
+    },
+    {
         "lender": "ONE PLUS ONE LOANS",
         "email": null,
         "address": {
