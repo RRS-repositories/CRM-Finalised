@@ -772,11 +772,62 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         }
     }
 
+    // DATABASE FALLBACK: If still missing, check the documents table for actual S3 URLs
+    if (!documents.loa || !documents.coverLetter) {
+        console.log(`[Worker] 🗄️ Database fallback: checking documents table for contact ${contactId}, lender ${lenderName}`);
+        try {
+            const dbDocs = await pool.query(
+                `SELECT name, url, category FROM documents
+                 WHERE contact_id = $1 AND (category = 'LOA' OR category = 'Cover Letter')
+                 ORDER BY created_at DESC`,
+                [contactId]
+            );
+            for (const doc of dbDocs.rows) {
+                // Match by lender name in the filename
+                const nameUpper = doc.name.toUpperCase();
+                const lenderUpper = lenderName.toUpperCase();
+                const sanitizedLender = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_').toUpperCase();
+                if (!nameUpper.includes(lenderUpper) && !nameUpper.includes(sanitizedLender)) continue;
+
+                if (!documents.loa && doc.category === 'LOA' && doc.url) {
+                    // Extract S3 key from the presigned URL
+                    try {
+                        const urlPath = new URL(doc.url).pathname;
+                        const s3Key = decodeURIComponent(urlPath.replace(`/${BUCKET_NAME}/`, ''));
+                        const fetched = await fetchPdfFromS3(s3Key);
+                        if (fetched) {
+                            documents.loa = fetched;
+                            console.log(`[Worker] ✅ DB fallback found LOA: ${doc.name}`);
+                        }
+                    } catch (e) {
+                        console.log(`[Worker] DB fallback LOA fetch failed: ${e.message}`);
+                    }
+                }
+                if (!documents.coverLetter && doc.category === 'Cover Letter' && doc.url) {
+                    try {
+                        const urlPath = new URL(doc.url).pathname;
+                        const s3Key = decodeURIComponent(urlPath.replace(`/${BUCKET_NAME}/`, ''));
+                        const fetched = await fetchPdfFromS3(s3Key);
+                        if (fetched) {
+                            documents.coverLetter = fetched;
+                            console.log(`[Worker] ✅ DB fallback found Cover Letter: ${doc.name}`);
+                        }
+                    } catch (e) {
+                        console.log(`[Worker] DB fallback Cover Letter fetch failed: ${e.message}`);
+                    }
+                }
+                if (documents.loa && documents.coverLetter) break;
+            }
+        } catch (dbErr) {
+            console.log(`[Worker] DB fallback query failed: ${dbErr.message}`);
+        }
+    }
+
     if (!documents.loa) {
-        console.log(`[Worker] ❌ LOA not found (even with AI)`);
+        console.log(`[Worker] ❌ LOA not found (even with AI and DB fallback)`);
     }
     if (!documents.coverLetter) {
-        console.log(`[Worker] ❌ Cover Letter not found (even with AI)`);
+        console.log(`[Worker] ❌ Cover Letter not found (even with AI and DB fallback)`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
