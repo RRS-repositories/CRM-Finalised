@@ -133,7 +133,8 @@ const s3Client = new S3Client({
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    }
+    },
+    requestHandler: { requestTimeout: 15000, connectionTimeout: 5000 },
 });
 
 // Path-style S3 client for OnlyOffice — buckets with dots (e.g. client.landing.page)
@@ -3365,6 +3366,62 @@ app.get('/api/documents', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Shared checklist computation helper ─────────────────────────────────────
+function computeChecklist(docs, extraLenders) {
+    const twelveWeeksAgo = new Date();
+    twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 84); // 12 weeks
+
+    const identification = docs.some(d => {
+        const n = (d.name || '').toLowerCase();
+        const c = (d.category || '').toLowerCase();
+        return c === 'id document' || n.includes('passport') || n.includes('driving licence') || n.includes('driving license') || n.includes('national id');
+    });
+
+    const extraLender =
+        Boolean((extraLenders || '').trim()) ||
+        docs.some(d => {
+            const n = (d.name || '').toLowerCase();
+            const c = (d.category || '').toLowerCase();
+            return c.includes('extra lender') || c.includes('multiple lender') || n.includes('extra lender') || n.includes('multiple lender');
+        });
+
+    const questionnaire = docs.some(d => {
+        const n = (d.name || '').toLowerCase();
+        const c = (d.category || '').toLowerCase();
+        return n.includes('questionnaire') || c.includes('questionnaire');
+    });
+
+    // POA: must be a bank statement, utility bill, or council tax bill dated within 12 weeks
+    const poa = docs.some(d => {
+        const n = (d.name || '').toLowerCase();
+        const isRecent = d.created_at ? new Date(d.created_at) >= twelveWeeksAgo : false;
+        const isValidType = n.includes('bank statement') || n.includes('bank_statement') ||
+            n.includes('utility bill') || n.includes('utility_bill') ||
+            n.includes('council tax') || n.includes('council_tax');
+        return isValidType && isRecent;
+    });
+
+    return { identification, extraLender, questionnaire, poa };
+}
+
+// ── POST /api/contacts/:id/sync-checklist ── Derive & persist checklist from DB docs
+app.post('/api/contacts/:id/sync-checklist', async (req, res) => {
+    try {
+        const contactId = parseInt(req.params.id);
+        const [docsRes, contactRes] = await Promise.all([
+            pool.query('SELECT name, category, created_at FROM documents WHERE contact_id = $1', [contactId]),
+            pool.query('SELECT extra_lenders FROM contacts WHERE id = $1', [contactId])
+        ]);
+        if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
+        const checklist = computeChecklist(docsRes.rows, contactRes.rows[0].extra_lenders);
+        await pool.query(
+            `UPDATE contacts SET document_checklist = $1::jsonb WHERE id = $2`,
+            [JSON.stringify(checklist), contactId]
+        );
+        res.json(checklist);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/contacts/:id/documents', async (req, res) => {
     try {
         const contactId = req.params.id;
@@ -3467,13 +3524,43 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
                     const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
                     const fileType = extToType[ext] || 'unknown';
 
-                    // Auto-detect category
+                    // Auto-detect category from subfolder structure
                     let category = folder.defaultCategory;
+
+                    // Map sanitized folder names back to proper category names
+                    const CATEGORY_FOLDER_MAP = {
+                        'id document': 'ID Document', 'proof of address': 'Proof of Address',
+                        'bank statement': 'Bank Statement', 'dsar': 'DSAR',
+                        'letter of authority': 'Letter of Authority', 'cover letter': 'Cover Letter',
+                        'complaint letter': 'Complaint Letter', 'final response letter frl': 'Final Response Letter (FRL)',
+                        'counter response': 'Counter Response', 'fos complaint form': 'FOS Complaint Form',
+                        'fos decision': 'FOS Decision', 'offer letter': 'Offer Letter',
+                        'acceptance form': 'Acceptance Form', 'settlement agreement': 'Settlement Agreement',
+                        'invoice': 'Invoice', 'other': 'Other', 'client': 'Client', 'legal': 'Legal'
+                    };
+
+                    // Extract category from subfolder path
+                    if (folder.prefix.includes('/Lenders/')) {
+                        // Lenders/{Lender}/{Category}/file.pdf → pathParts: [Lender, Category, file]
+                        if (pathParts.length > 2) {
+                            const subfolderName = pathParts[1].replace(/_/g, ' ').toLowerCase();
+                            if (CATEGORY_FOLDER_MAP[subfolderName]) {
+                                category = CATEGORY_FOLDER_MAP[subfolderName];
+                            }
+                        }
+                    } else if (folder.prefix.includes('/Documents/')) {
+                        // Documents/{Category}/file.pdf → pathParts: [Category, file]
+                        if (pathParts.length > 1) {
+                            const subfolderName = pathParts[0].replace(/_/g, ' ').toLowerCase();
+                            if (CATEGORY_FOLDER_MAP[subfolderName]) {
+                                category = CATEGORY_FOLDER_MAP[subfolderName];
+                            }
+                        }
+                    }
+
+                    // Filename-based detection (overrides folder-based for LOA/Cover Letter)
                     if (baseName.includes('Cover_Letter') || baseName.includes('COVER LETTER')) category = 'Cover Letter';
                     else if (baseName.includes('_LOA') || baseName.includes(' - LOA.pdf') || baseName.includes(' - LOA ')) category = 'LOA';
-                    if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
-                    if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
-                    if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
                     if (folder.prefix.includes('Terms-and-Conditions')) category = 'Legal';
 
                     // Extract lender tag from path
@@ -3988,14 +4075,37 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
                 };
                 const fileType = typeMap[ext] || 'unknown';
 
-                // Auto-detect category from filename
+                // Auto-detect category from subfolder structure
                 let category = folder.defaultCategory;
+
+                // Map sanitized folder names back to proper category names
+                const SYNC_CATEGORY_MAP = {
+                    'id document': 'ID Document', 'proof of address': 'Proof of Address',
+                    'bank statement': 'Bank Statement', 'dsar': 'DSAR',
+                    'letter of authority': 'Letter of Authority', 'cover letter': 'Cover Letter',
+                    'complaint letter': 'Complaint Letter', 'final response letter frl': 'Final Response Letter (FRL)',
+                    'counter response': 'Counter Response', 'fos complaint form': 'FOS Complaint Form',
+                    'fos decision': 'FOS Decision', 'offer letter': 'Offer Letter',
+                    'acceptance form': 'Acceptance Form', 'settlement agreement': 'Settlement Agreement',
+                    'invoice': 'Invoice', 'other': 'Other', 'client': 'Client', 'legal': 'Legal'
+                };
+
+                // Extract category from subfolder path
+                if (folder.prefix.includes('/Lenders/')) {
+                    if (pathParts.length > 2) {
+                        const subfolderName = pathParts[1].replace(/_/g, ' ').toLowerCase();
+                        if (SYNC_CATEGORY_MAP[subfolderName]) category = SYNC_CATEGORY_MAP[subfolderName];
+                    }
+                } else if (folder.prefix.includes('/Documents/')) {
+                    if (pathParts.length > 1) {
+                        const subfolderName = pathParts[0].replace(/_/g, ' ').toLowerCase();
+                        if (SYNC_CATEGORY_MAP[subfolderName]) category = SYNC_CATEGORY_MAP[subfolderName];
+                    }
+                }
+
+                // Filename-based detection (overrides folder-based for LOA/Cover Letter)
                 if (fileName.includes('Cover_Letter') || fileName.includes('COVER LETTER')) category = 'Cover Letter';
                 else if (fileName.includes('_LOA') || fileName.includes(' - LOA.pdf') || fileName.includes(' - LOA ')) category = 'LOA';
-                // Detect category from folder path (e.g., Lenders/VANQUIS/ID_Document/)
-                if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
-                // Documents in Other/ subfolder should get category 'Other'
-                if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
 
                 // Extract lender name from folder path (e.g., "Lenders/VANQUIS/..." → "VANQUIS")
                 const tags = ['Synced from S3'];
@@ -12994,12 +13104,31 @@ crmRouter.get('/contacts/:id/documents', async (req, res) => {
                     const baseName = pathParts[pathParts.length - 1];
                     const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
 
+                    // Auto-detect category from subfolder structure
                     let category = folder.defaultCategory;
+                    const CRM_CATEGORY_MAP = {
+                        'id document': 'ID Document', 'proof of address': 'Proof of Address',
+                        'bank statement': 'Bank Statement', 'dsar': 'DSAR',
+                        'letter of authority': 'Letter of Authority', 'cover letter': 'Cover Letter',
+                        'complaint letter': 'Complaint Letter', 'final response letter frl': 'Final Response Letter (FRL)',
+                        'counter response': 'Counter Response', 'fos complaint form': 'FOS Complaint Form',
+                        'fos decision': 'FOS Decision', 'offer letter': 'Offer Letter',
+                        'acceptance form': 'Acceptance Form', 'settlement agreement': 'Settlement Agreement',
+                        'invoice': 'Invoice', 'other': 'Other', 'client': 'Client', 'legal': 'Legal'
+                    };
+                    if (folder.prefix.includes('/Lenders/')) {
+                        if (pathParts.length > 2) {
+                            const subfolderName = pathParts[1].replace(/_/g, ' ').toLowerCase();
+                            if (CRM_CATEGORY_MAP[subfolderName]) category = CRM_CATEGORY_MAP[subfolderName];
+                        }
+                    } else if (folder.prefix.includes('/Documents/')) {
+                        if (pathParts.length > 1) {
+                            const subfolderName = pathParts[0].replace(/_/g, ' ').toLowerCase();
+                            if (CRM_CATEGORY_MAP[subfolderName]) category = CRM_CATEGORY_MAP[subfolderName];
+                        }
+                    }
                     if (baseName.includes('Cover_Letter') || baseName.includes('COVER LETTER')) category = 'Cover Letter';
                     else if (baseName.includes('_LOA') || baseName.includes(' - LOA.pdf') || baseName.includes(' - LOA ')) category = 'LOA';
-                    if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
-                    if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
-                    if (relativePath.includes('/Other/') || relativePath.startsWith('Other/')) category = 'Other';
                     if (folder.prefix.includes('Terms-and-Conditions')) category = 'Legal';
 
                     const tags = [];
@@ -13089,13 +13218,26 @@ crmRouter.get('/contacts/:id/claims/:claimId/documents', async (req, res) => {
                     const baseName = pathParts[pathParts.length - 1];
                     const ext = baseName.split('.').pop()?.toLowerCase() || 'unknown';
 
+                    // Auto-detect category from subfolder structure
+                    const CLAIM_CATEGORY_MAP = {
+                        'id document': 'ID Document', 'proof of address': 'Proof of Address',
+                        'bank statement': 'Bank Statement', 'dsar': 'DSAR',
+                        'letter of authority': 'Letter of Authority', 'cover letter': 'Cover Letter',
+                        'complaint letter': 'Complaint Letter', 'final response letter frl': 'Final Response Letter (FRL)',
+                        'counter response': 'Counter Response', 'fos complaint form': 'FOS Complaint Form',
+                        'fos decision': 'FOS Decision', 'offer letter': 'Offer Letter',
+                        'acceptance form': 'Acceptance Form', 'settlement agreement': 'Settlement Agreement',
+                        'invoice': 'Invoice', 'other': 'Other'
+                    };
                     let category = 'LOA';
+                    // Extract category from subfolder: {Category}/file.pdf → pathParts[0] = Category
+                    if (pathParts.length > 1) {
+                        const subfolderName = pathParts[0].replace(/_/g, ' ').toLowerCase();
+                        if (CLAIM_CATEGORY_MAP[subfolderName]) category = CLAIM_CATEGORY_MAP[subfolderName];
+                    }
+                    // Filename-based overrides
                     if (baseName.includes('Cover_Letter') || baseName.toUpperCase().includes('COVER LETTER')) category = 'Cover Letter';
                     else if (baseName.toUpperCase().includes(' - LOA') || baseName.toUpperCase().includes('_LOA')) category = 'LOA';
-                    else if (relativePath.includes('/ID_Document/') || relativePath.includes('/ID Document/')) category = 'ID Document';
-                    else if (relativePath.includes('/Proof_of_Address/') || relativePath.includes('/Proof of Address/')) category = 'Proof of Address';
-                    else if (relativePath.includes('/Other/')) category = 'Other';
-                    else if (pathParts.length > 1) category = pathParts[pathParts.length - 2].replace(/_/g, ' ');
 
                     documents.push({
                         id: obj.Key,
@@ -13140,6 +13282,25 @@ crmRouter.get('/contacts/:id/dsars', async (req, res) => {
             [req.params.id]
         );
         res.json({ cases: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /contacts/ref/:ref ── Look up contact + claims by CSV claim ref (client_id)
+crmRouter.get('/contacts/ref/:ref', async (req, res) => {
+    try {
+        const ref = req.params.ref.trim();
+        const { rows } = await pool.query(
+            `SELECT id, first_name, last_name, full_name, email, phone, client_id, created_at
+             FROM contacts WHERE client_id = $1 LIMIT 1`,
+            [ref]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'No contact found for that claim ref' });
+        const contact = rows[0];
+        const { rows: claims } = await pool.query(
+            'SELECT * FROM cases WHERE contact_id = $1 ORDER BY created_at DESC',
+            [contact.id]
+        );
+        res.json({ contact, claims });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -14589,6 +14750,128 @@ crmRouter.get('/documents/extract-text', async (req, res) => {
     }
 });
 
+// ── GET /audit/documents?page=1&page_size=100 ──────────────────────────────────
+// Batch audit endpoint for OpenClaw. Returns one page of contacts with their
+// document counts (DB) + S3 folder existence — without downloading anything.
+// Replaces 2,581 individual /contacts/:id/documents calls with ~26 paginated ones.
+// Query params:
+//   page       – 1-based page number (default 1)
+//   page_size  – contacts per page (default 100, max 200)
+// ────────────────────────────────────────────────────────────────────────────────
+crmRouter.get('/audit/documents', async (req, res) => {
+    try {
+        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const pageSize = Math.min(200, Math.max(1, parseInt(req.query.page_size) || 100));
+        const offset = (page - 1) * pageSize;
+
+        // 1. Get total count + current page of contacts
+        const countRes = await pool.query('SELECT COUNT(*) FROM contacts');
+        const total = parseInt(countRes.rows[0].count);
+
+        const contactsRes = await pool.query(
+            `SELECT id, first_name, last_name, full_name, email, client_id
+             FROM contacts ORDER BY id ASC LIMIT $1 OFFSET $2`,
+            [pageSize, offset]
+        );
+        const contacts = contactsRes.rows;
+        if (contacts.length === 0) return res.json({ page, page_size: pageSize, total, total_pages: Math.ceil(total / pageSize), results: [] });
+
+        // 2. DB document counts in one query
+        const ids = contacts.map(c => c.id);
+        const docCountRes = await pool.query(
+            `SELECT contact_id, COUNT(*) AS count FROM documents WHERE contact_id = ANY($1) GROUP BY contact_id`,
+            [ids]
+        );
+        const dbDocCounts = {};
+        for (const row of docCountRes.rows) dbDocCounts[row.contact_id] = parseInt(row.count);
+
+        // 3. S3 existence check — run in parallel with concurrency cap of 20
+        async function checkS3Folder(contact) {
+            const candidates = [
+                `${contact.first_name}_${contact.last_name}_${contact.id}/`,
+                `${(contact.full_name || '').replace(/\s+/g, '_')}_${contact.id}/`,
+            ].filter(Boolean);
+            for (const prefix of candidates) {
+                try {
+                    const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: prefix, MaxKeys: 1 }));
+                    if (probe.Contents && probe.Contents.length > 0) return { has_s3_folder: true, s3_prefix: prefix };
+                } catch (_) { /* timeout — treat as unknown */ }
+            }
+            return { has_s3_folder: false, s3_prefix: null };
+        }
+
+        const CONCURRENCY = 20;
+        const s3Results = new Array(contacts.length);
+        for (let i = 0; i < contacts.length; i += CONCURRENCY) {
+            const batch = contacts.slice(i, i + CONCURRENCY);
+            const settled = await Promise.allSettled(batch.map(c => checkS3Folder(c)));
+            settled.forEach((r, j) => {
+                s3Results[i + j] = r.status === 'fulfilled' ? r.value : { has_s3_folder: false, s3_prefix: null };
+            });
+        }
+
+        const results = contacts.map((c, i) => ({
+            contact_id: c.id,
+            client_id: c.client_id,
+            name: c.full_name || `${c.first_name} ${c.last_name}`,
+            email: c.email,
+            db_doc_count: dbDocCounts[c.id] || 0,
+            has_s3_folder: s3Results[i].has_s3_folder,
+            s3_prefix: s3Results[i].s3_prefix,
+        }));
+
+        res.json({
+            page,
+            page_size: pageSize,
+            total,
+            total_pages: Math.ceil(total / pageSize),
+            results,
+        });
+    } catch (err) {
+        console.error('[audit/documents]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── POST /admin/sync-all-checklists ── Bulk recompute checklist for ALL contacts from DB docs
+// Uses a single UPDATE…FROM (VALUES …) statement — no per-row round-trips to RDS.
+crmRouter.post('/admin/sync-all-checklists', async (req, res) => {
+    try {
+        const contactsRes = await pool.query('SELECT id, extra_lenders FROM contacts');
+        const contacts = contactsRes.rows;
+        const docsRes = await pool.query('SELECT contact_id, name, category, created_at FROM documents');
+
+        // Group docs by contact in JS
+        const docsByContact = {};
+        for (const d of docsRes.rows) {
+            if (!docsByContact[d.contact_id]) docsByContact[d.contact_id] = [];
+            docsByContact[d.contact_id].push(d);
+        }
+
+        // Compute all checklists in memory, then batch-update with a single SQL call
+        const ids = [], checklists = [];
+        for (const c of contacts) {
+            ids.push(c.id);
+            checklists.push(JSON.stringify(computeChecklist(docsByContact[c.id] || [], c.extra_lenders)));
+        }
+
+        if (ids.length > 0) {
+            // Build: UPDATE contacts SET document_checklist = v.cl::jsonb
+            //        FROM (SELECT unnest($1::int[]) AS id, unnest($2::text[]) AS cl) v
+            //        WHERE contacts.id = v.id
+            await pool.query(
+                `UPDATE contacts SET document_checklist = v.cl::jsonb
+                 FROM (SELECT unnest($1::int[]) AS id, unnest($2::text[]) AS cl) v
+                 WHERE contacts.id = v.id`,
+                [ids, checklists]
+            );
+        }
+
+        res.json({ message: `Synced checklists for ${ids.length} contacts` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mount the CRM API router BEFORE the Windmill catch-all proxy
 app.use('/api/crm', crmRouter);
 console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)');
@@ -14696,6 +14979,8 @@ app.use('/api', async (req, res, next) => {
 const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Consolidated Server running on port ${port} (listening on all interfaces)`);
 });
+server.requestTimeout = 300000;  // 5 min — prevents Cloudflare tunnel from killing long audit requests
+server.headersTimeout = 310000;
 server.on('error', (err) => {
     console.error('❌ Server error:', err.message);
 });

@@ -365,6 +365,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // Upload State
    const [uploadFile, setUploadFile] = useState<File | null>(null);
    const [uploadCategory, setUploadCategory] = useState<string>('Other');
+   const [uploadLender, setUploadLender] = useState<string>('');
    const [isUploadingDocument, setIsUploadingDocument] = useState(false);
    const [docUploadProgress, setDocUploadProgress] = useState(0);
 
@@ -442,6 +443,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [prevAddrQuery, setPrevAddrQuery] = useState<Record<string, string>>({});
    const [prevAddrLoading, setPrevAddrLoading] = useState<Record<string, boolean>>({});
    const [showPrevAddrSuggestions, setShowPrevAddrSuggestions] = useState<Record<string, boolean>>({});
+
+   // Stable ref for updateContactExtended to avoid dependency loops
+   const updateContactExtendedRef = useRef(updateContactExtended);
+   useEffect(() => { updateContactExtendedRef.current = updateContactExtended; }, [updateContactExtended]);
 
    // Google Maps services refs
    const autocompleteServiceRef = useRef<any>(null);
@@ -756,20 +761,65 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             createdAt: d.created_at
          }));
          setLocalContactDocs(mapped);
-         setDocsPage(1); // Reset pagination when documents are refreshed
+         setDocsPage(1);
+
+         // Auto-derive checklist from loaded documents
+         const twelveWeeksAgo = new Date();
+         twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 84);
+         const derived = {
+            identification: mapped.some(d => {
+               const n = (d.name || '').toLowerCase();
+               const c = (d.category || '').toLowerCase();
+               return c === 'id document' || n.includes('passport') || n.includes('driving licence') || n.includes('driving license') || n.includes('national id');
+            }),
+            extraLender: Boolean(extraLenders?.trim()) || mapped.some(d => {
+               const n = (d.name || '').toLowerCase();
+               const c = (d.category || '').toLowerCase();
+               return c.includes('extra lender') || c.includes('multiple lender') || n.includes('extra lender') || n.includes('multiple lender');
+            }),
+            questionnaire: mapped.some(d => {
+               const n = (d.name || '').toLowerCase();
+               const c = (d.category || '').toLowerCase();
+               return n.includes('questionnaire') || c.includes('questionnaire');
+            }),
+            // POA: bank statement, utility bill, or council tax bill dated within 12 weeks only
+            poa: mapped.some(d => {
+               const n = (d.name || '').toLowerCase();
+               const isRecent = d.createdAt ? new Date(d.createdAt) >= twelveWeeksAgo : false;
+               const isValidType = n.includes('bank statement') || n.includes('bank_statement') ||
+                  n.includes('utility bill') || n.includes('utility_bill') ||
+                  n.includes('council tax') || n.includes('council_tax');
+               return isValidType && isRecent;
+            }),
+         };
+         setDocumentChecklist(derived);
+         // Persist derived checklist to DB silently (no toast, uses ref to avoid dep loop)
+         updateContactExtendedRef.current(contact.id, { documentChecklist: derived }, true).catch(() => {});
       } catch (err) {
          console.error('Error fetching contact documents:', err);
       } finally {
          setDocsLoading(false);
       }
-   }, [contactId]);
+   }, [contactId, extraLenders, contact?.id]);
 
-   // Fetch documents when component mounts or tab changes to documents
+   // Fetch documents when tab changes to documents
    useEffect(() => {
       if (activeTab === 'documents') {
          fetchContactDocuments();
       }
    }, [activeTab, fetchContactDocuments]);
+
+   // On contact load: sync checklist from DB docs (fast, no S3) so checkboxes are
+   // accurate immediately even before the Documents tab is opened
+   useEffect(() => {
+      if (!contactId) return;
+      fetch(`${API_BASE_URL}/api/contacts/${contactId}/sync-checklist`, { method: 'POST' })
+         .then(r => r.ok ? r.json() : null)
+         .then(derived => {
+            if (derived) setDocumentChecklist(derived);
+         })
+         .catch(() => {});
+   }, [contactId]);
 
    // Note: Loading/not-found early returns moved to just before JSX to preserve hook call order
 
@@ -787,9 +837,22 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
    // Helper to extract lender from document tags or name
    const getLenderFromDoc = (doc: Document) => {
-      const docTypeTags = ['Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form'];
-      const lenderTag = doc.tags.find(tag => !docTypeTags.includes(tag));
-      if (lenderTag) return lenderTag;
+      // Tags to exclude when searching for the lender name
+      const nonLenderTags = new Set([
+         'Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form',
+         'claim-document', 'Client', 'Legal',
+         // Document categories
+         'ID Document', 'Proof of Address', 'Bank Statement', 'DSAR', 'Letter of Authority',
+         'Complaint Letter', 'Final Response Letter (FRL)', 'Counter Response',
+         'FOS Complaint Form', 'FOS Decision', 'Offer Letter', 'Acceptance Form',
+         'Settlement Agreement', 'Invoice', 'Other'
+      ]);
+      const lenderTag = doc.tags.find(tag => !nonLenderTags.has(tag) && !tag.startsWith('Original:'));
+      if (lenderTag) {
+         // Clean up "Lender: X" format from AI assistant uploads
+         if (lenderTag.startsWith('Lender: ')) return lenderTag.substring(8);
+         return lenderTag;
+      }
       const nameParts = doc.name.split('_');
       if (nameParts.length > 1) {
          return nameParts[0].replace(/_/g, ' ');
@@ -1122,10 +1185,23 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          formData.append('contact_id', contact.id);
          formData.append('category', uploadCategory);
 
+         // If a lender is selected, use the claim document upload endpoint
+         // so the file goes into Lenders/{Lender}/{Category}/ and shows under claim docs
+         let uploadUrl = `${API_BASE_URL}/api/upload-document`;
+         if (uploadLender) {
+            formData.append('lender', uploadLender);
+            // Find claim_id for the selected lender
+            const matchingClaim = contactClaims.find(c => c.lender === uploadLender);
+            if (matchingClaim) {
+               formData.append('claim_id', matchingClaim.id);
+            }
+            uploadUrl = `${API_BASE_URL}/api/upload-claim-document`;
+         }
+
          // Use XMLHttpRequest for progress tracking
          await new Promise<void>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
-            xhr.open('POST', `${API_BASE_URL}/api/upload-document`);
+            xhr.open('POST', uploadUrl);
 
             xhr.upload.onprogress = (event) => {
                if (event.lengthComputable) {
@@ -1145,15 +1221,18 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             xhr.onerror = () => reject(new Error('Upload failed'));
             xhr.send(formData);
          });
-
+      } catch (error) {
+         console.error('Error uploading document:', error);
+      } finally {
+         // Always close modal and reset state, even on error
          setShowUploadModal(false);
          setUploadFile(null);
          setUploadCategory('Other');
-      } finally {
+         setUploadLender('');
          setIsUploadingDocument(false);
          setDocUploadProgress(0);
-         // Always refresh documents after upload attempt (file may be in S3 even if DB update failed)
-         await fetchContactDocuments();
+         // Refresh documents in background (don't block modal close)
+         fetchContactDocuments().catch(() => {});
       }
    };
 
@@ -1865,16 +1944,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             xhr.send(formData);
          });
 
-         setShowClaimDocUpload(false);
-         setClaimDocFile(null);
-         setClaimDocCategory('Other');
       } catch (error) {
          console.error('Error uploading claim document:', error);
       } finally {
+         // Always close modal and reset state, even on error
+         setShowClaimDocUpload(false);
+         setClaimDocFile(null);
+         setClaimDocCategory('Other');
          setIsUploadingClaimDoc(false);
          setClaimDocUploadProgress(0);
-         // Always refresh documents after upload attempt (file may be in S3 even if DB update failed)
-         await fetchContactDocuments();
+         // Refresh documents in background (don't block modal close)
+         fetchContactDocuments().catch(() => {});
       }
    };
 
@@ -4562,10 +4642,27 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            ))}
                         </select>
                      </div>
+                     {contactClaims.length > 0 && (
+                        <div>
+                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lender (Optional)</label>
+                           <select
+                              value={uploadLender}
+                              onChange={(e) => setUploadLender(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                              disabled={isUploadingDocument}
+                           >
+                              <option value="">-- No Lender --</option>
+                              {[...new Set(contactClaims.map(c => c.lender).filter(Boolean))].map(lender => (
+                                 <option key={lender} value={lender}>{lender}</option>
+                              ))}
+                           </select>
+                           <p className="text-xs text-gray-400 mt-1">Select a lender to link this document to a claim</p>
+                        </div>
+                     )}
                   </div>
                   <div className="flex justify-end gap-3 mt-6">
                      <button
-                        onClick={() => { setShowUploadModal(false); setUploadFile(null); setUploadCategory('Other'); }}
+                        onClick={() => { setShowUploadModal(false); setUploadFile(null); setUploadCategory('Other'); setUploadLender(''); }}
                         className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm"
                         disabled={isUploadingDocument}
                      >

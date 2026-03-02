@@ -71,6 +71,9 @@
     "xlsx": "^0.18.5",
     "zustand": "4.5.0"
   },
+  "overrides": {
+    "fast-xml-parser": "^5.4.1"
+  },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",

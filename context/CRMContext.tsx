@@ -175,7 +175,7 @@ interface CRMContextType {
       value: boolean;
     };
     extraLenders?: string;
-  }) => Promise<{ success: boolean; message: string }>;
+  }, silent?: boolean) => Promise<{ success: boolean; message: string }>;
 
   // Extended Claim Fields
   updateClaimExtended: (claimId: string, data: Record<string, any>) => Promise<{ success: boolean; message: string }>;
@@ -2574,7 +2574,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value: boolean;
     };
     extraLenders?: string;
-  }): Promise<{ success: boolean; message: string }> => {
+  }, silent?: boolean): Promise<{ success: boolean; message: string }> => {
     try {
       const requestBody: Record<string, any> = {};
 
@@ -2668,10 +2668,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return c;
       }));
 
-      addNotification('success', 'Contact details updated successfully');
+      if (!silent) addNotification('success', 'Contact details updated successfully');
       return { success: true, message: 'Contact updated' };
     } catch (e: any) {
-      addNotification('error', e.message);
+      if (!silent) addNotification('error', e.message);
       return { success: false, message: e.message };
     }
   };
