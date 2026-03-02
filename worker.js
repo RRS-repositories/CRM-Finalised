@@ -538,8 +538,8 @@ async function findFileInS3Folder(folderPrefix, lenderName, docType, refSpec = n
 
             // Check if file matches docType - match any file ending with LOA.pdf or COVER LETTER.pdf
             // Handles: "- LOA.pdf", "-LOA.pdf", "LOA.pdf", "LOA (1).pdf", "LOA(2).pdf" etc
-            const loaPattern = /loa(\s*\(\d+\))?\.pdf$/i;
-            const coverPattern = /cover\s*letter(\s*\(\d+\))?\.pdf$/i;
+            const loaPattern = /loa\s*(\(\d+\))?\s*\.pdf$/i;
+            const coverPattern = /cover\s*letter\s*(\(\d+\))?\s*\.pdf$/i;
             const pattern = docTypeLower === 'loa' ? loaPattern : coverPattern;
 
             if (!pattern.test(fileName)) {
