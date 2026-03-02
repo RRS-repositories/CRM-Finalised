@@ -620,12 +620,14 @@ async function findAllS3FoldersForContact(contactId) {
 }
 
 // --- AI-POWERED DOCUMENT FINDER (FALLBACK) ---
-async function aiDocumentFinder(contactId, lenderName, allFolders) {
+async function aiDocumentFinder(contactId, lenderName, allFolders, firstName = '', lastName = '') {
     console.log(`[Worker] 🤖 AI Document Finder activated for ${lenderName}...`);
 
     try {
-        // List ALL files across all folders for this contact
+        // List ALL files across all known folders for this contact
         const allFiles = [];
+        const seenKeys = new Set();
+
         for (const folder of allFolders) {
             const listParams = {
                 Bucket: BUCKET_NAME,
@@ -635,9 +637,49 @@ async function aiDocumentFinder(contactId, lenderName, allFolders) {
             const result = await s3Client.send(new ListObjectsV2Command(listParams));
             if (result.Contents) {
                 for (const obj of result.Contents) {
-                    if (obj.Key.toLowerCase().endsWith('.pdf')) {
+                    if (obj.Key.toLowerCase().endsWith('.pdf') && !seenKeys.has(obj.Key)) {
                         allFiles.push(obj.Key);
+                        seenKeys.add(obj.Key);
                     }
+                }
+            }
+        }
+
+        // BROADER S3 SEARCH: Try alternate folder paths for names with special chars (like /)
+        // The backend may upload files using unsanitized names, creating different S3 paths
+        if (firstName) {
+            const broaderPrefixes = [];
+            // Try: "FirstName LastName" with space (how backend might upload)
+            if (lastName) {
+                broaderPrefixes.push(`${firstName} ${lastName}`);
+                broaderPrefixes.push(`${firstName}_${lastName}`);
+            }
+            // Try just first name prefix
+            broaderPrefixes.push(firstName);
+
+            for (const prefix of broaderPrefixes) {
+                try {
+                    const result = await s3Client.send(new ListObjectsV2Command({
+                        Bucket: BUCKET_NAME,
+                        Prefix: prefix,
+                        MaxKeys: 500
+                    }));
+                    if (result.Contents) {
+                        let found = 0;
+                        for (const obj of result.Contents) {
+                            // Only include files that contain the contact ID in the path
+                            if (obj.Key.includes(`${contactId}`) && obj.Key.toLowerCase().endsWith('.pdf') && !seenKeys.has(obj.Key)) {
+                                allFiles.push(obj.Key);
+                                seenKeys.add(obj.Key);
+                                found++;
+                            }
+                        }
+                        if (found > 0) {
+                            console.log(`[Worker] 🤖 Broader S3 search (prefix: "${prefix}") found ${found} additional PDFs`);
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors from broader search
                 }
             }
         }
@@ -659,8 +701,8 @@ TASK: Find which file is the LOA and which is the Cover Letter for "${lenderName
 
 Rules:
 - LOA files typically contain "LOA" in the name
-- Cover Letter files typically contain "COVER LETTER" or "COVER_LETTER"
-- The file should match the lender name (consider variations: LOANS2GO, Loans2Go, loans2go are the same)
+- Cover Letter files typically contain "COVER LETTER", "COVER_LETTER", or "CL" in the name
+- The file should match the lender name (consider variations: spaces, underscores, different casing are the same lender)
 - Ignore signature files
 - If multiple matches, pick the most recent looking one (higher numbers in filename usually = newer)
 
@@ -760,7 +802,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     // AI FALLBACK: If normal search failed, use AI to find documents
     if (!documents.loa || !documents.coverLetter) {
         console.log(`[Worker] Normal search incomplete. LOA: ${!!documents.loa}, Cover Letter: ${!!documents.coverLetter}`);
-        const aiDocs = await aiDocumentFinder(contactId, lenderName, allFolders);
+        const aiDocs = await aiDocumentFinder(contactId, lenderName, allFolders, firstName, lastName);
 
         if (!documents.loa && aiDocs.loa) {
             documents.loa = aiDocs.loa;
@@ -772,62 +814,11 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         }
     }
 
-    // DATABASE FALLBACK: If still missing, check the documents table for actual S3 URLs
-    if (!documents.loa || !documents.coverLetter) {
-        console.log(`[Worker] 🗄️ Database fallback: checking documents table for contact ${contactId}, lender ${lenderName}`);
-        try {
-            const dbDocs = await pool.query(
-                `SELECT name, url, category FROM documents
-                 WHERE contact_id = $1 AND (category = 'LOA' OR category = 'Cover Letter')
-                 ORDER BY created_at DESC`,
-                [contactId]
-            );
-            for (const doc of dbDocs.rows) {
-                // Match by lender name in the filename
-                const nameUpper = doc.name.toUpperCase();
-                const lenderUpper = lenderName.toUpperCase();
-                const sanitizedLender = lenderName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_').toUpperCase();
-                if (!nameUpper.includes(lenderUpper) && !nameUpper.includes(sanitizedLender)) continue;
-
-                if (!documents.loa && doc.category === 'LOA' && doc.url) {
-                    // Extract S3 key from the presigned URL
-                    try {
-                        const urlPath = new URL(doc.url).pathname;
-                        const s3Key = decodeURIComponent(urlPath.replace(`/${BUCKET_NAME}/`, ''));
-                        const fetched = await fetchPdfFromS3(s3Key);
-                        if (fetched) {
-                            documents.loa = fetched;
-                            console.log(`[Worker] ✅ DB fallback found LOA: ${doc.name}`);
-                        }
-                    } catch (e) {
-                        console.log(`[Worker] DB fallback LOA fetch failed: ${e.message}`);
-                    }
-                }
-                if (!documents.coverLetter && doc.category === 'Cover Letter' && doc.url) {
-                    try {
-                        const urlPath = new URL(doc.url).pathname;
-                        const s3Key = decodeURIComponent(urlPath.replace(`/${BUCKET_NAME}/`, ''));
-                        const fetched = await fetchPdfFromS3(s3Key);
-                        if (fetched) {
-                            documents.coverLetter = fetched;
-                            console.log(`[Worker] ✅ DB fallback found Cover Letter: ${doc.name}`);
-                        }
-                    } catch (e) {
-                        console.log(`[Worker] DB fallback Cover Letter fetch failed: ${e.message}`);
-                    }
-                }
-                if (documents.loa && documents.coverLetter) break;
-            }
-        } catch (dbErr) {
-            console.log(`[Worker] DB fallback query failed: ${dbErr.message}`);
-        }
-    }
-
     if (!documents.loa) {
-        console.log(`[Worker] ❌ LOA not found (even with AI and DB fallback)`);
+        console.log(`[Worker] ❌ LOA not found (even with AI)`);
     }
     if (!documents.coverLetter) {
-        console.log(`[Worker] ❌ Cover Letter not found (even with AI and DB fallback)`);
+        console.log(`[Worker] ❌ Cover Letter not found (even with AI)`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
