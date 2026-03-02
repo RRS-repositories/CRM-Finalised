@@ -940,6 +940,16 @@
         }
     },
     {
+        "lender": "LINK",
+        "email": "sip@linkfinancial.co.uk",
+        "address": {
+            "company_name": "Link Financial Outsourcing Limited",
+            "first_line_address": "St Georges House, 2nd Floor, 50 Poland Street",
+            "town_city": "London",
+            "postcode": "W1F 7NH"
+        }
+    },
+    {
         "lender": "LITTLE LOANS",
         "email": "Alex@comparitec.com",
         "address": {
