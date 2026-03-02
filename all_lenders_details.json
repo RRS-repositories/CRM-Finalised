@@ -270,6 +270,16 @@
         }
     },
     {
+        "lender": "CABOT FINANCIAL",
+        "email": "SAR@cabotfinancial.com",
+        "address": {
+            "company_name": "Cabot Credit Management Group Limited",
+            "first_line_address": "Kings Hill Avenue",
+            "town_city": "West Malling",
+            "postcode": "ME19 4JQ"
+        }
+    },
+    {
         "lender": "CAPITAL ONE",
         "email": "dsarrequests@capitalone.com",
         "address": {
@@ -1431,6 +1441,16 @@
     },
     {
         "lender": "NOVUNA",
+        "email": "dataprotection@novuna.co.uk",
+        "address": {
+            "company_name": "Novuna Personal Finance (trading name of Mitsubishi HC Capital UK PLC)",
+            "first_line_address": "Novuna House, Thorpe Road",
+            "town_city": "Staines-upon-Thames",
+            "postcode": "TW18 3HP"
+        }
+    },
+    {
+        "lender": "NOVUNA FINANCE",
         "email": "dataprotection@novuna.co.uk",
         "address": {
             "company_name": "Novuna Personal Finance (trading name of Mitsubishi HC Capital UK PLC)",
