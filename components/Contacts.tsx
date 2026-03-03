@@ -2723,7 +2723,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
                   {/* Questionnaire Link & Status */}
                   <div className="mt-4 flex items-center gap-3 flex-wrap">
-                     <button
+                     {/* <button
                         onClick={() => {
                            const link = `${window.location.origin}/questionnaire/${contact.id}`;
                            navigator.clipboard.writeText(link);
@@ -2743,7 +2743,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium transition-colors"
                      >
                         Copy Questionnaire Link
-                     </button>
+                     </button> */}
                      {contact.questionnaireSubmitted && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
                            <span className="text-green-600">&#10003;</span> Questionnaire Submitted
