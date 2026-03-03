@@ -560,6 +560,25 @@ crmEvents.init(pool);
                 CREATE INDEX IF NOT EXISTS idx_automation_triggers_automation ON automation_triggers(automation_id);
             `);
             console.log('✅ Automation tables ready');
+
+            // Custom merge fields table (for OpenClaw / external use)
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS custom_merge_fields (
+                    id SERIAL PRIMARY KEY,
+                    field_key VARCHAR(255) UNIQUE NOT NULL,
+                    label VARCHAR(255) NOT NULL,
+                    group_name VARCHAR(100) NOT NULL DEFAULT 'Custom',
+                    default_value TEXT,
+                    description TEXT,
+                    created_by VARCHAR(100) DEFAULT 'openclaw',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_custom_merge_fields_active ON custom_merge_fields(is_active);
+                CREATE INDEX IF NOT EXISTS idx_custom_merge_fields_group ON custom_merge_fields(group_name);
+            `);
+            console.log('✅ Custom merge fields table ready');
         } finally {
             client.release();
         }
@@ -11470,6 +11489,65 @@ app.post('/api/templates/generate-from-docx', async (req, res) => {
 
 // --- OO Template CRUD ---
 
+// GET /api/oo/merge-fields - Get all merge fields (built-in + custom) for the template editor UI
+app.get('/api/oo/merge-fields', async (req, res) => {
+    try {
+        const { rows: customFields } = await pool.query(
+            'SELECT id, field_key, label, group_name, default_value, description FROM custom_merge_fields WHERE is_active = TRUE ORDER BY group_name, label'
+        );
+        const customGroups = {};
+        for (const f of customFields) {
+            if (!customGroups[f.group_name]) customGroups[f.group_name] = [];
+            customGroups[f.group_name].push({
+                id: f.id,
+                key: f.field_key,
+                label: f.label,
+                defaultValue: f.default_value || '',
+                description: f.description || '',
+            });
+        }
+        res.json({
+            success: true,
+            customFields: Object.entries(customGroups).map(([group, fields]) => ({ group, fields })),
+        });
+    } catch (err) {
+        console.error('[OO Merge Fields] Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// POST /api/oo/merge-fields - Create a custom merge field (internal UI)
+app.post('/api/oo/merge-fields', async (req, res) => {
+    const { key, label, group, defaultValue, description } = req.body;
+    if (!key || !label) return res.status(400).json({ success: false, message: 'key and label are required' });
+    if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(key)) {
+        return res.status(400).json({ success: false, message: 'key must start with a letter and contain only letters, numbers, dots, and underscores' });
+    }
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO custom_merge_fields (field_key, label, group_name, default_value, description, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'ui')
+             ON CONFLICT (field_key) DO UPDATE SET label = EXCLUDED.label, group_name = EXCLUDED.group_name,
+                default_value = EXCLUDED.default_value, description = EXCLUDED.description, is_active = TRUE, updated_at = NOW()
+             RETURNING *`,
+            [key, label, group || 'Custom', defaultValue || null, description || null]
+        );
+        res.json({ success: true, field: rows[0] });
+    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// DELETE /api/oo/merge-fields/:id - Remove a custom merge field (internal UI)
+app.delete('/api/oo/merge-fields/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'UPDATE custom_merge_fields SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id, field_key',
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ success: false, message: 'Field not found' });
+        res.json({ success: true, deleted: rows[0] });
+    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
 // GET /api/oo/templates - List all templates, optional ?category filter
 app.get('/api/oo/templates', async (req, res) => {
     try {
@@ -11585,10 +11663,10 @@ app.get('/api/oo/templates/:id', async (req, res) => {
     }
 });
 
-// PUT /api/oo/templates/:id - Update template metadata
-app.put('/api/oo/templates/:id', async (req, res) => {
+// PUT /api/oo/templates/:id - Update template metadata, mergeFields, and/or replace DOCX file
+app.put('/api/oo/templates/:id', upload.single('file'), async (req, res) => {
     try {
-        const { name, description, category, useForLoa, useForCoverLetter } = req.body;
+        const { name, description, category, useForLoa, useForCoverLetter, mergeFields } = req.body;
         const updates = [];
         const params = [];
         let paramIndex = 1;
@@ -11598,6 +11676,38 @@ app.put('/api/oo/templates/:id', async (req, res) => {
         if (category !== undefined) { updates.push(`category = $${paramIndex++}`); params.push(category); }
         if (useForLoa !== undefined) { updates.push(`use_for_loa = $${paramIndex++}`); params.push(useForLoa === 'true' || useForLoa === true); }
         if (useForCoverLetter !== undefined) { updates.push(`use_for_cover_letter = $${paramIndex++}`); params.push(useForCoverLetter === 'true' || useForCoverLetter === true); }
+
+        // Allow setting mergeFields (variable_fields) directly
+        if (mergeFields !== undefined) {
+            updates.push(`variable_fields = $${paramIndex++}`);
+            params.push(typeof mergeFields === 'string' ? mergeFields : JSON.stringify(mergeFields));
+        }
+
+        // Handle file replacement — upload new DOCX and re-extract merge fields
+        if (req.file) {
+            // Get the existing template to find its S3 key
+            const existing = await pool.query('SELECT s3_key FROM oo_templates WHERE id = $1 AND is_active = TRUE', [req.params.id]);
+            if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Template not found' });
+
+            const s3Key = existing.rows[0].s3_key;
+            await uploadS3Buffer(s3Key, req.file.buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            if (typeof ooSaveLocal === 'function') ooSaveLocal(s3Key, req.file.buffer);
+
+            // Re-extract merge fields from the new file (unless mergeFields was explicitly set)
+            if (mergeFields === undefined) {
+                const extracted = extractMergeFields(req.file.buffer);
+                updates.push(`variable_fields = $${paramIndex++}`);
+                params.push(JSON.stringify(extracted));
+            }
+
+            // Update file metadata
+            updates.push(`file_name = $${paramIndex++}`);
+            params.push(req.file.originalname);
+            updates.push(`file_size = $${paramIndex++}`);
+            params.push(req.file.size);
+
+            console.log(`[OO Templates] File replaced for template #${req.params.id}: ${req.file.originalname}`);
+        }
 
         if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
 
@@ -13753,19 +13863,196 @@ crmRouter.patch('/contacts/:id/extended', async (req, res) => {
 // ── POST /documents/generate ── Generate merged DOCX from template + convert to PDF
 crmRouter.post('/documents/generate', async (req, res) => {
     try {
-        const { s3Key, templateId, variables, contact_id, claim_id, lender, docType } = req.body;
+        const { s3Key, templateId, contact_id, claim_id, lender, docType } = req.body;
+        // Allow caller to pass explicit variables that override auto-resolved ones
+        const callerVariables = req.body.variables || {};
 
-        // Resolve the S3 key from template ID or direct key
+        // Template category → document type mapping for filenames & S3 tags
+        const CATEGORY_TO_DOCTYPE = {
+            'Complaint':     'COMPLAINT LETTER',
+            'Outcome':       'ACCEPTANCE LETTER',
+            'Onboarding':    'CLIENT CARE LETTER',
+            'Fee Recovery':  'DEBT COLLECTION NOTICE',
+            'FOS':           'FOS RETAINER',
+            'Client':        'UNABLE TO LOCATE',
+            'LOA':           'LOA',
+            'DSAR':          'DSAR COVER LETTER',
+            'Intake':        'QUESTIONNAIRE',
+        };
+
+        // Resolve the S3 key (and category) from template ID or direct key
         let templateS3Key = s3Key;
+        let templateCategory = null;
         if (!templateS3Key && templateId) {
-            const tplResult = await pool.query('SELECT s3_key FROM oo_templates WHERE id = $1', [templateId]);
+            const tplResult = await pool.query('SELECT s3_key, category FROM oo_templates WHERE id = $1', [templateId]);
             if (tplResult.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
             templateS3Key = tplResult.rows[0].s3_key;
+            templateCategory = tplResult.rows[0].category;
         }
         if (!templateS3Key) return res.status(400).json({ error: 's3Key or templateId is required' });
 
+        // Resolve document type: caller override > template category mapping > fallback
+        const resolvedDocType = docType || CATEGORY_TO_DOCTYPE[templateCategory] || templateCategory || 'LOA';
+
         console.log(`[CRM API] Generating document from template: ${templateS3Key}`);
-        console.log(`[CRM API] Variables received:`, Object.keys(variables || {}));
+        console.log(`[CRM API] contact_id=${contact_id}, claim_id=${claim_id}, caller variables:`, Object.keys(callerVariables));
+
+        // ── 0. Auto-resolve variables from contact + claim DB records ──────────
+        const _fmtDate = (dateStr) => {
+            if (!dateStr) return '';
+            try { return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); }
+            catch { return ''; }
+        };
+        const _initials = (name) => {
+            if (!name) return '';
+            return name.split(' ').map(w => w[0]).join('').toUpperCase();
+        };
+        const _s = (v) => (v == null || v === undefined) ? '' : String(v);
+
+        let autoVariables = {};
+
+        // Fetch contact data
+        let contact = null;
+        if (contact_id) {
+            try {
+                const { rows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [contact_id]);
+                if (rows.length > 0) contact = rows[0];
+            } catch (e) { console.warn('[CRM API] Contact fetch failed:', e.message); }
+        }
+
+        // Fetch claim data
+        let claim = null;
+        if (claim_id) {
+            try {
+                const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [claim_id]);
+                if (rows.length > 0) claim = rows[0];
+            } catch (e) { console.warn('[CRM API] Claim fetch failed:', e.message); }
+        }
+
+        // Build the full variable map
+        if (contact) {
+            Object.assign(autoVariables, {
+                'client.fullName':        _s(contact.full_name),
+                'client.firstName':       _s(contact.first_name),
+                'client.lastName':        _s(contact.last_name),
+                'client.email':           _s(contact.email),
+                'client.phone':           _s(contact.phone),
+                'client.address':         [contact.address_line_1, contact.address_line_2, contact.city, contact.state_county, contact.postal_code].filter(Boolean).join(', '),
+                'client.addressLine1':    _s(contact.address_line_1),
+                'client.addressLine2':    _s(contact.address_line_2),
+                'client.city':            _s(contact.city),
+                'client.county':          _s(contact.state_county),
+                'client.postcode':        _s(contact.postal_code),
+                'client.previousAddress': [contact.previous_address_line_1, contact.previous_address_line_2, contact.previous_city, contact.previous_county, contact.previous_postal_code].filter(Boolean).join(', '),
+                'client.dateOfBirth':     _fmtDate(contact.dob),
+                'client.id':             _s(contact.id),
+                'client.leadSource':      _s(contact.source),
+                'client.createdAt':       _fmtDate(contact.created_at),
+                'client.ipAddress':       _s(contact.ip_address),
+                'client.initials':        _initials(contact.full_name),
+                'client.reference':       _s(contact.reference),
+                // Legacy flat keys
+                'clientId':               _s(contact.id),
+                'client_id':              _s(contact.id),
+                'client_name':            _s(contact.full_name),
+            });
+        }
+
+        if (claim) {
+            Object.assign(autoVariables, {
+                'claim.lender':               _s(claim.lender),
+                'claim.caseRef':              _s(claim.reference_specified),
+                'claim.accountNumber':        _s(claim.account_number),
+                'claim.accountType':          _s(claim.product_type),
+                'claim.accountStatus':        _s(claim.status),
+                'claim.amount':               _s(claim.claim_value),
+                'claim.claimValue':           _s(claim.claim_value),
+                'claim.totalRefund':          _s(claim.total_refund),
+                'claim.outstandingBalance':   _s(claim.outstanding_balance),
+                'claim.interestRate':         _s(claim.apr),
+                'claim.financeType':          _s(claim.finance_type),
+                'claim.loanTerm':             _s(claim.loan_term),
+                'claim.monthlyPayment':       _s(claim.monthly_payment),
+                'claim.vehicleDetails':       _s(claim.vehicle_details),
+                'claim.balloonPayment':       _s(claim.balloon_payment),
+                'claim.agreementDate':        _fmtDate(claim.start_date),
+                'claim.endDate':              _fmtDate(claim.end_date),
+                'claim.valueOfLoan':          _s(claim.value_of_loan),
+                'claim.numberOfLoans':        _s(claim.number_of_loans),
+                'claim.feePercentage':        _s(claim.fee_percent),
+                'claim.feeAmount':            _s(claim.our_total_fee),
+                'claim.feeVat':               _s(claim.vat_amount),
+                'claim.feePlusVat':           _s(claim.our_fees_plus_vat),
+                'claim.clientReceives':       _s(claim.balance_due_to_client),
+                'claim.outstandingDebt':      _s(claim.outstanding_debt),
+                'claim.billedFinanceCharges': _s(claim.billed_finance_charges),
+                'claim.latePaymentCharges':   _s(claim.late_payment_charges),
+                'claim.overlimitCharges':     _s(claim.overlimit_charges),
+                'claim.billedInterestCharges':_s(claim.billed_interest_charges),
+                'claim.creditLimitSchedule':  _s(claim.credit_limit_increases),
+                'claim.complaintParagraph':   _s(claim.complaint_paragraph),
+                'claim.clientId':             _s(claim.contact_id),
+            });
+        }
+
+        // Lender details — look up from all_lenders_details.json if available
+        if (claim && claim.lender) {
+            try {
+                const { default: allLenders } = await import('./all_lenders_details.json', { assert: { type: 'json' } });
+                const lenderKey = claim.lender.toLowerCase().replace(/\s+/g, '_');
+                const lenderEntry = allLenders[lenderKey] || allLenders[claim.lender] || allLenders[claim.lender.toLowerCase()];
+                if (lenderEntry && lenderEntry.address) {
+                    Object.assign(autoVariables, {
+                        'lender.companyName': _s(lenderEntry.address.company_name || claim.lender),
+                        'lender.address':     _s(lenderEntry.address.first_line_address),
+                        'lender.city':        _s(lenderEntry.address.town_city),
+                        'lender.postcode':    _s(lenderEntry.address.postcode),
+                        'lender.email':       _s(lenderEntry.email || ''),
+                    });
+                }
+            } catch { /* lender lookup is best-effort */ }
+        }
+
+        // Firm defaults
+        Object.assign(autoVariables, {
+            'firm.name':          'Rowan Rose Solicitors',
+            'firm.tradingName':   'Fast Action Claims',
+            'firm.address':       '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+            'firm.phone':         '0161 505 0150',
+            'firm.sraNumber':     '8000843',
+            'firm.entity':        'Rowan Rose Ltd',
+            'firm.companyNumber':  '12916452',
+        });
+
+        // System fields
+        Object.assign(autoVariables, {
+            'system.today':           new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            'system.year':            String(new Date().getFullYear()),
+            'system.timestamp':       new Date().toISOString(),
+            'system.today+14':        new Date(Date.now() + 14 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            'system.solicitorName':   'Brad Forbes',
+            'system.firmPhone':       '0161 533 1706',
+            'system.firmEmail':       'irl@fastactionclaims.co.uk',
+            'system.dsarEmail':       'dsar@fastactionclaims.co.uk',
+        });
+
+        // Merge custom field defaults from DB
+        try {
+            const { rows: customDefaults } = await pool.query(
+                'SELECT field_key, default_value FROM custom_merge_fields WHERE is_active = TRUE AND default_value IS NOT NULL'
+            );
+            for (const { field_key, default_value } of customDefaults) {
+                if (!autoVariables[field_key]) autoVariables[field_key] = default_value;
+            }
+            if (customDefaults.length > 0) console.log(`[CRM API] Applied ${customDefaults.length} custom field defaults`);
+        } catch (cfErr) {
+            console.warn('[CRM API] Could not fetch custom merge field defaults:', cfErr.message);
+        }
+
+        // Caller-provided variables override auto-resolved ones
+        const variables = { ...autoVariables, ...callerVariables };
+
+        console.log(`[CRM API] Total variables resolved: ${Object.keys(variables).length} (${Object.keys(autoVariables).length} auto + ${Object.keys(callerVariables).length} caller)`);
 
         // 1. Download template DOCX from S3
         const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: templateS3Key });
@@ -13955,7 +14242,7 @@ crmRouter.post('/documents/generate', async (req, res) => {
                 const folderName = sanitize(`${first_name}_${last_name}_${contact_id}`);
                 const fullName = `${first_name || ''} ${last_name || ''}`.trim();
                 const lenderName = sanitize(lender || variables?.['claim.lender'] || variables?.['{{claim.lender}}'] || 'General');
-                const documentType = sanitize(docType || 'LOA');
+                const documentType = sanitize(resolvedDocType);
 
                 // Build reference: {contactId}{claimId} e.g. 22909067676
                 // Look up reference_specified from case if claim_id provided
@@ -13970,8 +14257,8 @@ crmRouter.post('/documents/generate', async (req, res) => {
                 }
 
                 displayName = `${reference} - ${fullName} - ${lenderName} - ${documentType}.pdf`;
-                outputKey = `${folderName}/${lenderName}/${displayName}`;
-                outputDocxKey = `${folderName}/${lenderName}/${reference} - ${fullName} - ${lenderName} - ${documentType}.docx`;
+                outputKey = `${folderName}/Lenders/${lenderName}/${displayName}`;
+                outputDocxKey = `${folderName}/Lenders/${lenderName}/${reference} - ${fullName} - ${lenderName} - ${documentType}.docx`;
             }
         }
 
@@ -14000,29 +14287,19 @@ crmRouter.post('/documents/generate', async (req, res) => {
             const docResult = await pool.query(
                 `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
                  VALUES ($1, $2, 'pdf', $3, $4, $5, $6) RETURNING *`,
-                [contact_id, displayName, docType || 'LOA', downloadUrl,
+                [contact_id, displayName, resolvedDocType, downloadUrl,
                     `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
-                    [docType || 'LOA', 'Generated', lender || 'Template'].filter(Boolean)]
+                    [resolvedDocType, 'Generated', lender || variables?.['claim.lender'] || 'Template'].filter(Boolean)]
             );
             document = docResult.rows[0];
             crmEvents.emit('document.uploaded', { documentId: document.id, contactId: parseInt(contact_id), data: document });
         }
-
-        // Also upload the filled DOCX for reference
-        await s3Client.send(new PutObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: outputDocxKey,
-            Body: docxBuffer,
-            ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        }));
-        const docxDownloadUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: outputDocxKey }), { expiresIn: 604800 });
 
         console.log(`[CRM API] Document generated: ${outputKey} (${(pdfBuffer.length / 1024).toFixed(1)} KB) via ${conversionMethod}`);
 
         res.json({
             success: true,
             pdf: { s3Key: outputKey, downloadUrl, size: pdfBuffer.length },
-            docx: { s3Key: outputDocxKey, downloadUrl: docxDownloadUrl, size: docxBuffer.length },
             conversionMethod,
             document,
         });
@@ -14870,6 +15147,293 @@ crmRouter.post('/admin/sync-all-checklists', async (req, res) => {
         }
 
         res.json({ message: `Synced checklists for ${ids.length} contacts` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /merge-fields ── List all merge fields (built-in + custom)
+crmRouter.get('/merge-fields', async (req, res) => {
+    try {
+        // Built-in fields from OO_MERGE_FIELDS constant
+        const builtInGroups = [
+            {
+                group: 'Client',
+                fields: [
+                    { key: 'client.fullName', label: 'Full Name' },
+                    { key: 'client.firstName', label: 'First Name' },
+                    { key: 'client.lastName', label: 'Last Name' },
+                    { key: 'client.email', label: 'Email' },
+                    { key: 'client.phone', label: 'Phone' },
+                    { key: 'client.address', label: 'Address' },
+                    { key: 'client.dateOfBirth', label: 'Date of Birth' },
+                ],
+            },
+            {
+                group: 'Claim',
+                fields: [
+                    { key: 'claim.lender', label: 'Lender' },
+                    { key: 'claim.clientId', label: 'Client ID' },
+                    { key: 'claim.caseRef', label: 'Case Reference' },
+                    { key: 'claim.claimValue', label: 'Claim Value' },
+                ],
+            },
+            {
+                group: 'Lender',
+                fields: [
+                    { key: 'lender.companyName', label: 'Lender Company Name' },
+                    { key: 'lender.address', label: 'Lender Address' },
+                    { key: 'lender.city', label: 'Lender City' },
+                    { key: 'lender.postcode', label: 'Lender Postcode' },
+                    { key: 'lender.email', label: 'Lender Email' },
+                ],
+            },
+            {
+                group: 'Firm',
+                fields: [
+                    { key: 'firm.name', label: 'Firm Name' },
+                    { key: 'firm.tradingName', label: 'Trading Name' },
+                    { key: 'firm.address', label: 'Firm Address' },
+                    { key: 'firm.phone', label: 'Firm Phone' },
+                    { key: 'firm.sraNumber', label: 'SRA Number' },
+                    { key: 'firm.entity', label: 'Firm Entity' },
+                    { key: 'firm.companyNumber', label: 'Company Number' },
+                ],
+            },
+            {
+                group: 'System',
+                fields: [
+                    { key: 'system.today', label: "Today's Date" },
+                    { key: 'system.year', label: 'Current Year' },
+                ],
+            },
+        ];
+
+        // Fetch custom fields from DB
+        const { rows: customFields } = await pool.query(
+            'SELECT id, field_key, label, group_name, default_value, description FROM custom_merge_fields WHERE is_active = TRUE ORDER BY group_name, label'
+        );
+
+        // Group custom fields by group_name
+        const customGroupMap = {};
+        for (const f of customFields) {
+            if (!customGroupMap[f.group_name]) customGroupMap[f.group_name] = [];
+            customGroupMap[f.group_name].push({
+                id: f.id,
+                key: f.field_key,
+                label: f.label,
+                defaultValue: f.default_value || '',
+                description: f.description || '',
+                custom: true,
+            });
+        }
+        const customGroups = Object.entries(customGroupMap).map(([group, fields]) => ({
+            group,
+            fields,
+            custom: true,
+        }));
+
+        res.json({
+            success: true,
+            builtIn: builtInGroups,
+            custom: customGroups,
+            all: [...builtInGroups, ...customGroups],
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /merge-fields ── Create a new custom merge field
+crmRouter.post('/merge-fields', async (req, res) => {
+    const { key, label, group, defaultValue, description } = req.body;
+    if (!key || !label) return res.status(400).json({ error: 'key and label are required' });
+
+    // Validate key format (alphanumeric with dots, no spaces)
+    if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(key)) {
+        return res.status(400).json({ error: 'key must start with a letter and contain only letters, numbers, dots, and underscores' });
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO custom_merge_fields (field_key, label, group_name, default_value, description, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'openclaw')
+             ON CONFLICT (field_key) DO UPDATE SET
+                label = EXCLUDED.label,
+                group_name = EXCLUDED.group_name,
+                default_value = EXCLUDED.default_value,
+                description = EXCLUDED.description,
+                is_active = TRUE,
+                updated_at = NOW()
+             RETURNING *`,
+            [key, label, group || 'Custom', defaultValue || null, description || null]
+        );
+        res.json({ success: true, field: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /merge-fields/bulk ── Create multiple custom merge fields at once
+crmRouter.post('/merge-fields/bulk', async (req, res) => {
+    const { fields } = req.body;
+    if (!Array.isArray(fields) || fields.length === 0) {
+        return res.status(400).json({ error: 'fields array is required' });
+    }
+
+    try {
+        const created = [];
+        for (const f of fields) {
+            if (!f.key || !f.label) continue;
+            if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(f.key)) continue;
+            const { rows } = await pool.query(
+                `INSERT INTO custom_merge_fields (field_key, label, group_name, default_value, description, created_by)
+                 VALUES ($1, $2, $3, $4, $5, 'openclaw')
+                 ON CONFLICT (field_key) DO UPDATE SET
+                    label = EXCLUDED.label,
+                    group_name = EXCLUDED.group_name,
+                    default_value = EXCLUDED.default_value,
+                    description = EXCLUDED.description,
+                    is_active = TRUE,
+                    updated_at = NOW()
+                 RETURNING *`,
+                [f.key, f.label, f.group || 'Custom', f.defaultValue || null, f.description || null]
+            );
+            created.push(rows[0]);
+        }
+        res.json({ success: true, fields: created, count: created.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NOTE: Delete endpoints for merge fields are intentionally NOT exposed to the external CRM API (OpenClaw/Nova).
+// Only the internal UI at /api/oo/merge-fields/:id can delete custom fields.
+
+// ── POST /templates/:id/insert-variable ── Insert a {{variable}} into a template DOCX
+// Appends or inserts the variable placeholder into the template's Word document
+crmRouter.post('/templates/:id/insert-variable', async (req, res) => {
+    const { variable, position, afterText } = req.body;
+    // variable: the field key e.g. "client.fullName" (will be wrapped in {{ }})
+    // position: "end" (default) | "start" | "after"
+    // afterText: if position="after", insert after this text occurrence
+
+    if (!variable) return res.status(400).json({ error: 'variable is required' });
+
+    try {
+        // Get the template
+        const tplResult = await pool.query(
+            'SELECT id, s3_key, variable_fields FROM oo_templates WHERE id = $1 AND is_active = TRUE',
+            [req.params.id]
+        );
+        if (tplResult.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+        const template = tplResult.rows[0];
+
+        // Download template DOCX from S3
+        const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: template.s3_key });
+        const s3Response = await s3Client.send(getCmd);
+        const chunks = [];
+        for await (const chunk of s3Response.Body) { chunks.push(chunk); }
+        const templateBuffer = Buffer.concat(chunks);
+
+        // Parse DOCX and insert the variable placeholder
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(templateBuffer);
+        const docXml = await zip.file('word/document.xml')?.async('string');
+        if (!docXml) return res.status(500).json({ error: 'Could not read document.xml from template' });
+
+        const variableTag = `{{${variable}}}`;
+        let modifiedXml = docXml;
+
+        if (position === 'start') {
+            // Insert after the first <w:body> opening tag
+            modifiedXml = docXml.replace(
+                /(<w:body>)/,
+                `$1<w:p><w:r><w:t>${variableTag}</w:t></w:r></w:p>`
+            );
+        } else if (position === 'after' && afterText) {
+            // Find the text and insert a new paragraph with the variable after it
+            // We search for the text in <w:t> elements
+            const escapedText = afterText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(<w:t[^>]*>${escapedText}</w:t></w:r></w:p>)`);
+            if (regex.test(modifiedXml)) {
+                modifiedXml = modifiedXml.replace(
+                    regex,
+                    `$1<w:p><w:r><w:t>${variableTag}</w:t></w:r></w:p>`
+                );
+            } else {
+                // Fallback: try simpler text match across split XML tags
+                const textInXml = afterText.replace(/[<>&]/g, '');
+                if (modifiedXml.includes(textInXml)) {
+                    const idx = modifiedXml.indexOf(textInXml);
+                    // Find the next </w:p> after the text
+                    const pClose = modifiedXml.indexOf('</w:p>', idx);
+                    if (pClose !== -1) {
+                        const insertPoint = pClose + '</w:p>'.length;
+                        modifiedXml = modifiedXml.slice(0, insertPoint) +
+                            `<w:p><w:r><w:t>${variableTag}</w:t></w:r></w:p>` +
+                            modifiedXml.slice(insertPoint);
+                    }
+                }
+            }
+        } else {
+            // Default: insert at end (before </w:body>)
+            modifiedXml = docXml.replace(
+                /(<\/w:body>)/,
+                `<w:p><w:r><w:t>${variableTag}</w:t></w:r></w:p>$1`
+            );
+        }
+
+        // Save the modified DOCX
+        zip.file('word/document.xml', modifiedXml);
+        const newBuffer = Buffer.from(await zip.generateAsync({ type: 'nodebuffer' }));
+
+        // Upload back to S3
+        await uploadS3Buffer(template.s3_key, newBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        // Update local cache
+        if (typeof ooSaveLocal === 'function') ooSaveLocal(template.s3_key, newBuffer);
+
+        // Re-extract merge fields and update DB
+        const mergeFields = extractMergeFields(newBuffer);
+        await pool.query(
+            'UPDATE oo_templates SET variable_fields = $1, updated_at = NOW() WHERE id = $2',
+            [JSON.stringify(mergeFields), req.params.id]
+        );
+
+        console.log(`[CRM API] Inserted variable {{${variable}}} into template ${template.s3_key} at position=${position || 'end'}`);
+
+        res.json({
+            success: true,
+            variable: variableTag,
+            position: position || 'end',
+            templateId: parseInt(req.params.id),
+            mergeFields,
+        });
+    } catch (err) {
+        console.error('[CRM API] Insert variable error:', err);
+        res.status(500).json({ error: 'Failed to insert variable: ' + err.message });
+    }
+});
+
+// ── GET /templates/:id/merge-fields ── Get merge fields for a specific template
+crmRouter.get('/templates/:id/merge-fields', async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, name, variable_fields FROM oo_templates WHERE id = $1 AND is_active = TRUE',
+            [req.params.id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+        const row = result.rows[0];
+
+        // Also fetch custom fields
+        const { rows: customFields } = await pool.query(
+            'SELECT field_key, label, group_name, default_value FROM custom_merge_fields WHERE is_active = TRUE ORDER BY group_name, label'
+        );
+
+        res.json({
+            success: true,
+            templateId: row.id,
+            templateName: row.name,
+            templateFields: row.variable_fields || [],
+            customFields: customFields.map(f => ({
+                key: f.field_key,
+                label: f.label,
+                group: f.group_name,
+                defaultValue: f.default_value,
+            })),
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
