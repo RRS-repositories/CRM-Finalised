@@ -3464,52 +3464,61 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
         const { first_name, last_name } = contactRes.rows[0];
         const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
 
-        // Dynamically find the actual S3 folder for this contact.
-        // Folder always ends with _<contactId>/ but name formatting may vary.
-        // Try common patterns first (fast), then fall back to scanning all folders.
+        // Dynamically find ALL S3 folders for this contact.
+        // Special characters (like /) in names can create multiple folders.
+        // Find all folders ending with _<contactId>/ to consolidate documents.
         const nameCandidates = new Set([
             `${first_name}_${last_name}`.replace(/\s+/g, '_'),
             `${first_name}_${last_name}`,
             `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
         ]);
 
-        let baseFolder = null;
+        const allBaseFolders = [];
+        const seenFolders = new Set();
         for (const name of nameCandidates) {
             const testPrefix = `${name}_${contactId}/`;
+            if (seenFolders.has(testPrefix)) continue;
             const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: testPrefix, MaxKeys: 1 }));
             if (probe.Contents && probe.Contents.length > 0) {
-                baseFolder = testPrefix;
-                break;
+                allBaseFolders.push(testPrefix);
+                seenFolders.add(testPrefix);
             }
         }
 
-        // Last resort: scan top-level folders for anything ending with _<contactId>/
-        if (!baseFolder) {
-            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
-            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
-            if (match) baseFolder = match.Prefix;
-        }
+        // Also scan top-level folders for anything ending with _<contactId>/
+        // This catches folders created with different name sanitization
+        let continuationTokenTop = undefined;
+        do {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: continuationTokenTop }));
+            for (const p of (topLevel.CommonPrefixes || [])) {
+                if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`) && !seenFolders.has(p.Prefix)) {
+                    allBaseFolders.push(p.Prefix);
+                    seenFolders.add(p.Prefix);
+                }
+            }
+            continuationTokenTop = topLevel.IsTruncated ? topLevel.NextContinuationToken : undefined;
+        } while (continuationTokenTop);
 
-        if (!baseFolder) {
+        if (allBaseFolders.length === 0) {
             return res.json([]); // No S3 folder for this contact
         }
 
-        console.log(`[Documents] S3 folder for contact ${contactId}: ${baseFolder}${lenderFilter ? ` (lender: ${lenderFilter})` : ''}`);
+        console.log(`[Documents] S3 folders for contact ${contactId}: ${allBaseFolders.join(', ')}${lenderFilter ? ` (lender: ${lenderFilter})` : ''}`);
 
-        // Scan S3 subfolders — when a lender filter is active, only scan that lender's subfolder
+        // Scan S3 subfolders across ALL base folders
         let foldersToScan;
         if (lenderFilter) {
             const sanitizedLender = lenderFilter.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-            foldersToScan = [
-                { prefix: `${baseFolder}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }
-            ];
+            foldersToScan = allBaseFolders.map(bf => (
+                { prefix: `${bf}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }
+            ));
         } else {
-            foldersToScan = [
-                { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
-                { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
-                { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
-                { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
-            ];
+            foldersToScan = allBaseFolders.flatMap(bf => [
+                { prefix: `${bf}Documents/`, defaultCategory: 'Client' },
+                { prefix: `${bf}Lenders/`, defaultCategory: 'LOA' },
+                { prefix: `${bf}LOA/`, defaultCategory: 'LOA' },
+                { prefix: `${bf}Terms-and-Conditions/`, defaultCategory: 'Legal' }
+            ]);
         }
         const documents = [];
 
@@ -3995,17 +4004,51 @@ app.post('/api/contacts/:id/sync-documents', async (req, res) => {
         }
 
         const { first_name, last_name } = contactRes.rows[0];
-        const baseFolder = `${first_name}_${last_name}_${contactId}/`;
-        // Scan Documents/, Lenders/ (new structure), and LOA/ (legacy) subfolders
-        const foldersToScan = [
-            { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
-            { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
-            { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' }  // Legacy fallback
-        ];
+        const { ListObjectsV2Command: ListCmd } = await import('@aws-sdk/client-s3');
 
-        console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}`);
+        // Find ALL S3 folders for this contact (handles special chars creating multiple folders)
+        const nameCandidates = new Set([
+            `${first_name}_${last_name}`.replace(/\s+/g, '_'),
+            `${first_name}_${last_name}`,
+            `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+        ]);
+        const allSyncFolders = [];
+        const seenSync = new Set();
+        for (const name of nameCandidates) {
+            const testPrefix = `${name}_${contactId}/`;
+            if (seenSync.has(testPrefix)) continue;
+            const probe = await s3Client.send(new ListCmd({ Bucket: BUCKET_NAME, Prefix: testPrefix, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) {
+                allSyncFolders.push(testPrefix);
+                seenSync.add(testPrefix);
+            }
+        }
+        // Also scan top-level for any other folders ending with _<contactId>/
+        let contTokenSync = undefined;
+        do {
+            const topLevel = await s3Client.send(new ListCmd({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: contTokenSync }));
+            for (const p of (topLevel.CommonPrefixes || [])) {
+                if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`) && !seenSync.has(p.Prefix)) {
+                    allSyncFolders.push(p.Prefix);
+                    seenSync.add(p.Prefix);
+                }
+            }
+            contTokenSync = topLevel.IsTruncated ? topLevel.NextContinuationToken : undefined;
+        } while (contTokenSync);
 
-        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+        if (allSyncFolders.length === 0) {
+            allSyncFolders.push(`${first_name}_${last_name}_${contactId}/`);
+        }
+
+        const baseFolder = allSyncFolders[0]; // Primary folder for logging
+        // Scan Documents/, Lenders/ (new structure), and LOA/ (legacy) across ALL folders
+        const foldersToScan = allSyncFolders.flatMap(bf => [
+            { prefix: `${bf}Documents/`, defaultCategory: 'Client' },
+            { prefix: `${bf}Lenders/`, defaultCategory: 'LOA' },
+            { prefix: `${bf}LOA/`, defaultCategory: 'LOA' }  // Legacy fallback
+        ]);
+
+        console.log(`[Sync] Starting S3 sync for contact ${contactId}, base folder: ${baseFolder}${allSyncFolders.length > 1 ? ` (+${allSyncFolders.length - 1} additional folders)` : ''}`);
 
         // 2. Clean up any duplicate documents for this contact (keep newest)
         await pool.query(
@@ -13166,36 +13209,42 @@ crmRouter.get('/contacts/:id/documents', async (req, res) => {
 
         const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
 
-        // Resolve S3 base folder
+        // Resolve ALL S3 folders for this contact (handles special chars creating multiple folders)
         const nameCandidates = new Set([
             `${first_name}_${last_name}`.replace(/\s+/g, '_'),
             `${first_name}_${last_name}`,
             `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
         ]);
-        let baseFolder = null;
+        const allBaseFolders = [];
+        const seenFolders = new Set();
         for (const name of nameCandidates) {
-            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: `${name}_${contactId}/`, MaxKeys: 1 }));
-            if (probe.Contents && probe.Contents.length > 0) { baseFolder = `${name}_${contactId}/`; break; }
+            const testPrefix = `${name}_${contactId}/`;
+            if (seenFolders.has(testPrefix)) continue;
+            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: testPrefix, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) { allBaseFolders.push(testPrefix); seenFolders.add(testPrefix); }
         }
-        if (!baseFolder) {
-            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
-            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
-            if (match) baseFolder = match.Prefix;
-        }
-        if (!baseFolder) return res.json([]);
+        let contToken = undefined;
+        do {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: contToken }));
+            for (const p of (topLevel.CommonPrefixes || [])) {
+                if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`) && !seenFolders.has(p.Prefix)) { allBaseFolders.push(p.Prefix); seenFolders.add(p.Prefix); }
+            }
+            contToken = topLevel.IsTruncated ? topLevel.NextContinuationToken : undefined;
+        } while (contToken);
+        if (allBaseFolders.length === 0) return res.json([]);
 
         // Build folder list — narrow to lender subfolder when filter is active
         let foldersToScan;
         if (lenderFilter) {
             const sanitizedLender = lenderFilter.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-            foldersToScan = [{ prefix: `${baseFolder}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }];
+            foldersToScan = allBaseFolders.map(bf => ({ prefix: `${bf}Lenders/${sanitizedLender}/`, defaultCategory: 'LOA' }));
         } else {
-            foldersToScan = [
-                { prefix: `${baseFolder}Documents/`, defaultCategory: 'Client' },
-                { prefix: `${baseFolder}Lenders/`, defaultCategory: 'LOA' },
-                { prefix: `${baseFolder}LOA/`, defaultCategory: 'LOA' },
-                { prefix: `${baseFolder}Terms-and-Conditions/`, defaultCategory: 'Legal' }
-            ];
+            foldersToScan = allBaseFolders.flatMap(bf => [
+                { prefix: `${bf}Documents/`, defaultCategory: 'Client' },
+                { prefix: `${bf}Lenders/`, defaultCategory: 'LOA' },
+                { prefix: `${bf}LOA/`, defaultCategory: 'LOA' },
+                { prefix: `${bf}Terms-and-Conditions/`, defaultCategory: 'Legal' }
+            ]);
         }
 
         const extToType = { pdf: 'pdf', doc: 'docx', docx: 'docx', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', xls: 'spreadsheet', xlsx: 'spreadsheet', txt: 'txt', html: 'html' };
@@ -13300,21 +13349,27 @@ crmRouter.get('/contacts/:id/claims/:claimId/documents', async (req, res) => {
             `${first_name}_${last_name}`,
             `${first_name}_${last_name}`.replace(/[^a-zA-Z0-9_]/g, '_'),
         ]);
-        let baseFolder = null;
+        const allBaseFolders = [];
+        const seenFolders = new Set();
         for (const name of nameCandidates) {
-            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: `${name}_${contactId}/`, MaxKeys: 1 }));
-            if (probe.Contents && probe.Contents.length > 0) { baseFolder = `${name}_${contactId}/`; break; }
+            const testPrefix = `${name}_${contactId}/`;
+            if (seenFolders.has(testPrefix)) continue;
+            const probe = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: testPrefix, MaxKeys: 1 }));
+            if (probe.Contents && probe.Contents.length > 0) { allBaseFolders.push(testPrefix); seenFolders.add(testPrefix); }
         }
-        if (!baseFolder) {
-            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 10000 }));
-            const match = (topLevel.CommonPrefixes || []).find(p => p.Prefix && p.Prefix.endsWith(`_${contactId}/`));
-            if (match) baseFolder = match.Prefix;
-        }
+        let contToken = undefined;
+        do {
+            const topLevel = await s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: contToken }));
+            for (const p of (topLevel.CommonPrefixes || [])) {
+                if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`) && !seenFolders.has(p.Prefix)) { allBaseFolders.push(p.Prefix); seenFolders.add(p.Prefix); }
+            }
+            contToken = topLevel.IsTruncated ? topLevel.NextContinuationToken : undefined;
+        } while (contToken);
 
         const documents = [];
         const extToType = { pdf: 'pdf', doc: 'docx', docx: 'docx', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', xls: 'spreadsheet', xlsx: 'spreadsheet', txt: 'txt', html: 'html' };
 
-        if (baseFolder) {
+        for (const baseFolder of (allBaseFolders.length > 0 ? allBaseFolders : [])) {
             const lenderPrefix = `${baseFolder}Lenders/${sanitizedLender}/`;
             let continuationToken;
             do {
