@@ -108,8 +108,8 @@
       "Bash(PGPASSWORD=admin123 psql -h rowan-rose-solicitors-clients-list.cjme82cqwljz.eu-north-1.rds.amazonaws.com -U postgres -d client_credentials -c \"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_data JSONB; ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_submitted BOOLEAN DEFAULT false; ALTER TABLE contacts ADD COLUMN IF NOT EXISTS signature_questionnaire_url TEXT;\")",
       "Bash(git fetch origin main)",
       "Bash(git stash)",
-      "Bash(npm run server)",
-      "Bash(cloudflared tunnel --url http://localhost:5000)"
+      "Bash(git revert 2967488 --no-edit)",
+      "Bash(git stash pop)"
     ]
   }
 }
