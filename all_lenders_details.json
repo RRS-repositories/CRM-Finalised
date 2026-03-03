@@ -330,6 +330,16 @@
         }
     },
     {
+        "lender": "CASHASAP",
+        "email": "info@cashasap.co.uk",
+        "address": {
+            "company_name": "Cashasap.co.uk Ltd",
+            "first_line_address": "3rd Floor, 86-90 Paul Street",
+            "town_city": "London",
+            "postcode": "EC2A 4NE"
+        }
+    },
+    {
         "lender": "CASH CONVERTERS",
         "email": "compliance.uk@cashconverters.com",
         "address": {
