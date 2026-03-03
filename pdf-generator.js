@@ -355,7 +355,7 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
 
     // 8. Build S3 key with proper naming convention
     const refSpec = `${contact.id}${caseData.id}`;
-    const contactName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim() || 'Unknown';
+    const contactName = `${(contact.first_name || '').replace(/[\/\\]/g, '')} ${(contact.last_name || '').replace(/[\/\\]/g, '')}`.trim() || 'Unknown';
     const sanitizedLender = (caseData.lender || 'NO_LENDER').replace(/[^a-zA-Z0-9_-]/g, '_');
     const docType = documentType === 'LOA' ? 'LOA' : 'COVER LETTER';
     const fileName = `${refSpec} - ${contactName} - ${sanitizedLender} - ${docType}.pdf`;

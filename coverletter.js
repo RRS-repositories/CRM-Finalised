@@ -503,10 +503,13 @@ export async function generateCoverLetterFromTemplate(caseId, pool, s3Client) {
 
     // 8. Upload to S3 (same naming convention as worker.js)
     const bucketName = process.env.S3_BUCKET_NAME;
-    const folderName = `${record.first_name}_${record.last_name}_${record.contact_id}`;
+    const sanitizeNameForS3 = (name) => (name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_');
+    const folderName = `${sanitizeNameForS3(record.first_name)}_${sanitizeNameForS3(record.last_name)}_${record.contact_id}`;
     const refSpec = `${record.contact_id}${record.id}`;
     const sanitizedLenderName = (caseData.lender || 'Unknown').replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-    const coverLetterFileName = `${refSpec} - ${record.first_name} ${record.last_name} - ${sanitizedLenderName} - COVER LETTER.pdf`;
+    const safeFirst = (record.first_name || '').replace(/[\/\\]/g, '');
+    const safeLast = (record.last_name || '').replace(/[\/\\]/g, '');
+    const coverLetterFileName = `${refSpec} - ${safeFirst} ${safeLast} - ${sanitizedLenderName} - COVER LETTER.pdf`;
     const coverLetterKey = `${folderName}/Lenders/${sanitizedLenderName}/${coverLetterFileName}`;
 
     await s3Client.send(new PutObjectCommand({

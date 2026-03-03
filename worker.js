@@ -1438,9 +1438,10 @@ const processPendingDSAREmails = async () => {
 
         for (const record of rows) {
             try {
-                const clientName = `${record.first_name} ${record.last_name}`;
-                // Sanitize folder name: replace spaces and non-ASCII chars to match S3 convention
-                const safeName = `${record.first_name}_${record.last_name}`.replace(/\s+/g, '_').replace(/[^\x00-\x7F]/g, '');
+                const clientName = `${(record.first_name || '').replace(/[\/\\]/g, '')} ${(record.last_name || '').replace(/[\/\\]/g, '')}`;
+                // Sanitize folder name: strip /, \, spaces, and non-ASCII chars for S3 compatibility
+                const sanitizeS3 = (n) => (n || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_');
+                const safeName = `${sanitizeS3(record.first_name)}_${sanitizeS3(record.last_name)}`;
                 const folderName = `${safeName}_${record.contact_id}`;
                 const lenderCategory = getLenderCategory(record.lender);
 

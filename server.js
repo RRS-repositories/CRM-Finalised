@@ -41,6 +41,14 @@ const { tcHtml } = termsHtmlPkg;
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Sanitize contact names for S3 folder paths — strips /, \, and other special chars that break S3 paths
+function sanitizeNameForS3(name) {
+    return (name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_');
+}
+function buildS3Folder(firstName, lastName, contactId) {
+    return `${sanitizeNameForS3(firstName)}_${sanitizeNameForS3(lastName)}_${contactId}/`;
+}
+
 // Trust proxy for correct protocol detection behind nginx (important for HTTPS)
 // This ensures req.protocol returns 'https' when behind a reverse proxy
 app.set('trust proxy', 1);
@@ -1983,7 +1991,7 @@ app.post('/api/submit-previous-address', async (req, res) => {
                     console.log(`[Background] PDF generated. Buffer size: ${pdfBuffer.length} bytes.`);
 
                     // 3. Upload to S3 (New Folder Structure)
-                    const folderName = `${contact.first_name}_${contact.last_name}_${clientId}`;
+                    const folderName = buildS3Folder(contact.first_name, contact.last_name, clientId).slice(0, -1);
                     const timestamp = Date.now();
                     const fileName = `${folderName}/Documents/Previous_Addresses_${timestamp}.pdf`;
                     console.log(`[Background] Uploading to S3 Key: ${fileName}`);
@@ -2789,7 +2797,7 @@ app.post('/api/submit-page1', async (req, res) => {
 
         const dbRes = await pool.query(insertQuery, values);
         const contactId = dbRes.rows[0].id;
-        const folderPath = `${first_name}_${last_name}_${contactId}/`;
+        const folderPath = buildS3Folder(first_name, last_name, contactId);
 
         // --- IMMEDIATE RESPONSE TO CLIENT ---
         // We respond NOW so the user doesn't wait for PDF generation/Uploads
@@ -3021,8 +3029,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
-        // Sanitize name for S3 folder: replace spaces with underscores for consistent path
-        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
+        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -3144,8 +3151,7 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
-        // Sanitize name for S3 folder: replace spaces with underscores for consistent path
-        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
+        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -3157,7 +3163,7 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
 
         // Reference spec for standard naming
         const refSpec = `${contact_id}${claim_id || ''}`;
-        const clientName = `${first_name} ${last_name}`;
+        const clientName = `${(first_name || '').replace(/[\/\\]/g, '')} ${(last_name || '').replace(/[\/\\]/g, '')}`;
 
         let s3FileName;
         let folderPath;
@@ -3279,10 +3285,8 @@ app.post('/api/upload-document-by-name', upload.single('document'), async (req, 
         }
 
         // 3. Upload to S3 under contact folder
-        const firstName = contact.first_name || '';
-        const lastName = contact.last_name || '';
         const docName = original_name || file.originalname;
-        const key = `${firstName}_${lastName}_${contact_id}/Documents/${docName}`;
+        const key = `${buildS3Folder(contact.first_name, contact.last_name, contact_id)}Documents/${docName}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -5892,7 +5896,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
-        const folderPath = `${contact.first_name}_${contact.last_name}_${contact.id}/`;
+        const folderPath = buildS3Folder(contact.first_name, contact.last_name, contact.id);
 
         console.log(`🗑️  Deleting contact ${id} and S3 folder: ${folderPath}`);
 
@@ -6240,16 +6244,18 @@ app.delete('/api/cases/:id', async (req, res) => {
         }
 
         const claim = claimRes.rows[0];
-        const folderPath = `${claim.first_name}_${claim.last_name}_${claim.contact_id}/`;
+        const folderPath = buildS3Folder(claim.first_name, claim.last_name, claim.contact_id);
         const refSpec = `${claim.contact_id}${id}`;
         const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+        const safeFirstName = (claim.first_name || '').replace(/[\/\\]/g, '');
+        const safeLastName = (claim.last_name || '').replace(/[\/\\]/g, '');
 
         // New structure paths (Lenders/{lenderName}/)
-        const newLoaPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - LOA.pdf`;
-        const newCoverPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - COVER LETTER.pdf`;
+        const newLoaPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${safeFirstName} ${safeLastName} - ${sanitizedLender} - LOA.pdf`;
+        const newCoverPath = `${folderPath}Lenders/${sanitizedLender}/${refSpec} - ${safeFirstName} ${safeLastName} - ${sanitizedLender} - COVER LETTER.pdf`;
         // Old LOA/ folder paths (for backwards compatibility)
-        const oldLoaPath = `${folderPath}LOA/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - LOA.pdf`;
-        const oldCoverPath = `${folderPath}LOA/${refSpec} - ${claim.first_name} ${claim.last_name} - ${sanitizedLender} - COVER LETTER.pdf`;
+        const oldLoaPath = `${folderPath}LOA/${refSpec} - ${safeFirstName} ${safeLastName} - ${sanitizedLender} - LOA.pdf`;
+        const oldCoverPath = `${folderPath}LOA/${refSpec} - ${safeFirstName} ${safeLastName} - ${sanitizedLender} - COVER LETTER.pdf`;
         // Legacy naming format paths
         const legacyLoaPath = `${folderPath}LOA/${sanitizedLender}_LOA.pdf`;
         const legacyCoverPath = `${folderPath}LOA/${sanitizedLender}_Cover_Letter.pdf`;
@@ -6818,7 +6824,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         }
 
         const contactId = contact.id;
-        const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+        const folderPath = buildS3Folder(contact.first_name, contact.last_name, contactId);
 
         // --- UPDATE DB IMMEDIATELY ---
         await pool.query(
@@ -7656,7 +7662,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
             try {
                 console.log(`[Background Questionnaire] Starting processing for contact ${contactId}...`);
 
-                const folderPath = `${contact.first_name}_${contact.last_name}_${contactId}/`;
+                const folderPath = buildS3Folder(contact.first_name, contact.last_name, contactId);
 
                 // 1. Upload Signature to S3
                 const base64Data = signatureData.replace(/^data:image\/png;base64,/, '');
@@ -9368,7 +9374,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = `${record.first_name}_${record.last_name}_${contactId}/`;
+        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
@@ -14294,8 +14300,8 @@ crmRouter.post('/documents/generate', async (req, res) => {
             if (contactRes.rows.length > 0) {
                 const { first_name, last_name } = contactRes.rows[0];
                 const sanitize = (s) => (s || '').replace(/[<>:"/\\|?*]/g, '').trim();
-                const folderName = sanitize(`${first_name}_${last_name}_${contact_id}`);
-                const fullName = `${first_name || ''} ${last_name || ''}`.trim();
+                const folderName = buildS3Folder(first_name, last_name, contact_id).slice(0, -1);
+                const fullName = `${(first_name || '').replace(/[\/\\]/g, '')} ${(last_name || '').replace(/[\/\\]/g, '')}`.trim();
                 const lenderName = sanitize(lender || variables?.['claim.lender'] || variables?.['{{claim.lender}}'] || 'General');
                 const documentType = sanitize(resolvedDocType);
 
@@ -14457,7 +14463,7 @@ crmRouter.post('/documents/upload', upload.single('file'), async (req, res) => {
         if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
         const { first_name, last_name } = contactRes.rows[0];
 
-        const safeName = `${first_name}_${last_name}`.replace(/\s+/g, '_');
+        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
         const docCategory = category || 'Other';
         const ext = path.extname(fileName);
         const baseName = path.basename(fileName, ext);
