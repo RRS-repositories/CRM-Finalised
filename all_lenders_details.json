@@ -1641,7 +1641,7 @@
     },
     {
         "lender": "POST OFFICE",
-        "email": null,
+        "email": "data.protection@postoffice.co.uk",
         "address": {
             "company_name": "Post Office Limited",
             "first_line_address": "Finsbury Dials, 20 Finsbury Street",
@@ -1651,7 +1651,7 @@
     },
     {
         "lender": "POST OFFICE MONEY",
-        "email": null,
+        "email": "data.protection@postoffice.co.uk",
         "address": {
             "company_name": "Post Office Limited",
             "first_line_address": "Finsbury Dials, 20 Finsbury Street",
