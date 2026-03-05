@@ -109,7 +109,8 @@
       "Bash(git fetch origin main)",
       "Bash(git stash)",
       "Bash(git revert 2967488 --no-edit)",
-      "Bash(git stash pop)"
+      "Bash(git stash pop)",
+      "Bash(chmod +x /Users/sayedmohammadfirdousi/Desktop/rrs/CRM-Finalised/copy_db_to_local.sh)"
     ]
   }
 }
