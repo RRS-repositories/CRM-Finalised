@@ -1641,7 +1641,17 @@
     },
     {
         "lender": "POST OFFICE",
-        "email": null,
+        "email": "data.protection@postoffice.co.uk",
+        "address": {
+            "company_name": "Post Office Limited",
+            "first_line_address": "Finsbury Dials, 20 Finsbury Street",
+            "town_city": "London",
+            "postcode": "EC2Y 9AQ"
+        }
+    },
+    {
+        "lender": "POST OFFICE MONEY",
+        "email": "data.protection@postoffice.co.uk",
         "address": {
             "company_name": "Post Office Limited",
             "first_line_address": "Finsbury Dials, 20 Finsbury Street",
@@ -1751,16 +1761,6 @@
     },
     {
         "lender": "SAINSBURY'S BANK",
-        "email": null,
-        "address": {
-            "company_name": "Sainsbury's Bank plc",
-            "first_line_address": "33 Holborn",
-            "town_city": "London",
-            "postcode": "EC1N 2HT"
-        }
-    },
-    {
-        "lender": "POST",
         "email": null,
         "address": {
             "company_name": "Sainsbury's Bank plc",

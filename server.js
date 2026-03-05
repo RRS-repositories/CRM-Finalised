@@ -711,142 +711,143 @@ async function triggerPdfGenerator(caseId, documentType, skipStatusUpdate = fals
  */
 const IRL_LENDER_VARIABLES = {
     // ─── CREDIT CARDS ───
-    'AQUA':                 'aqua',
+    'AQUA': 'aqua',
     'BARCLAYS CREDIT CARD': 'barclays_credit_card',
-    'BIP CREDIT CARD':      'bip_credit_card',
-    'CAPITAL ONE':          'capital_one',
-    'FLUID':                'fluid',
-    'LUMA':                 'luma',
-    'MARBLES':              'marbles',
-    'MBNA':                 'mbna',
-    'OCEAN':                'ocean',
-    'REVOLUT CREDIT CARD':  'revolut_credit_card',
-    'VANQUIS':              'vanquis',
-    'WAVE':                 'wave',
-    'ZABLE':                'zable',
-    'ZILCH':                'zilch',
-    'ZOPA':                 'zopa',
-    '118 118 MONEY':        'money_118',
+    'BIP CREDIT CARD': 'bip_credit_card',
+    'CAPITAL ONE': 'capital_one',
+    'FLUID': 'fluid',
+    'LUMA': 'luma',
+    'MARBLES': 'marbles',
+    'MBNA': 'mbna',
+    'OCEAN': 'ocean',
+    'REVOLUT CREDIT CARD': 'revolut_credit_card',
+    'VANQUIS': 'vanquis',
+    'WAVE': 'wave',
+    'ZABLE': 'zable',
+    'ZILCH': 'zilch',
+    'ZOPA': 'zopa',
+    '118 118 MONEY': 'money_118',
 
     // ─── PAYDAY / SHORT-TERM LOANS (also includes 118 Loans) ───
-    '118 LOANS':            'loans_118',
-    'ADMIRAL LOANS':        'admiral_loans',
-    'ANICO FINANCE':        'anico_finance',
-    'AVANT CREDIT':         'avant_credit',
-    'BAMBOO':               'bamboo',
-    'BETTER BORROW':        'better_borrow',
-    'CREDIT SPRING':        'credit_spring',
-    'CASH ASAP':            'cash_asap',
-    'CASH FLOAT':           'cash_float',
-    'CAR CASH POINT':       'car_cash_point',
-    'CREATION FINANCE':     'creation_finance',
-    'CASTLE COMMUNITY BANK':'castle_community_bank',
-    'DRAFTY LOANS':         'drafty_loans',
-    'EVOLUTION MONEY':      'evolution_money',
-    'EVERY DAY LENDING':    'every_day_lending',
-    'FERNOVO':              'fernovo',
-    'FAIR FINANCE':         'fair_finance',
-    'FINIO LOANS':          'finio_loans',
-    'FINTERN':              'fintern',
-    'FLURO':                'fluro',
-    'GAMBLING':             'gambling_lender',
-    'KOYO LOANS':           'koyo_loans',
-    'LIKELY LOANS':         'likely_loans',
-    'LOANS2GO':             'loans2go',
-    'Loans 2 Go':           'loans2go',
-    'LOANS BY MAL':         'loans_by_mal',
-    'LOGBOOK LENDING':      'logbook_lending',
-    'LOGBOOK MONEY':        'logbook_money',
-    'LENDING STREAM':       'lending_stream',
-    'LENDABLE':             'lendable',
-    'LIFE STYLE LOANS':     'life_style_loans',
+    '118 LOANS': 'loans_118',
+    'ADMIRAL LOANS': 'admiral_loans',
+    'ANICO FINANCE': 'anico_finance',
+    'AVANT CREDIT': 'avant_credit',
+    'BAMBOO': 'bamboo',
+    'BETTER BORROW': 'better_borrow',
+    'CREDIT SPRING': 'credit_spring',
+    'CASH ASAP': 'cash_asap',
+    'CASH FLOAT': 'cash_float',
+    'CAR CASH POINT': 'car_cash_point',
+    'CREATION FINANCE': 'creation_finance',
+    'CASTLE COMMUNITY BANK': 'castle_community_bank',
+    'DRAFTY LOANS': 'drafty_loans',
+    'EVOLUTION MONEY': 'evolution_money',
+    'EVERY DAY LENDING': 'every_day_lending',
+    'FERNOVO': 'fernovo',
+    'FAIR FINANCE': 'fair_finance',
+    'FINIO LOANS': 'finio_loans',
+    'FINTERN': 'fintern',
+    'FLURO': 'fluro',
+    'GAMBLING': 'gambling_lender',
+    'KOYO LOANS': 'koyo_loans',
+    'LIKELY LOANS': 'likely_loans',
+    'LOANS2GO': 'loans2go',
+    'Loans 2 Go': 'loans2go',
+    'LOANS BY MAL': 'loans_by_mal',
+    'LOGBOOK LENDING': 'logbook_lending',
+    'LOGBOOK MONEY': 'logbook_money',
+    'LENDING STREAM': 'lending_stream',
+    'LENDABLE': 'lendable',
+    'LIFE STYLE LOANS': 'life_style_loans',
     'MY COMMUNITY FINANCE': 'my_community_finance',
-    'MY KREDIT':            'my_kredit',
-    'MY FINANCE CLUB':      'my_finance_club',
-    'MONEY BOAT':           'money_boat',
-    'MONEYBOAT':            'money_boat',
-    'MR LENDER':            'mr_lender',
-    'MONEY LINE':           'money_line',
-    'MY COMMUNITY BANK':    'my_community_bank',
-    'MONTHLY ADVANCE LOANS':'monthly_advance_loans',
-    'NOVUNA':               'novuna',
-    'OPOLO':                'opolo',
-    'PM LOANS':             'pm_loans',
-    'POLAR FINANCE':        'polar_finance',
-    'POST OFFICE MONEY':    'post_office_money',
-    'PROGRESSIVE MONEY':    'progressive_money',
-    'PLATA FINANCE':        'plata_finance',
-    'PLEND':                'plend',
-    'QUID MARKET':          'quid_market',
-    'QUICK LOANS':          'quick_loans',
-    'SKYLINE DIRECT':       'skyline_direct',
-    'SALAD MONEY':          'salad_money',
-    'SAVVY LOANS':          'savvy_loans',
+    'MY KREDIT': 'my_kredit',
+    'MY FINANCE CLUB': 'my_finance_club',
+    'MONEY BOAT': 'money_boat',
+    'MONEYBOAT': 'money_boat',
+    'MR LENDER': 'mr_lender',
+    'MONEY LINE': 'money_line',
+    'MY COMMUNITY BANK': 'my_community_bank',
+    'MONTHLY ADVANCE LOANS': 'monthly_advance_loans',
+    'NOVUNA': 'novuna',
+    'OPOLO': 'opolo',
+    'PM LOANS': 'pm_loans',
+    'POLAR FINANCE': 'polar_finance',
+    'POST OFFICE': 'post_office_money',
+    'POST OFFICE MONEY': 'post_office_money',
+    'PROGRESSIVE MONEY': 'progressive_money',
+    'PLATA FINANCE': 'plata_finance',
+    'PLEND': 'plend',
+    'QUID MARKET': 'quid_market',
+    'QUICK LOANS': 'quick_loans',
+    'SKYLINE DIRECT': 'skyline_direct',
+    'SALAD MONEY': 'salad_money',
+    'SAVVY LOANS': 'savvy_loans',
     'SALARY FINANCE (NEYBER)': 'salary_finance',
-    'SNAP FINANCE':         'snap_finance',
-    'SHAWBROOK':            'shawbrook',
+    'SNAP FINANCE': 'snap_finance',
+    'SHAWBROOK': 'shawbrook',
     'THE ONE STOP MONEY SHOP': 'one_stop_money_shop',
-    'TM ADVANCES':          'tm_advances',
-    'TANDEM':               'tandem',
-    'WAGESTREAM':           'wagestream',
-    'CASH 4 U NOW':         'cash_4_u_now',
-    'FUND OURSELVES':       'fund_ourselves',
-    'LIVE LEND':            'live_lend',
-    'ONDAL FINANCE':        'ondal_finance',
-    'PML LOANS':            'pml_loans',
-    'RATE SETTER':          'rate_setter',
-    'REEVO':                'reevo',
-    'TICK TOCK LOANS':      'tick_tock_loans',
-    'UPDRAFT':              'updraft',
+    'TM ADVANCES': 'tm_advances',
+    'TANDEM': 'tandem',
+    'WAGESTREAM': 'wagestream',
+    'CASH 4 U NOW': 'cash_4_u_now',
+    'FUND OURSELVES': 'fund_ourselves',
+    'LIVE LEND': 'live_lend',
+    'ONDAL FINANCE': 'ondal_finance',
+    'PML LOANS': 'pml_loans',
+    'RATE SETTER': 'rate_setter',
+    'REEVO': 'reevo',
+    'TICK TOCK LOANS': 'tick_tock_loans',
+    'UPDRAFT': 'updraft',
 
     // ─── CONSOLIDATION / OTHER LOANS ───
-    'CONSOLIDATION LOAN':   'consolidation_loan',
+    'CONSOLIDATION LOAN': 'consolidation_loan',
 
     // ─── GUARANTOR LOANS ───
-    'GUARANTOR MY LOAN':    'guarantor_my_loan',
-    'HERO LOANS':           'hero_loans',
-    'JUO LOANS':            'juo_loans',
-    'SUCO':                 'suco',
-    'UK CREDIT':            'uk_credit',
-    '1 PLUS 1':             'one_plus_one',
+    'GUARANTOR MY LOAN': 'guarantor_my_loan',
+    'HERO LOANS': 'hero_loans',
+    'JUO LOANS': 'juo_loans',
+    'SUCO': 'suco',
+    'UK CREDIT': 'uk_credit',
+    '1 PLUS 1': 'one_plus_one',
 
     // ─── LOGBOOK LOANS / PAWNBROKERS ───
-    'CASH CONVERTERS':      'cash_converters',
-    'H&T PAWNBROKERS':      'ht_pawnbrokers',
+    'CASH CONVERTERS': 'cash_converters',
+    'H&T PAWNBROKERS': 'ht_pawnbrokers',
 
     // ─── CATALOGUES ───
-    'FASHION WORLD':        'fashion_world',
-    'JD WILLIAMS':          'jd_williams',
-    'SIMPLY BE':            'simply_be',
-    'VERY CATALOGUE':       'very_catalogue',
+    'FASHION WORLD': 'fashion_world',
+    'JD WILLIAMS': 'jd_williams',
+    'SIMPLY BE': 'simply_be',
+    'VERY CATALOGUE': 'very_catalogue',
 
     // ─── CAR FINANCE ───
-    'ADVANTAGE FINANCE':    'advantage_finance',
+    'ADVANTAGE FINANCE': 'advantage_finance',
     'AUDI / VOLKSWAGEN FINANCE / SKODA': 'audi_vw_skoda',
-    'BLUE MOTOR FINANCE':   'blue_motor_finance',
-    'CLOSE BROTHERS':       'close_brothers',
+    'BLUE MOTOR FINANCE': 'blue_motor_finance',
+    'CLOSE BROTHERS': 'close_brothers',
     'HALIFAX / BANK OF SCOTLAND': 'halifax_bos',
-    'MONEY WAY':            'money_way',
-    'MOTONOVO':             'motonovo',
-    'MONEY BARN':           'money_barn',
-    'OODLE':                'oodle',
-    'OODLE CAR FINANCE':    'oodle',
-    'PSA FINANCE':          'psa_finance',
-    'RCI FINANCIAL':        'rci_financial',
-    'BLACKHORSE':           'blackhorse',
+    'MONEY WAY': 'money_way',
+    'MOTONOVO': 'motonovo',
+    'MONEY BARN': 'money_barn',
+    'OODLE': 'oodle',
+    'OODLE CAR FINANCE': 'oodle',
+    'PSA FINANCE': 'psa_finance',
+    'RCI FINANCIAL': 'rci_financial',
+    'BLACKHORSE': 'blackhorse',
     'BMW / MINI / ALPHERA FINANCE': 'bmw_mini_alphera',
     'SANTANDER CONSUMER FINANCE': 'santander_consumer',
-    'VAUXHALL FINANCE':     'vauxhall_finance',
+    'VAUXHALL FINANCE': 'vauxhall_finance',
 
     // ─── OVERDRAFTS ───
-    'HALIFAX OVERDRAFT':    'halifax_overdraft',
-    'BARCLAYS OVERDRAFT':   'barclays_overdraft',
+    'HALIFAX OVERDRAFT': 'halifax_overdraft',
+    'BARCLAYS OVERDRAFT': 'barclays_overdraft',
     'CO-OP BANK OVERDRAFT': 'coop_overdraft',
-    'LLOYDS OVERDRAFT':     'lloyds_overdraft',
-    'TSB OVERDRAFT':        'tsb_overdraft',
+    'LLOYDS OVERDRAFT': 'lloyds_overdraft',
+    'TSB OVERDRAFT': 'tsb_overdraft',
     'NATWEST / RBS OVERDRAFT': 'natwest_rbs_overdraft',
-    'HSBC OVERDRAFT':       'hsbc_overdraft',
-    'SANTANDER OVERDRAFT':  'santander_overdraft',
+    'HSBC OVERDRAFT': 'hsbc_overdraft',
+    'SANTANDER OVERDRAFT': 'santander_overdraft',
 };
 
 /**
@@ -2538,7 +2539,7 @@ function standardizeLender(lenderName) {
         'FINIO LOANS', 'FINTERN', 'FLURO', 'KOYO LOANS', 'LOANS BY MAL', 'LOGBOOK LENDING',
         'LOGBOOK MONEY', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT',
         'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK',
-        'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY',
+        'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE', 'POST OFFICE MONEY',
         'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT',
         'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE', 'NEYBER', 'SNAP FINANCE', 'SHAWBROOK',
         'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN',
@@ -7478,69 +7479,6 @@ app.get('/questionnaire/:contactId', async (req, res) => {
 
                 <form id="questionnaireForm">
 
-                    <!-- ==================== IRL SECTION ==================== -->
-
-                    <!-- INCOME & FINANCIAL BACKGROUND -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-sterling-sign mr-2"></i>INCOME & FINANCIAL BACKGROUND</h3></div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q1"><span class="text-slate-700">Were you employed at the time you took out the loan / credit?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q2"><span class="text-slate-700">Were you self-employed at the time you took out the loan / credit?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q3"><span class="text-slate-700">Were you on benefits at the time you took out the loan / credit?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q4"><span class="text-slate-700">Was your income less than &pound;20,000 per annum at the time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q5"><span class="text-slate-700">Was your income more than &pound;20,000 per annum at the time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing on time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q7"><span class="text-slate-700">Did you have other loans / credit at the same time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q8"><span class="text-slate-700">Were you borrowing from other lenders to make repayments?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Did the lender check your income before approving the loan?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q10"><span class="text-slate-700">Did the lender check your outgoings before approving the loan?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q11"><span class="text-slate-700">Were you in an IVA or Debt Management Plan at the time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q12"><span class="text-slate-700">Had you ever been declared bankrupt before taking the loan?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Did you use the loan / credit to pay for essentials (rent, food, bills)?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q14"><span class="text-slate-700">Were you relying on credit to get through the month?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q15"><span class="text-slate-700">Did you miss any repayments?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Were you charged late fees or penalty charges?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- CURRENT & PREVIOUS HEALTH CONDITIONS -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-heart-pulse mr-2"></i>CURRENT & PREVIOUS HEALTH CONDITIONS</h3></div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q17"><span class="text-slate-700">Do you or have you suffered from anxiety?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q18"><span class="text-slate-700">Do you or have you suffered from depression?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q19"><span class="text-slate-700">Do you or have you suffered from stress-related illness?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q20"><span class="text-slate-700">Do you or have you suffered from a physical disability?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q21"><span class="text-slate-700">Do you or have you suffered from a learning disability?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q22"><span class="text-slate-700">Were you on medication at the time of taking out the loan / credit?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q23"><span class="text-slate-700">Did your health condition affect your ability to manage finances?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q24"><span class="text-slate-700">Did the lender ask about your health or mental wellbeing?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q25"><span class="text-slate-700">Did your health condition worsen due to the financial pressure?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q26"><span class="text-slate-700">Did you inform the lender about your health condition?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q27"><span class="text-slate-700">Did the lender offer any support or adjustments?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q28"><span class="text-slate-700">Were you receiving any form of care or support at the time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q29"><span class="text-slate-700">Did you feel pressured into taking the loan despite your condition?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q30"><span class="text-slate-700">Have you sought medical help as a result of financial stress?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q31"><span class="text-slate-700">Has the debt had a negative impact on your relationships or home life?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- PERSONAL & LIFESTYLE -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-user mr-2"></i>PERSONAL & LIFESTYLE</h3></div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q32"><span class="text-slate-700">Were you a single parent at the time?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q33"><span class="text-slate-700">Did you have dependants relying on your income?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q34"><span class="text-slate-700">Were you in a vulnerable situation (e.g. domestic abuse, bereavement)?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q35"><span class="text-slate-700">Did you feel the lender took advantage of your situation?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q36"><span class="text-slate-700">Were you under 25 years old when you took out the loan / credit?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q37"><span class="text-slate-700">Did you fully understand the terms and conditions of the loan?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q38"><span class="text-slate-700">Did the lender explain the total cost of borrowing clearly?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q39"><span class="text-slate-700">Were you given enough time to consider the loan agreement?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q40"><span class="text-slate-700">Have you ever been contacted by debt collectors regarding this loan?</span></label>
-                        </div>
-                    </div>
-
                     <!-- ==================== GAMBLING TOGGLE ==================== -->
                     <div class="mb-8 p-5 bg-amber-50 rounded-xl border-2 border-amber-300">
                         <label class="flex items-center gap-4 cursor-pointer">
@@ -7570,10 +7508,10 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-ban mr-2"></i>SELF-EXCLUSION & PROBLEM GAMBLING</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q41"><span class="text-slate-700">Did you ever self-exclude from any gambling platform?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q42"><span class="text-slate-700">Were you able to re-open your account after self-excluding?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did you register with GAMSTOP or any other self-exclusion scheme?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Did the gambling operator contact you with offers after you self-excluded?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q45"><span class="text-slate-700">Did you feel the operator failed to protect you as a problem gambler?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q42"><span class="text-slate-700">Were you able to create a new account or use someone else's account after self-exclusion?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did the gambling company fail to provide support after signs of problem gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Were you contacted with promotions while self-excluded?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q45"><span class="text-slate-700">Did you continue to receive marketing materials after self-excluding?</span></label>
                             </div>
                         </div>
 
@@ -7581,9 +7519,9 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-crown mr-2"></i>VIP STATUS & AFFORDABILITY</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q46"><span class="text-slate-700">Were you given VIP status or placed in a loyalty / rewards scheme?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q46"><span class="text-slate-700">Were you offered VIP status without the gambling company asking for proof of source of funds?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q47"><span class="text-slate-700">Did the operator carry out affordability checks on your account?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q48"><span class="text-slate-700">Were you spending beyond your means on gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q48"><span class="text-slate-700">Were you given access to VIP events without verifying affordability?</span></label>
                             </div>
                         </div>
 
@@ -7591,9 +7529,9 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-file-contract mr-2"></i>TERMS & CONDITIONS</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q49"><span class="text-slate-700">Did you read and understand the terms and conditions?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q49"><span class="text-slate-700">Did the gambling company make changes to T&amp;Cs without notifying you clearly?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q50"><span class="text-slate-700">Were the terms and conditions clearly presented to you?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q51"><span class="text-slate-700">Were there any hidden terms that you were not made aware of?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q51"><span class="text-slate-700">Do you believe the company unfairly withheld your winnings?</span></label>
                             </div>
                         </div>
 
@@ -7603,7 +7541,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q52"><span class="text-slate-700">Were you asked to verify your identity when opening your account?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q53"><span class="text-slate-700">Were you asked about your source of funds?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Did you provide false information to the operator about your finances?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Have you used borrowed money/overdrafts to gamble, and the company failed to intervene?</span></label>
                             </div>
                         </div>
 
@@ -7611,7 +7549,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-money-bill-transfer mr-2"></i>DEPOSITS & WITHDRAWALS</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q55"><span class="text-slate-700">Did your deposits increase significantly over time?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q55"><span class="text-slate-700">Have you had issues withdrawing winnings, such as delays or refusals?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q56"><span class="text-slate-700">Did you experience delays or issues when trying to withdraw funds?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q57"><span class="text-slate-700">Did you reverse withdrawals to continue gambling?</span></label>
                             </div>
@@ -7623,7 +7561,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q58"><span class="text-slate-700">Did you chase your losses by gambling more?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q59"><span class="text-slate-700">Did anyone (family, friends) intervene or express concern about your gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Did the operator intervene or set any limits on your account?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Have you ever tried to seek compensation for gambling losses and been told the company was not at fault?</span></label>
                             </div>
                         </div>
 
@@ -7631,7 +7569,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES & PROMOTIONS</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Were you offered free bets, bonuses, or promotions to encourage gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Have you been misled about the terms of bonus bets?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q62"><span class="text-slate-700">Did these offers encourage you to gamble more than you intended?</span></label>
                             </div>
                         </div>
@@ -7651,7 +7589,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q65"><span class="text-slate-700">Have you previously made a complaint to the gambling operator?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q66"><span class="text-slate-700">Was your complaint resolved to your satisfaction?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Have you escalated any complaint to an ombudsman or ADR service?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Were you ever asked to sign an NDA or gagging clause?</span></label>
                             </div>
                         </div>
 
@@ -7660,8 +7598,8 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q68"><span class="text-slate-700">Do you believe the operator failed to comply with gambling regulations?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q69"><span class="text-slate-700">Were you allowed to gamble when you should have been restricted?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q70"><span class="text-slate-700">Did the operator fail to display responsible gambling information clearly?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q69"><span class="text-slate-700">Did the company fail to protect you as a vulnerable customer?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q70"><span class="text-slate-700">Do you believe the company acted irresponsibly by not following social responsibility obligations?</span></label>
                             </div>
                         </div>
 
@@ -7670,15 +7608,78 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q71"><span class="text-slate-700">Did your bank allow gambling transactions despite signs of financial difficulty?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">Did you ask your bank to block gambling transactions?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">I was never contacted by my bank about my gambling transactions and was not offered any support.</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q73"><span class="text-slate-700">Did your bank offer support or signpost you to gambling support services?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q74"><span class="text-slate-700">Were gambling transactions visible on your bank statements?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">Did you use credit facilities (overdraft, credit card) to fund gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q74"><span class="text-slate-700">I informed my bank about my gambling addiction or financial difficulties.</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">I was never offered any support or services by the bank?</span></label>
                             </div>
                         </div>
 
                     </div>
                     <!-- END GAMBLING SECTION -->
+
+                    <!-- ==================== IRL SECTION ==================== -->
+
+                    <!-- INCOME & FINANCIAL BACKGROUND -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-sterling-sign mr-2"></i>INCOME & FINANCIAL BACKGROUND</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q1"><span class="text-slate-700">Were you employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q2"><span class="text-slate-700">Were you self-employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q3"><span class="text-slate-700">Have you had or do you have a poor credit history?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q4"><span class="text-slate-700">Was your income less than &pound;20,000 per annum at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q5"><span class="text-slate-700">Have you previously had a CCJ implemented against you?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing on time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q7"><span class="text-slate-700">Have you had or do you have an insufficient credit history?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q8"><span class="text-slate-700">Do you have a lack of financial literacy?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Were you of a young age when taking the credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q10"><span class="text-slate-700">Did you or do you have any legal issues at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q11"><span class="text-slate-700">Were you of an older age (70+) when taking any sort of credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q12"><span class="text-slate-700">Have you or do you have a history of defaulting on loans?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Were you ever homeless or without stable housing?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q14"><span class="text-slate-700">Were you relying on credit to get through the month?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q15"><span class="text-slate-700">Did you miss any repayments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Have you had any recent major life events in the last 10 years?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- CURRENT & PREVIOUS HEALTH CONDITIONS -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-heart-pulse mr-2"></i>CURRENT & PREVIOUS HEALTH CONDITIONS</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q17"><span class="text-slate-700">Did you suffer a traumatic brain injury (TBI) in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q18"><span class="text-slate-700">Did you suffer any head injuries in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q19"><span class="text-slate-700">Do you have any vision impairments affecting your financial decision-making?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q20"><span class="text-slate-700">Do you have any hearing loss or deafness affecting your financial decision-making?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q21"><span class="text-slate-700">Do you have any neurological injuries or disorders?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q22"><span class="text-slate-700">Do you have any musculoskeletal injuries?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q23"><span class="text-slate-700">Did you suffer from PTSD affecting your financial decision-making?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q24"><span class="text-slate-700">Do you have any speech and language disorders affecting your financial decision-making?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q25"><span class="text-slate-700">Do you have any learning difficulties: Dyslexia, ADHD, Dyscalculia, Dysgraphia?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q26"><span class="text-slate-700">Did you inform the lender about your health condition?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q27"><span class="text-slate-700">Did the lender offer any support or adjustments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q28"><span class="text-slate-700">Were you receiving any form of care or support at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q29"><span class="text-slate-700">Are you suffering from any memory impairments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q30"><span class="text-slate-700">Are you affected by Autism Spectrum Disorder (ASD)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q31"><span class="text-slate-700">Are you affected by intellectual disabilities?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- PERSONAL & LIFESTYLE -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-user mr-2"></i>PERSONAL & LIFESTYLE</h3></div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q32"><span class="text-slate-700">Were you a single parent at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q33"><span class="text-slate-700">At any point whilst having the credit, would you have considered yourself a gambler?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q34"><span class="text-slate-700">At any point of using the credit, would you consider yourself an alcoholic?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q35"><span class="text-slate-700">Have you become depressed about keeping up with your monthly payments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q36"><span class="text-slate-700">Have you ever sought medical support regarding the impact of debt on your mental health?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q37"><span class="text-slate-700">Have you ever contacted your lender(s) to inform them of difficulties making payments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q38"><span class="text-slate-700">Have you ever felt that the finance should not have been provided to you?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q39"><span class="text-slate-700">Did you ever have to borrow more money to cover existing debts?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q40"><span class="text-slate-700">Have you ever had to rely on overdrafts, payday loans, or credit cards for everyday living?</span></label>
+                        </div>
+                    </div>
 
                     <!-- ADDITIONAL INFORMATION -->
                     <div class="mb-8">
@@ -11134,14 +11135,14 @@ async function convertDocxToHtmlWithMammoth(docxBuffer) {
             "u => u",
             "strike => s",
         ],
-        convertImage: mammoth.images.imgElement(function(image) {
-            return image.read("base64").then(function(imageBuffer) {
+        convertImage: mammoth.images.imgElement(function (image) {
+            return image.read("base64").then(function (imageBuffer) {
                 return {
                     src: "data:" + image.contentType + ";base64," + imageBuffer,
                 };
             });
         }),
-        transformDocument: function(document) {
+        transformDocument: function (document) {
             function walkElements(element) {
                 if (element.type === 'paragraph') {
                     paragraphMeta.push({
@@ -12764,8 +12765,8 @@ function renderConfirmationPage({ status, title, message, showRedirect }) {
     const iconSvg = status === 'success'
         ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
         : status === 'error'
-        ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
-        : '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+            ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+            : '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
 
     return `
     <!DOCTYPE html>
@@ -13866,7 +13867,7 @@ crmRouter.post('/contacts/:id/notes', async (req, res) => {
             `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [req.params.id, 'agent', created_by || 'openclaw', created_by_name || 'OpenClaw', 'note_added', 'notes',
-                `Added note: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`]
+            `Added note: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`]
         );
         crmEvents.emit('note.created', { contactId: parseInt(req.params.id), data: rows[0] });
         res.json({ success: true, note: rows[0] });
@@ -14158,15 +14159,15 @@ crmRouter.post('/documents/generate', async (req, res) => {
 
         // Template category → document type mapping for filenames & S3 tags
         const CATEGORY_TO_DOCTYPE = {
-            'Complaint':     'COMPLAINT LETTER',
-            'Outcome':       'ACCEPTANCE LETTER',
-            'Onboarding':    'CLIENT CARE LETTER',
-            'Fee Recovery':  'DEBT COLLECTION NOTICE',
-            'FOS':           'FOS RETAINER',
-            'Client':        'UNABLE TO LOCATE',
-            'LOA':           'LOA',
-            'DSAR':          'DSAR COVER LETTER',
-            'Intake':        'QUESTIONNAIRE',
+            'Complaint': 'COMPLAINT LETTER',
+            'Outcome': 'ACCEPTANCE LETTER',
+            'Onboarding': 'CLIENT CARE LETTER',
+            'Fee Recovery': 'DEBT COLLECTION NOTICE',
+            'FOS': 'FOS RETAINER',
+            'Client': 'UNABLE TO LOCATE',
+            'LOA': 'LOA',
+            'DSAR': 'DSAR COVER LETTER',
+            'Intake': 'QUESTIONNAIRE',
         };
 
         // Resolve the S3 key (and category) from template ID or direct key
@@ -14221,66 +14222,66 @@ crmRouter.post('/documents/generate', async (req, res) => {
         // Build the full variable map
         if (contact) {
             Object.assign(autoVariables, {
-                'client.fullName':        _s(contact.full_name),
-                'client.firstName':       _s(contact.first_name),
-                'client.lastName':        _s(contact.last_name),
-                'client.email':           _s(contact.email),
-                'client.phone':           _s(contact.phone),
-                'client.address':         [contact.address_line_1, contact.address_line_2, contact.city, contact.state_county, contact.postal_code].filter(Boolean).join(', '),
-                'client.addressLine1':    _s(contact.address_line_1),
-                'client.addressLine2':    _s(contact.address_line_2),
-                'client.city':            _s(contact.city),
-                'client.county':          _s(contact.state_county),
-                'client.postcode':        _s(contact.postal_code),
+                'client.fullName': _s(contact.full_name),
+                'client.firstName': _s(contact.first_name),
+                'client.lastName': _s(contact.last_name),
+                'client.email': _s(contact.email),
+                'client.phone': _s(contact.phone),
+                'client.address': [contact.address_line_1, contact.address_line_2, contact.city, contact.state_county, contact.postal_code].filter(Boolean).join(', '),
+                'client.addressLine1': _s(contact.address_line_1),
+                'client.addressLine2': _s(contact.address_line_2),
+                'client.city': _s(contact.city),
+                'client.county': _s(contact.state_county),
+                'client.postcode': _s(contact.postal_code),
                 'client.previousAddress': [contact.previous_address_line_1, contact.previous_address_line_2, contact.previous_city, contact.previous_county, contact.previous_postal_code].filter(Boolean).join(', '),
-                'client.dateOfBirth':     _fmtDate(contact.dob),
-                'client.id':             _s(contact.id),
-                'client.leadSource':      _s(contact.source),
-                'client.createdAt':       _fmtDate(contact.created_at),
-                'client.ipAddress':       _s(contact.ip_address),
-                'client.initials':        _initials(contact.full_name),
-                'client.reference':       _s(contact.reference),
+                'client.dateOfBirth': _fmtDate(contact.dob),
+                'client.id': _s(contact.id),
+                'client.leadSource': _s(contact.source),
+                'client.createdAt': _fmtDate(contact.created_at),
+                'client.ipAddress': _s(contact.ip_address),
+                'client.initials': _initials(contact.full_name),
+                'client.reference': _s(contact.reference),
                 // Legacy flat keys
-                'clientId':               _s(contact.id),
-                'client_id':              _s(contact.id),
-                'client_name':            _s(contact.full_name),
+                'clientId': _s(contact.id),
+                'client_id': _s(contact.id),
+                'client_name': _s(contact.full_name),
             });
         }
 
         if (claim) {
             Object.assign(autoVariables, {
-                'claim.lender':               _s(claim.lender),
-                'claim.caseRef':              _s(claim.reference_specified),
-                'claim.accountNumber':        _s(claim.account_number),
-                'claim.accountType':          _s(claim.product_type),
-                'claim.accountStatus':        _s(claim.status),
-                'claim.amount':               _s(claim.claim_value),
-                'claim.claimValue':           _s(claim.claim_value),
-                'claim.totalRefund':          _s(claim.total_refund),
-                'claim.outstandingBalance':   _s(claim.outstanding_balance),
-                'claim.interestRate':         _s(claim.apr),
-                'claim.financeType':          _s(claim.finance_type),
-                'claim.loanTerm':             _s(claim.loan_term),
-                'claim.monthlyPayment':       _s(claim.monthly_payment),
-                'claim.vehicleDetails':       _s(claim.vehicle_details),
-                'claim.balloonPayment':       _s(claim.balloon_payment),
-                'claim.agreementDate':        _fmtDate(claim.start_date),
-                'claim.endDate':              _fmtDate(claim.end_date),
-                'claim.valueOfLoan':          _s(claim.value_of_loan),
-                'claim.numberOfLoans':        _s(claim.number_of_loans),
-                'claim.feePercentage':        _s(claim.fee_percent),
-                'claim.feeAmount':            _s(claim.our_total_fee),
-                'claim.feeVat':               _s(claim.vat_amount),
-                'claim.feePlusVat':           _s(claim.our_fees_plus_vat),
-                'claim.clientReceives':       _s(claim.balance_due_to_client),
-                'claim.outstandingDebt':      _s(claim.outstanding_debt),
+                'claim.lender': _s(claim.lender),
+                'claim.caseRef': _s(claim.reference_specified),
+                'claim.accountNumber': _s(claim.account_number),
+                'claim.accountType': _s(claim.product_type),
+                'claim.accountStatus': _s(claim.status),
+                'claim.amount': _s(claim.claim_value),
+                'claim.claimValue': _s(claim.claim_value),
+                'claim.totalRefund': _s(claim.total_refund),
+                'claim.outstandingBalance': _s(claim.outstanding_balance),
+                'claim.interestRate': _s(claim.apr),
+                'claim.financeType': _s(claim.finance_type),
+                'claim.loanTerm': _s(claim.loan_term),
+                'claim.monthlyPayment': _s(claim.monthly_payment),
+                'claim.vehicleDetails': _s(claim.vehicle_details),
+                'claim.balloonPayment': _s(claim.balloon_payment),
+                'claim.agreementDate': _fmtDate(claim.start_date),
+                'claim.endDate': _fmtDate(claim.end_date),
+                'claim.valueOfLoan': _s(claim.value_of_loan),
+                'claim.numberOfLoans': _s(claim.number_of_loans),
+                'claim.feePercentage': _s(claim.fee_percent),
+                'claim.feeAmount': _s(claim.our_total_fee),
+                'claim.feeVat': _s(claim.vat_amount),
+                'claim.feePlusVat': _s(claim.our_fees_plus_vat),
+                'claim.clientReceives': _s(claim.balance_due_to_client),
+                'claim.outstandingDebt': _s(claim.outstanding_debt),
                 'claim.billedFinanceCharges': _s(claim.billed_finance_charges),
-                'claim.latePaymentCharges':   _s(claim.late_payment_charges),
-                'claim.overlimitCharges':     _s(claim.overlimit_charges),
-                'claim.billedInterestCharges':_s(claim.billed_interest_charges),
-                'claim.creditLimitSchedule':  _s(claim.credit_limit_increases),
-                'claim.complaintParagraph':   _s(claim.complaint_paragraph),
-                'claim.clientId':             _s(claim.contact_id),
+                'claim.latePaymentCharges': _s(claim.late_payment_charges),
+                'claim.overlimitCharges': _s(claim.overlimit_charges),
+                'claim.billedInterestCharges': _s(claim.billed_interest_charges),
+                'claim.creditLimitSchedule': _s(claim.credit_limit_increases),
+                'claim.complaintParagraph': _s(claim.complaint_paragraph),
+                'claim.clientId': _s(claim.contact_id),
             });
         }
 
@@ -14293,10 +14294,10 @@ crmRouter.post('/documents/generate', async (req, res) => {
                 if (lenderEntry && lenderEntry.address) {
                     Object.assign(autoVariables, {
                         'lender.companyName': _s(lenderEntry.address.company_name || claim.lender),
-                        'lender.address':     _s(lenderEntry.address.first_line_address),
-                        'lender.city':        _s(lenderEntry.address.town_city),
-                        'lender.postcode':    _s(lenderEntry.address.postcode),
-                        'lender.email':       _s(lenderEntry.email || ''),
+                        'lender.address': _s(lenderEntry.address.first_line_address),
+                        'lender.city': _s(lenderEntry.address.town_city),
+                        'lender.postcode': _s(lenderEntry.address.postcode),
+                        'lender.email': _s(lenderEntry.email || ''),
                     });
                 }
             } catch { /* lender lookup is best-effort */ }
@@ -14304,25 +14305,25 @@ crmRouter.post('/documents/generate', async (req, res) => {
 
         // Firm defaults
         Object.assign(autoVariables, {
-            'firm.name':          'Rowan Rose Solicitors',
-            'firm.tradingName':   'Fast Action Claims',
-            'firm.address':       '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
-            'firm.phone':         '0161 505 0150',
-            'firm.sraNumber':     '8000843',
-            'firm.entity':        'Rowan Rose Ltd',
-            'firm.companyNumber':  '12916452',
+            'firm.name': 'Rowan Rose Solicitors',
+            'firm.tradingName': 'Fast Action Claims',
+            'firm.address': '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+            'firm.phone': '0161 505 0150',
+            'firm.sraNumber': '8000843',
+            'firm.entity': 'Rowan Rose Ltd',
+            'firm.companyNumber': '12916452',
         });
 
         // System fields
         Object.assign(autoVariables, {
-            'system.today':           new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-            'system.year':            String(new Date().getFullYear()),
-            'system.timestamp':       new Date().toISOString(),
-            'system.today+14':        new Date(Date.now() + 14 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-            'system.solicitorName':   'Brad Forbes',
-            'system.firmPhone':       '0161 533 1706',
-            'system.firmEmail':       'irl@fastactionclaims.co.uk',
-            'system.dsarEmail':       'dsar@fastactionclaims.co.uk',
+            'system.today': new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            'system.year': String(new Date().getFullYear()),
+            'system.timestamp': new Date().toISOString(),
+            'system.today+14': new Date(Date.now() + 14 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            'system.solicitorName': 'Brad Forbes',
+            'system.firmPhone': '0161 533 1706',
+            'system.firmEmail': 'irl@fastactionclaims.co.uk',
+            'system.dsarEmail': 'dsar@fastactionclaims.co.uk',
         });
 
         // Merge custom field defaults from DB
@@ -15103,7 +15104,7 @@ crmRouter.get('/templates/email', async (req, res) => {
         for (const ft of fileTemplates) {
             if (!dbTypes.includes(ft.type)) {
                 const templatePath = path.join(process.cwd(), 'templates', ft.file);
-                try { fs.accessSync(templatePath); available.push({ template_type: ft.type, name: ft.name, source: 'file', updated_at: null }); } catch {}
+                try { fs.accessSync(templatePath); available.push({ template_type: ft.type, name: ft.name, source: 'file', updated_at: null }); } catch { }
             }
         }
 

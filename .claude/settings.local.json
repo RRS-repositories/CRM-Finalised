@@ -115,7 +115,8 @@
       "Bash(cloudflared tunnel --url http://localhost:5000 --protocol http2)",
       "Bash(cmd.exe /c \"taskkill /F /IM node.exe /T & taskkill /F /IM cloudflared.exe /T\")",
       "Bash(cmd.exe /c \"tasklist | findstr /I \"\"node.exe cloudflared.exe\"\"\")",
-      "Bash(TaskStop ba7804tzw)"
+      "Bash(TaskStop ba7804tzw)",
+      "Bash(chmod +x /Users/sayedmohammadfirdousi/Desktop/rrs/CRM-Finalised/copy_db_to_local.sh)"
     ]
   }
 }
