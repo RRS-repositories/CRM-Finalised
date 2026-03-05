@@ -7280,8 +7280,8 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q41"><span class="text-slate-700">Did you ever self-exclude from any gambling platform?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q42"><span class="text-slate-700">Were you able to create a new account or use someone else's account after self-exclusion?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did the gambling company fail to provide support after signs of problem gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Were you contacted with promotions while self-excluded?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did the gambling company fail to provide support or advice after you displayed signs of problem gambling (e.g., betting excessively or beyond your means)?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Were you contacted by the gambling company and offered promotions, bonuses, or other incentives while you were self-excluded?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q45"><span class="text-slate-700">Did you continue to receive marketing materials after self-excluding?</span></label>
                             </div>
                         </div>
@@ -7312,7 +7312,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q52"><span class="text-slate-700">Were you asked to verify your identity when opening your account?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q53"><span class="text-slate-700">Were you asked about your source of funds?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Have you used borrowed money/overdrafts to gamble, and the company failed to intervene?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Have you used borrowed money, third-party funds, or overdrafts to gamble, and the gambling company failed to intervene or question this?</span></label>
                             </div>
                         </div>
 
@@ -7332,7 +7332,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q58"><span class="text-slate-700">Did you chase your losses by gambling more?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q59"><span class="text-slate-700">Did anyone (family, friends) intervene or express concern about your gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Have you ever tried to seek compensation for gambling losses and been told the company was not at fault?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Have you ever tried to seek compensation or legal redress for gambling losses and been told that the gambling company was not at fault?</span></label>
                             </div>
                         </div>
 
@@ -7340,8 +7340,8 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES & PROMOTIONS</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Have you been misled about the terms of bonus bets?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q62"><span class="text-slate-700">Did these offers encourage you to gamble more than you intended?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Have you been misled about the terms of bonus bets (e.g., requirements that were not clear at the time)?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q62"><span class="text-slate-700">Did the gambling company use promotions or bonuses to encourage you to gamble more than you intended?</span></label>
                             </div>
                         </div>
 
@@ -7360,7 +7360,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q65"><span class="text-slate-700">Have you previously made a complaint to the gambling operator?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q66"><span class="text-slate-700">Was your complaint resolved to your satisfaction?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Were you ever asked to sign an NDA or gagging clause?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Were you ever asked to sign a non-disclosure agreement (NDA) or gagging clause by the gambling company to prevent you from reporting your case to a regulator?</span></label>
                             </div>
                         </div>
 
@@ -7368,7 +7368,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q68"><span class="text-slate-700">Do you believe the operator failed to comply with gambling regulations?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q68"><span class="text-slate-700">Do you feel that the gambling company failed to comply with regulations set by the Gambling Commission in your dealings with them?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q69"><span class="text-slate-700">Did the company fail to protect you as a vulnerable customer?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q70"><span class="text-slate-700">Do you believe the company acted irresponsibly by not following social responsibility obligations?</span></label>
                             </div>
@@ -7379,10 +7379,10 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <div class="section-header text-white px-5 py-3 rounded-t-xl"><h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3></div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q71"><span class="text-slate-700">Did your bank allow gambling transactions despite signs of financial difficulty?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">I was never contacted by my bank about my gambling transactions and was not offered any support.</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">I was never contacted by my bank about my gambling transactions and was not offered any support (such as warnings or gambling blocks)?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q73"><span class="text-slate-700">Did your bank offer support or signpost you to gambling support services?</span></label>
                                 <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q74"><span class="text-slate-700">I informed my bank about my gambling addiction or financial difficulties.</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">I was never offered any support or services by the bank?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">I was never offered any support or services (such as gambling blocks, financial counselling, or debt management tools) by the bank?</span></label>
                             </div>
                         </div>
 
@@ -7403,14 +7403,14 @@ app.get('/questionnaire/:contactId', async (req, res) => {
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing on time?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q7"><span class="text-slate-700">Have you had or do you have an insufficient credit history?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q8"><span class="text-slate-700">Do you have a lack of financial literacy?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Were you of a young age when taking the credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Were you of a young age when taking the credit (loans/credit cards/overdraft/catalogue)?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q10"><span class="text-slate-700">Did you or do you have any legal issues at the time?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q11"><span class="text-slate-700">Were you of an older age (70+) when taking any sort of credit?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q12"><span class="text-slate-700">Have you or do you have a history of defaulting on loans?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Were you ever homeless or without stable housing?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Were you ever homeless or without stable housing, which may have affected your ability to meet financial obligations?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q14"><span class="text-slate-700">Were you relying on credit to get through the month?</span></label>
                             <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q15"><span class="text-slate-700">Did you miss any repayments?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Have you had any recent major life events in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Have you had any recent major life events in the last 10 years (e.g. divorce, job loss, medical emergency)?</span></label>
                         </div>
                     </div>
 
