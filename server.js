@@ -7846,11 +7846,11 @@ app.get('/questionnaire/:contactId', async (req, res) => {
 */
 
 // Static Questionnaire Routes
-app.get('/questionnaire1', (req, res) => {
+app.get(['/questionnaire1', '/questionnaire/1'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire1.html'));
 });
 
-app.get('/questionnaire2', (req, res) => {
+app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire2.html'));
 });
 
