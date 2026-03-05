@@ -32,6 +32,7 @@ import { convertDocxToPdf } from './oo-converter.js';
 import jwt from 'jsonwebtoken';
 import crmEvents from './services/crmEvents.js';
 import { generatePdfFromCase } from './pdf-generator.js';
+import marketingRouter from './routes/marketing/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -6093,6 +6094,233 @@ app.patch('/api/cases/:id', async (req, res) => {
     } catch (error) {
         console.error('❌ Error updating case status:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// --- CREATE CLAIM via /api/contacts/:id/claims ---
+app.post('/api/contacts/:id/claims', async (req, res) => {
+    const { lender, status, claim_value, product_type, account_number, start_date, case_number } = req.body;
+    const contactId = req.params.id;
+
+    if (!lender) {
+        return res.status(400).json({ error: 'Lender is required' });
+    }
+
+    try {
+        const standardizedLender = standardizeLender(lender);
+
+        // Check for duplicate lender for this contact
+        const existingCase = await pool.query(
+            `SELECT id, status FROM cases WHERE contact_id = $1 AND LOWER(lender) = LOWER($2)`,
+            [contactId, standardizedLender]
+        );
+        if (existingCase.rows.length > 0) {
+            return res.status(400).json({
+                error: `A claim for ${standardizedLender} already exists for this contact (Case #${existingCase.rows[0].id}, Status: ${existingCase.rows[0].status})`
+            });
+        }
+
+        // Check if this is a Category 3 lender requiring confirmation
+        if (isCategory3Lender(standardizedLender)) {
+            const contactRes = await pool.query(
+                `SELECT first_name, last_name, email FROM contacts WHERE id = $1`,
+                [contactId]
+            );
+            if (contactRes.rows.length === 0) {
+                return res.status(404).json({ error: 'Contact not found' });
+            }
+
+            const confirmToken = generateConfirmationToken();
+            const rejectToken = generateConfirmationToken();
+
+            await pool.query(
+                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                 VALUES ($1, $2, 'confirm', $3, false)`,
+                [contactId, standardizedLender, confirmToken]
+            );
+            await pool.query(
+                `INSERT INTO pending_lender_confirmations (contact_id, lender, action, token, email_sent)
+                 VALUES ($1, $2, 'reject', $3, true)`,
+                [contactId, standardizedLender, rejectToken]
+            );
+
+            await pool.query(
+                `INSERT INTO action_logs (client_id, actor_type, actor_id, action_type, action_category, description, metadata)
+                 VALUES ($1, 'staff', 'crm', 'category3_pending', 'claims', $2, $3)`,
+                [contactId, `${standardizedLender} confirmation queued via API.`, JSON.stringify({ lender: standardizedLender })]
+            );
+
+            return res.json({
+                success: true,
+                category3: true,
+                message: `${standardizedLender} is a Category 3 lender. Confirmation email will be sent. Claim created on confirmation.`,
+                lender: standardizedLender
+            });
+        }
+
+        // Normal claim creation
+        const dsarSendAfter = standardizedLender.toUpperCase() !== 'GAMBLING' ? new Date() : null;
+        const { rows } = await pool.query(
+            `INSERT INTO cases (contact_id, case_number, lender, status, claim_value, product_type, account_number, start_date, loa_generated, dsar_send_after)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9) RETURNING *`,
+            [contactId, case_number || null, standardizedLender, status || 'New Lead', claim_value || null, product_type || null, account_number || null, start_date || null, dsarSendAfter]
+        );
+        await setReferenceSpecified(pool, contactId, rows[0].id);
+        crmEvents.emit('case.created', { caseId: rows[0].id, contactId: parseInt(contactId), data: rows[0] });
+
+        // Trigger LOA generation for applicable statuses
+        const effectiveStatus = status || 'New Lead';
+        if (effectiveStatus === 'New Lead' || effectiveStatus === 'Lender Selection Form Completed' || effectiveStatus === 'Extra Lender Selection Form Sent') {
+            const skipStatusUpdate = (effectiveStatus === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(rows[0].id, 'LOA', skipStatusUpdate).catch(err => {
+                console.error(`[API] LOA generation trigger failed for claim ${rows[0].id}:`, err.message);
+            });
+        }
+
+        console.log(`[API POST /api/contacts/${contactId}/claims] Created claim ${rows[0].id} for lender ${standardizedLender}`);
+        res.status(201).json(rows[0]);
+    } catch (err) {
+        console.error('[API POST /api/contacts/:id/claims] Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- UPDATE CLAIM via /api/crm/claims/:id ---
+app.patch('/api/crm/claims/:id', async (req, res) => {
+    const { id } = req.params;
+    const {
+        status, lender, claim_value, product_type, account_number, start_date, end_date,
+        lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+        lender_reference, dates_timeline, apr, outstanding_balance,
+        dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
+        billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
+        total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
+        our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
+        our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan,
+        value_of_loan, userId, userName
+    } = req.body;
+
+    try {
+        // Fetch current claim
+        const existing = await pool.query(`SELECT * FROM cases WHERE id = $1`, [id]);
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+        const oldClaim = existing.rows[0];
+
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        const numericFields = [
+            'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
+            'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+            'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
+            'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
+            'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
+            'claim_value', 'value_of_loan'
+        ];
+
+        const fields = {
+            status, lender, claim_value, product_type, account_number, start_date, end_date,
+            lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+            lender_reference, dates_timeline, apr, outstanding_balance,
+            dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
+            billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
+            total_refund, total_debt, client_fee, balance_due_to_client, our_fees_plus_vat,
+            our_fees_minus_vat, vat_amount, total_fee, outstanding_debt,
+            our_total_fee, fee_without_vat, vat, our_fee_net, spec_status, payment_plan,
+            value_of_loan
+        };
+
+        for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined) {
+                // Standardize lender name if updating lender
+                if (key === 'lender') {
+                    updates.push(`${key} = $${paramCount++}`);
+                    values.push(standardizeLender(value));
+                } else if (numericFields.includes(key) && value === '') {
+                    updates.push(`${key} = $${paramCount++}`);
+                    values.push(null);
+                } else {
+                    updates.push(`${key} = $${paramCount++}`);
+                    values.push(value);
+                }
+            }
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        // Handle DSAR Sent to Lender status
+        if (status === 'DSAR Sent to Lender') {
+            updates.push(`dsar_sent_at = NOW()`);
+            updates.push(`dsar_overdue_notified = false`);
+        }
+
+        // Handle Sale status - generate token
+        let salesSignatureToken = null;
+        if (status === 'Sale') {
+            const { randomUUID } = await import('crypto');
+            salesSignatureToken = randomUUID();
+            updates.push(`sales_signature_token = $${paramCount++}`);
+            values.push(salesSignatureToken);
+        }
+
+        values.push(id);
+        const query = `UPDATE cases SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+
+        const { rows } = await pool.query(query, values);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        const updatedClaim = rows[0];
+
+        // Log the update
+        const changedFields = Object.keys(fields).filter(k => fields[k] !== undefined);
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+                updatedClaim.contact_id, id,
+                'agent', userId || 'api', userName || 'API',
+                status && status !== oldClaim.status ? 'status_changed' : 'claim_updated',
+                'claims',
+                status && status !== oldClaim.status
+                    ? `Status changed from "${oldClaim.status}" to "${status}"`
+                    : `Updated claim fields: ${changedFields.join(', ')}`,
+                JSON.stringify({ changedFields, oldStatus: oldClaim.status, newStatus: status || oldClaim.status })
+            ]
+        );
+
+        // Emit appropriate events
+        if (status && status !== oldClaim.status) {
+            crmEvents.emit('case.status_changed', { caseId: parseInt(id), contactId: updatedClaim.contact_id, data: updatedClaim, newStatus: status });
+        }
+        crmEvents.emit('case.updated', { caseId: parseInt(id), contactId: updatedClaim.contact_id, data: updatedClaim });
+
+        // Trigger LOA generation for applicable statuses
+        if (status === 'New Lead' || status === 'Lender Selection Form Completed' || status === 'Extra Lender Selection Form Sent') {
+            const skipStatusUpdate = (status === 'Extra Lender Selection Form Sent');
+            triggerPdfGenerator(parseInt(id), 'LOA', skipStatusUpdate).catch(err => {
+                console.error(`[API] LOA generation trigger failed for claim ${id}:`, err.message);
+            });
+        }
+
+        // If status = "LOA Uploaded", trigger cover letter generation
+        if (status === 'LOA Uploaded') {
+            triggerPdfGenerator(parseInt(id), 'COVER_LETTER').catch(err => {
+                console.error(`[API] Cover letter trigger failed for claim ${id}:`, err.message);
+            });
+        }
+
+        console.log(`[API PATCH /api/crm/claims/${id}] Updated claim. Fields: ${changedFields.join(', ')}`);
+        res.json(updatedClaim);
+    } catch (err) {
+        console.error('[API PATCH /api/crm/claims/:id] Error:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -15501,6 +15729,10 @@ crmRouter.get('/templates/:id/merge-fields', async (req, res) => {
 // Mount the CRM API router BEFORE the Windmill catch-all proxy
 app.use('/api/crm', crmRouter);
 console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)');
+
+// Mount Marketing module routes
+app.use('/api/marketing', marketingRouter);
+console.log('Marketing module mounted at /api/marketing/*');
 
 // ============================================================================
 // WINDMILL REVERSE-PROXY CATCH-ALL

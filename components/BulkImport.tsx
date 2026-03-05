@@ -4,7 +4,7 @@ import {
   Users, Loader2, ChevronDown, RefreshCw, Download, Eye, Trash2,
   FileSpreadsheet, File as FileIcon, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus } from '../types';
 import { API_ENDPOINTS } from '../src/config';
@@ -213,79 +213,76 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
     }
   };
 
-  // CSV/Excel parsing using xlsx library
+  // CSV/Excel parsing using exceljs
   const parseCSV = async (file: File) => {
-    return new Promise<void>((resolve, reject) => {
-      const reader = new FileReader();
+    try {
+      const arrayBuffer = await file.arrayBuffer();
       const extension = file.name.split('.').pop()?.toLowerCase();
 
-      reader.onload = (e) => {
-        try {
-          const arrayBuffer = e.target?.result as ArrayBuffer;
+      let jsonData: string[][] = [];
 
-          // Use xlsx library to parse both CSV and Excel files
-          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      if (extension === 'csv') {
+        const text = new TextDecoder().decode(arrayBuffer);
+        jsonData = text.split('\n')
+          .map(row => parseCSVLine(row))
+          .filter(row => row.some(cell => cell !== ''));
+      } else {
+        // Parse Excel with exceljs
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(arrayBuffer);
+        const worksheet = wb.worksheets[0];
+        if (!worksheet) throw new Error('No worksheet found in file');
 
-          // Get the first sheet
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
+        worksheet.eachRow((row) => {
+          const rowValues = row.values as (string | number | null | undefined)[];
+          // ExcelJS row.values is 1-indexed (index 0 is undefined), so slice from 1
+          const cells = rowValues.slice(1).map(cell =>
+            cell !== undefined && cell !== null ? String(cell).trim() : ''
+          );
+          jsonData.push(cells);
+        });
+      }
 
-          // Convert to JSON with headers
-          const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
-            header: 1,
-            defval: '',
-            raw: false // Convert all values to strings
-          }) as string[][];
+      if (jsonData.length < 2) {
+        throw new Error('File must have headers and at least one data row');
+      }
 
-          if (jsonData.length < 2) {
-            reject(new Error('File must have headers and at least one data row'));
-            return;
-          }
+      // First row is headers
+      const headers = jsonData[0].map(h => String(h || '').trim()).filter(h => h);
+      setSourceFields(headers);
 
-          // First row is headers
-          const headers = jsonData[0].map(h => String(h || '').trim()).filter(h => h);
-          setSourceFields(headers);
-
-          // Parse data rows
-          const data: Record<string, string>[] = [];
-          for (let i = 1; i < jsonData.length; i++) {
-            const rowArray = jsonData[i];
-            // Skip empty rows
-            if (!rowArray || rowArray.every(cell => !cell || String(cell).trim() === '')) {
-              continue;
-            }
-
-            const row: Record<string, string> = {};
-            headers.forEach((header, index) => {
-              const cellValue = rowArray[index];
-              row[header] = cellValue !== undefined && cellValue !== null ? String(cellValue).trim() : '';
-            });
-            data.push(row);
-          }
-
-          if (data.length === 0) {
-            reject(new Error('No data rows found in file'));
-            return;
-          }
-
-          setRawData(data);
-
-          // Auto-map fields based on header names
-          const autoMappings = autoMapFields(headers);
-          setFieldMappings(autoMappings);
-
-          setCurrentStep('mapping');
-          resolve();
-        } catch (error: any) {
-          console.error('Parse error:', error);
-          reject(new Error(`Failed to parse file: ${error.message}`));
+      // Parse data rows
+      const data: Record<string, string>[] = [];
+      for (let i = 1; i < jsonData.length; i++) {
+        const rowArray = jsonData[i];
+        // Skip empty rows
+        if (!rowArray || rowArray.every(cell => !cell || String(cell).trim() === '')) {
+          continue;
         }
-      };
 
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      // Read as ArrayBuffer for xlsx library
-      reader.readAsArrayBuffer(file);
-    });
+        const row: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          const cellValue = rowArray[index];
+          row[header] = cellValue !== undefined && cellValue !== null ? String(cellValue).trim() : '';
+        });
+        data.push(row);
+      }
+
+      if (data.length === 0) {
+        throw new Error('No data rows found in file');
+      }
+
+      setRawData(data);
+
+      // Auto-map fields based on header names
+      const autoMappings = autoMapFields(headers);
+      setFieldMappings(autoMappings);
+
+      setCurrentStep('mapping');
+    } catch (error: any) {
+      console.error('Parse error:', error);
+      throw new Error(`Failed to parse file: ${error.message}`);
+    }
   };
 
   // Parse CSV line handling quoted values

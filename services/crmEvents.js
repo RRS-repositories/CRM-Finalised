@@ -47,6 +47,18 @@ const EVENT_CATALOGUE = {
     { name: 'note.updated',           label: 'Note Updated' },
     { name: 'note.deleted',           label: 'Note Deleted' },
   ],
+  marketing: [
+    { name: 'lead.created',           label: 'Ad Lead Created' },
+    { name: 'lead.qualified',         label: 'Ad Lead Qualified' },
+    { name: 'lead.converted',         label: 'Ad Lead Converted' },
+    { name: 'campaign.synced',        label: 'Campaign Data Synced' },
+    { name: 'campaign.created',       label: 'Campaign Created' },
+    { name: 'metrics.synced',         label: 'Metrics Synced' },
+    { name: 'ai_report.generated',    label: 'AI Report Generated' },
+    { name: 'creative.fatigued',      label: 'Creative Fatigued' },
+    { name: 'budget.alert',           label: 'Budget Alert Triggered' },
+    { name: 'spark_ad.qualified',     label: 'Spark Ad Qualified' },
+  ],
 };
 
 // ---------------------------------------------------------------------------

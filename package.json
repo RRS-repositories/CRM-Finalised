@@ -11,6 +11,7 @@
     "worker": "node worker.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@aws-sdk/client-s3": "^3.893.0",
     "@aws-sdk/s3-request-presigner": "^3.893.0",
     "@azure/identity": "^4.13.0",
@@ -42,6 +43,7 @@
     "docx-templates": "^4.15.0",
     "docxtemplater": "^3.68.2",
     "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "fast-xml-parser": "^5.4.1",
     "imap": "^0.8.17",
@@ -68,7 +70,6 @@
     "server": "^0.0.3",
     "tailwind-merge": "2.2.1",
     "tippy.js": "^6.3.7",
-    "xlsx": "^0.18.5",
     "zustand": "4.5.0"
   },
   "overrides": {

@@ -4,7 +4,7 @@ import { Send, Bot, Sparkles, Loader2, ChevronRight, FileText, BarChart2, Calend
 import { ChatMessage } from '../types';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 interface AIAssistantProps {
   isOpen: boolean;
@@ -380,12 +380,27 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ isOpen, onClose }) => {
           return row;
         }).filter(row => Object.values(row).some(v => v)); // Filter out empty rows
       } else {
-        // Parse Excel
+        // Parse Excel with exceljs
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        parsedData = XLSX.utils.sheet_to_json(worksheet);
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buffer);
+        const worksheet = wb.worksheets[0];
+        if (!worksheet) throw new Error('No worksheet found');
+        const headers: string[] = [];
+        const firstRow = worksheet.getRow(1);
+        firstRow.eachCell((cell, colNumber) => {
+          headers[colNumber - 1] = cell.value ? String(cell.value).trim() : '';
+        });
+        parsedData = [];
+        worksheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // skip header
+          const rowData: Record<string, string> = {};
+          row.eachCell((cell, colNumber) => {
+            const header = headers[colNumber - 1];
+            if (header) rowData[header] = cell.value ? String(cell.value).trim() : '';
+          });
+          parsedData.push(rowData);
+        });
       }
 
       setUploadedFile({ name: file.name, data: parsedData });
