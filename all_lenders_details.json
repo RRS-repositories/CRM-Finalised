@@ -1680,6 +1680,16 @@
         }
     },
     {
+        "lender": "PRA GROUP",
+        "email": "privacy@pragroup.co.uk",
+        "address": {
+            "company_name": "PRA Group (UK) Limited",
+            "first_line_address": "Regal House, 70 London Road",
+            "town_city": "Twickenham",
+            "postcode": "TW1 3QS"
+        }
+    },
+    {
         "lender": "PROGRESSIVE MONEY",
         "email": null,
         "address": {
