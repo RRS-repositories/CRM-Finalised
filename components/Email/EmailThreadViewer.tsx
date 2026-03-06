@@ -48,6 +48,9 @@ interface EmailThreadViewerProps {
   activeFolderName?: string;
   accountId?: string | null;
   onBackToSingle?: () => void;
+  onReply?: (email: Email) => void;
+  onReplyAll?: (email: Email) => void;
+  onForward?: (email: Email) => void;
 }
 
 // Isolated HTML email body renderer using iframe
@@ -194,6 +197,9 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   activeFolderName,
   accountId,
   onBackToSingle,
+  onReply,
+  onReplyAll,
+  onForward,
 }) => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -213,8 +219,8 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
     if (!latestEmail) return;
     setActionLoading('delete');
     try {
-      // Delete all messages in the thread
-      await Promise.all(threadEmails.map(email => deleteEmail(email.accountId, email.id)));
+      // Delete all messages in the thread (use allSettled – some may already be cascade-deleted)
+      await Promise.allSettled(threadEmails.map(email => deleteEmail(email.accountId, email.id)));
       onDelete?.(latestEmail.id);
     } catch (err) {
       console.error('Failed to delete thread:', err);
@@ -244,7 +250,7 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
     setActionLoading('archive');
     try {
       const archiveFolderId = await getArchiveFolderId(latestEmail.accountId);
-      await Promise.all(threadEmails.map(email => moveEmail(email.accountId, email.id, archiveFolderId)));
+      await Promise.allSettled(threadEmails.map(email => moveEmail(email.accountId, email.id, archiveFolderId)));
       onArchive?.(latestEmail.id);
     } catch (err) {
       console.error('Failed to archive thread:', err);
@@ -480,15 +486,24 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
         </div>
 
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => latestEmail && onReply?.(latestEmail)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <Reply size={14} />
             <span>Reply</span>
           </button>
-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => latestEmail && onReplyAll?.(latestEmail)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <ReplyAll size={14} />
             <span>Reply All</span>
           </button>
-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => latestEmail && onForward?.(latestEmail)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <Forward size={14} />
             <span>Forward</span>
           </button>

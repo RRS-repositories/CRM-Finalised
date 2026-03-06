@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff, Trash2, Archive, FolderOpen } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff, Trash2, Archive, FolderOpen, Plus, MoreHorizontal, Edit3, FolderPlus, ArrowUp, ArrowDown, Pencil } from 'lucide-react';
 import { EmailAccount, EmailFolder } from '../../types';
 
 interface EmailAccountsSidebarProps {
@@ -13,6 +13,10 @@ interface EmailAccountsSidebarProps {
   onSyncAll?: () => void;
   loading?: boolean;
   onDropOnFolder?: (emailIds: string[], accountId: string, folderId: string) => void;
+  onComposeNew?: () => void;
+  onCreateFolder?: (displayName: string, parentFolderId?: string) => void;
+  onRenameFolder?: (folderId: string, newName: string) => void;
+  onDeleteFolder?: (folderId: string) => void;
 }
 
 const FolderIcon: React.FC<{ displayName: string; size?: number }> = ({ displayName, size = 16 }) => {
@@ -36,9 +40,63 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
   onSyncAll,
   loading,
   onDropOnFolder,
+  onComposeNew,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+
+  // Folder management state
+  const [folderContextMenu, setFolderContextMenu] = useState<{ folderId: string; folderName: string; x: number; y: number; accountId: string; isSystem: boolean } | null>(null);
+  const [showCreateFolder, setShowCreateFolder] = useState<{ accountId: string; parentFolderId?: string } | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState<{ folderId: string; currentName: string } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // System folders that can't be renamed/deleted/moved
+  const systemFolderNames = ['inbox', 'drafts', 'sent items', 'sent', 'deleted items', 'trash', 'archive', 'outbox', 'junk email', 'junk'];
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setFolderContextMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleCreateFolderSubmit = () => {
+    if (!newFolderName.trim() || !showCreateFolder) return;
+    onCreateFolder?.(newFolderName.trim(), showCreateFolder.parentFolderId);
+    setNewFolderName('');
+    setShowCreateFolder(null);
+  };
+
+  const handleRenameSubmit = () => {
+    if (!renameValue.trim() || !renamingFolder) return;
+    onRenameFolder?.(renamingFolder.folderId, renameValue.trim());
+    setRenamingFolder(null);
+    setRenameValue('');
+  };
+
+  const handleFolderContextMenu = (e: React.MouseEvent, folderId: string, folderName: string, accountId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isSystem = systemFolderNames.includes(folderName.toLowerCase());
+    // Use button position for click events, mouse position for right-click
+    let x = e.clientX;
+    let y = e.clientY;
+    if (e.type === 'click') {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      x = rect.right;
+      y = rect.bottom;
+    }
+    setFolderContextMenu({ folderId, folderName, x, y, accountId, isSystem });
+  };
 
   const handleFolderDragOver = (e: React.DragEvent, folderId: string) => {
     e.preventDefault();
@@ -113,10 +171,17 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
     <div className="w-[280px] border-r border-gray-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-800 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-3">
           <Mail size={20} className="text-navy-700 dark:text-white" />
           <h2 className="font-semibold text-navy-900 dark:text-white">Email Accounts</h2>
         </div>
+        <button
+          onClick={onComposeNew}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Plus size={16} />
+          <span>New Email</span>
+        </button>
       </div>
 
       {/* Scrollable Account List */}
@@ -177,7 +242,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
               {/* Folders (when expanded) */}
               <div
                 className={`overflow-hidden transition-all duration-200 ease-in-out ${
-                  isExpanded ? 'max-h-[600px] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0'
+                  isExpanded ? 'max-h-none opacity-100' : 'max-h-0 opacity-0'
                 }`}
               >
                 {accountFolders.topLevel.map(folder => {
@@ -191,7 +256,8 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                         onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                         onDragLeave={handleFolderDragLeave}
                         onDrop={(e) => handleFolderDrop(e, account.id, folder.id)}
-                        className={`flex items-center pl-8 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
+                        onContextMenu={(e) => handleFolderContextMenu(e, folder.name, folder.displayName, account.id)}
+                        className={`group/folder flex items-center pl-8 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                           selectedFolderId === folder.id
                             ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
                             : 'border-l-4 border-l-transparent'
@@ -236,50 +302,195 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                             </span>
                           )}
                         </div>
+
+                        {/* Folder actions button (visible on hover) */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, folder.name, folder.displayName, account.id); }}
+                          className="ml-1 p-0.5 rounded opacity-0 group-hover/folder:opacity-100 hover:bg-gray-200 dark:hover:bg-slate-600 transition-opacity text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          title="Folder options"
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
                       </div>
 
                       {/* Child folders */}
                       {hasChildren && isFolderExpanded && childFolders.map(child => (
                         <div
                           key={child.id}
-                          onClick={() => onFolderClick(account.id, child.id)}
                           onDragOver={(e) => handleFolderDragOver(e, child.id)}
                           onDragLeave={handleFolderDragLeave}
                           onDrop={(e) => handleFolderDrop(e, account.id, child.id)}
-                          className={`flex items-center pl-14 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
+                          onContextMenu={(e) => handleFolderContextMenu(e, child.name, child.displayName, account.id)}
+                          className={`group/childfolder flex items-center pl-14 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                             selectedFolderId === child.id
                               ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
                               : 'border-l-4 border-l-transparent'
                           } ${dragOverFolderId === child.id ? 'bg-blue-100 dark:bg-blue-800/40 ring-2 ring-blue-400 ring-inset' : ''}`}
                         >
-                          <FolderIcon displayName={child.displayName} size={12} />
-                          <span className={`ml-2 text-xs flex-1 truncate ${
-                            selectedFolderId === child.id
-                              ? 'font-medium text-blue-700 dark:text-blue-300'
-                              : 'text-gray-600 dark:text-gray-400'
-                          }`}>
-                            {child.displayName}
-                          </span>
-
-                          {child.unreadCount > 0 && (
-                            <span className={`text-xs font-medium ${
+                          <div
+                            className="flex items-center flex-1 min-w-0"
+                            onClick={() => onFolderClick(account.id, child.id)}
+                          >
+                            <FolderIcon displayName={child.displayName} size={12} />
+                            <span className={`ml-2 text-xs flex-1 truncate ${
                               selectedFolderId === child.id
-                                ? 'text-blue-600 dark:text-blue-300'
-                                : 'text-gray-500 dark:text-gray-400'
+                                ? 'font-medium text-blue-700 dark:text-blue-300'
+                                : 'text-gray-600 dark:text-gray-400'
                             }`}>
-                              {child.unreadCount}
+                              {child.displayName}
                             </span>
-                          )}
+
+                            {child.unreadCount > 0 && (
+                              <span className={`text-xs font-medium ${
+                                selectedFolderId === child.id
+                                  ? 'text-blue-600 dark:text-blue-300'
+                                  : 'text-gray-500 dark:text-gray-400'
+                              }`}>
+                                {child.unreadCount}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Child folder actions button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, child.name, child.displayName, account.id); }}
+                            className="ml-1 p-0.5 rounded opacity-0 group-hover/childfolder:opacity-100 hover:bg-gray-200 dark:hover:bg-slate-600 transition-opacity text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            title="Folder options"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
                         </div>
                       ))}
                     </React.Fragment>
                   );
                 })}
+
+                {/* Create new folder inline form */}
+                {showCreateFolder && showCreateFolder.accountId === account.id && !showCreateFolder.parentFolderId && (
+                  <div className="flex items-center pl-10 pr-4 py-2 gap-2">
+                    <FolderPlus size={14} className="text-gray-400 flex-shrink-0" />
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={e => setNewFolderName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleCreateFolderSubmit(); if (e.key === 'Escape') { setShowCreateFolder(null); setNewFolderName(''); } }}
+                      placeholder="Folder name"
+                      className="flex-1 text-xs bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-500 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-white"
+                    />
+                    <button onClick={handleCreateFolderSubmit} className="text-xs text-blue-600 hover:text-blue-700 font-medium">Add</button>
+                    <button onClick={() => { setShowCreateFolder(null); setNewFolderName(''); }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                  </div>
+                )}
+
+                {/* New folder button at bottom of folder list */}
+                <button
+                  onClick={() => setShowCreateFolder({ accountId: account.id })}
+                  className="flex items-center gap-2 pl-10 pr-4 py-2 text-xs text-gray-400 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-slate-700 w-full transition-colors"
+                >
+                  <FolderPlus size={12} />
+                  <span>New folder</span>
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Folder Context Menu */}
+      {folderContextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-xl z-[100] py-1 w-48"
+          style={{ left: folderContextMenu.x, top: folderContextMenu.y }}
+        >
+          {/* Create subfolder */}
+          <button
+            onClick={() => {
+              setShowCreateFolder({ accountId: folderContextMenu.accountId, parentFolderId: folderContextMenu.folderId });
+              setFolderContextMenu(null);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+          >
+            <FolderPlus size={14} />
+            <span>New subfolder</span>
+          </button>
+
+          {/* Rename (not for system folders) */}
+          {!folderContextMenu.isSystem && (
+            <button
+              onClick={() => {
+                setRenamingFolder({ folderId: folderContextMenu.folderId, currentName: folderContextMenu.folderName });
+                setRenameValue(folderContextMenu.folderName);
+                setFolderContextMenu(null);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+            >
+              <Pencil size={14} />
+              <span>Rename</span>
+            </button>
+          )}
+
+          {/* Delete (not for system folders) */}
+          {!folderContextMenu.isSystem && (
+            <>
+              <div className="border-t border-gray-200 dark:border-slate-600 my-1" />
+              <button
+                onClick={() => {
+                  if (confirm(`Delete folder "${folderContextMenu.folderName}"? All emails in it will be moved to Deleted Items.`)) {
+                    onDeleteFolder?.(folderContextMenu.folderId);
+                  }
+                  setFolderContextMenu(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                <Trash2 size={14} />
+                <span>Delete folder</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Rename folder modal overlay */}
+      {renamingFolder && (
+        <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center" onClick={() => { setRenamingFolder(null); setRenameValue(''); }}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-5 w-80" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Rename Folder</h3>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleRenameSubmit(); if (e.key === 'Escape') { setRenamingFolder(null); setRenameValue(''); } }}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-500 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setRenamingFolder(null); setRenameValue(''); }} className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
+              <button onClick={handleRenameSubmit} className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium">Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create subfolder modal overlay (when parentFolderId is set) */}
+      {showCreateFolder && showCreateFolder.parentFolderId && (
+        <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center" onClick={() => { setShowCreateFolder(null); setNewFolderName(''); }}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-5 w-80" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Create Subfolder</h3>
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateFolderSubmit(); if (e.key === 'Escape') { setShowCreateFolder(null); setNewFolderName(''); } }}
+              placeholder="Folder name"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-500 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setShowCreateFolder(null); setNewFolderName(''); }} className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
+              <button onClick={handleCreateFolderSubmit} className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium">Create</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer - Connection Status */}
       <div className="p-3 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">

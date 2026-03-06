@@ -260,6 +260,48 @@ crmEvents.init(pool);
                         ALTER TABLE contacts ADD COLUMN document_checklist JSONB DEFAULT '{"identification": false, "extraLender": false, "questionnaire": false, "poa": false}';
                     END IF;
 
+                    -- Task Work: columns on contacts (legacy)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='task_work_assigned_to') THEN
+                        ALTER TABLE contacts ADD COLUMN task_work_assigned_to INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='task_work_assigned_at') THEN
+                        ALTER TABLE contacts ADD COLUMN task_work_assigned_at TIMESTAMP;
+                    END IF;
+
+                    -- Task Work: columns on cases (claim-level assignment)
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_assigned_to') THEN
+                        ALTER TABLE cases ADD COLUMN tw_assigned_to INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_assigned_at') THEN
+                        ALTER TABLE cases ADD COLUMN tw_assigned_at TIMESTAMP;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_completed') THEN
+                        ALTER TABLE cases ADD COLUMN tw_completed BOOLEAN DEFAULT FALSE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_completed_at') THEN
+                        ALTER TABLE cases ADD COLUMN tw_completed_at TIMESTAMP;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_completed_by') THEN
+                        ALTER TABLE cases ADD COLUMN tw_completed_by INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_red_flag') THEN
+                        ALTER TABLE cases ADD COLUMN tw_red_flag BOOLEAN DEFAULT FALSE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_red_flag_at') THEN
+                        ALTER TABLE cases ADD COLUMN tw_red_flag_at TIMESTAMP;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_red_flag_by') THEN
+                        ALTER TABLE cases ADD COLUMN tw_red_flag_by INTEGER;
+                    END IF;
+
+                    -- User activity tracking: last_active_at on users table
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_active_at') THEN
+                        ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP;
+                    END IF;
+
+                    -- Normalize lender names: merge all 118 variants into "118 Money"
+                    UPDATE cases SET lender = '118 Money' WHERE lender ILIKE '118%' AND lender != '118 Money';
+
                     -- Create submission_tokens table if not exists
                     CREATE TABLE IF NOT EXISTS submission_tokens (
                         id SERIAL PRIMARY KEY,
@@ -2118,8 +2160,8 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(403).json({ success: false, message: 'Account pending approval' });
         }
 
-        // Update last login
-        await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+        // Update last login and last active (so they appear online immediately)
+        await pool.query('UPDATE users SET last_login = NOW(), last_active_at = NOW() WHERE id = $1', [user.id]);
 
         // Get Mattermost token (with 3s timeout, don't block login)
         let mattermostToken = null;
@@ -2260,7 +2302,7 @@ app.post('/api/mattermost/logout', async (req, res) => {
 
 app.get('/api/users', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT id, email, full_name as "fullName", role, is_approved as "isApproved", last_login as "lastLogin", created_at as "createdAt" FROM users ORDER BY created_at DESC');
+        const { rows } = await pool.query('SELECT id, email, full_name as "fullName", role, is_approved as "isApproved", COALESCE(last_active_at, last_login) as "lastLogin", last_active_at as "lastActiveAt", created_at as "createdAt" FROM users ORDER BY created_at DESC');
         res.json({ success: true, users: rows });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -3697,6 +3739,76 @@ app.put('/api/documents/:id/status', async (req, res) => {
     }
 });
 
+// --- PATCH /api/crm/documents/:id --- Reassign document to different contact/claim
+app.patch('/api/crm/documents/:id', async (req, res) => {
+    const { id } = req.params;
+    const { contact_id, claim_id, userId, userName } = req.body;
+
+    if (contact_id === undefined && claim_id === undefined) {
+        return res.status(400).json({ error: 'No fields to update. Provide contact_id or claim_id.' });
+    }
+
+    try {
+        // Check document exists
+        const existing = await pool.query(`SELECT * FROM documents WHERE id = $1`, [id]);
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        const oldDoc = existing.rows[0];
+
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (contact_id !== undefined) {
+            // Validate target contact exists
+            const contactCheck = await pool.query(`SELECT id FROM contacts WHERE id = $1`, [contact_id]);
+            if (contactCheck.rows.length === 0) {
+                return res.status(404).json({ error: 'Target contact not found' });
+            }
+            updates.push(`contact_id = $${paramCount++}`);
+            values.push(contact_id);
+        }
+
+        if (claim_id !== undefined) {
+            if (claim_id !== null) {
+                const claimCheck = await pool.query(`SELECT id FROM cases WHERE id = $1`, [claim_id]);
+                if (claimCheck.rows.length === 0) {
+                    return res.status(404).json({ error: 'Target claim not found' });
+                }
+            }
+            updates.push(`claim_id = $${paramCount++}`);
+            values.push(claim_id);
+        }
+
+        values.push(id);
+        const query = `UPDATE documents SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING *`;
+        const { rows } = await pool.query(query, values);
+
+        // Log the reassignment
+        const changedParts = [];
+        if (contact_id !== undefined) changedParts.push(`contact ${oldDoc.contact_id} -> ${contact_id}`);
+        if (claim_id !== undefined) changedParts.push(`claim ${oldDoc.claim_id} -> ${claim_id}`);
+
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                contact_id || oldDoc.contact_id, 'agent', userId || 'api', userName || 'API',
+                'document_reassigned', 'documents',
+                `Document "${oldDoc.name}" reassigned: ${changedParts.join(', ')}`,
+                JSON.stringify({ document_id: id, old_contact_id: oldDoc.contact_id, new_contact_id: contact_id, old_claim_id: oldDoc.claim_id, new_claim_id: claim_id })
+            ]
+        );
+
+        console.log(`[API PATCH /api/crm/documents/${id}] Reassigned: ${changedParts.join(', ')}`);
+        res.json(rows[0]);
+    } catch (err) {
+        console.error('[API PATCH /api/crm/documents/:id] Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- DOCUMENT DELETE (delete from DB and S3) ---
 app.delete('/api/documents/:id', async (req, res) => {
     const { id } = req.params;
@@ -4350,9 +4462,12 @@ app.get('/api/init-data', async (req, res) => {
             pool.query(`SELECT COUNT(*) as total FROM contacts`),
             // All cases
             pool.query(`
-                SELECT id, contact_id, lender, status, claim_value, product_type, created_at
-                FROM cases
-                ORDER BY created_at DESC
+                SELECT c.id, c.contact_id, c.lender, c.status, c.claim_value, c.product_type, c.account_number, c.start_date, c.created_at,
+                       c.lender_reference, c.reference_specified,
+                       con.first_name AS contact_first_name, con.last_name AS contact_last_name, con.full_name AS contact_full_name
+                FROM cases c
+                LEFT JOIN contacts con ON c.contact_id = con.id
+                ORDER BY c.created_at DESC
             `)
         ]);
 
@@ -4459,6 +4574,52 @@ app.get('/api/contacts/paginated', async (req, res) => {
         });
     } catch (err) {
         console.error('Error fetching paginated contacts:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── GET /api/search?q= ── Global search across contacts + claims (incl. claim reference)
+// Returns every claim row for matching contacts so the dropdown shows all claims.
+app.get('/api/search', async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (!q) return res.status(400).json({ error: 'q query parameter is required' });
+
+        const pattern = `%${q}%`;
+        // Strip RR- prefix for numeric ID matching (e.g. "RR-221174" → "221174")
+        const numericQ = q.replace(/^RR-/i, '');
+        const numericPattern = `%${numericQ}%`;
+
+        const { rows } = await pool.query(
+            `SELECT
+                ct.id AS contact_id,
+                ct.first_name, ct.last_name, ct.full_name,
+                ct.email, ct.phone, ct.client_id, ct.postal_code,
+                cs.id AS claim_id, cs.case_number, cs.lender,
+                cs.status AS claim_status
+             FROM contacts ct
+             LEFT JOIN cases cs ON cs.contact_id = ct.id
+             WHERE ct.full_name ILIKE $1
+                OR ct.first_name ILIKE $1
+                OR ct.last_name ILIKE $1
+                OR ct.email ILIKE $1
+                OR ct.phone ILIKE $1
+                OR ct.client_id ILIKE $1
+                OR ct.postal_code ILIKE $1
+                OR CAST(ct.id AS TEXT) = $3
+                OR cs.lender ILIKE $1
+                OR cs.status ILIKE $1
+                OR cs.case_number ILIKE $1
+                OR cs.reference_specified ILIKE $2
+                OR CAST(cs.id AS TEXT) ILIKE $2
+                OR (CAST(ct.id AS TEXT) || CAST(cs.id AS TEXT)) ILIKE $2
+             ORDER BY ct.updated_at DESC, cs.created_at DESC
+             LIMIT 50`,
+            [pattern, numericPattern, numericQ]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Search error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -5854,6 +6015,7 @@ app.get('/api/cases', async (req, res) => {
     try {
         const { rows } = await pool.query(
             `SELECT c.id, c.contact_id, c.lender, c.status, c.claim_value, c.product_type, c.account_number, c.start_date, c.created_at,
+                    c.lender_reference, c.reference_specified,
                     con.first_name AS contact_first_name, con.last_name AS contact_last_name, con.full_name AS contact_full_name
              FROM cases c
              LEFT JOIN contacts con ON c.contact_id = con.id
@@ -6199,7 +6361,7 @@ app.post('/api/contacts/:id/claims', async (req, res) => {
 app.patch('/api/crm/claims/:id', async (req, res) => {
     const { id } = req.params;
     const {
-        status, lender, claim_value, product_type, account_number, start_date, end_date,
+        contact_id, status, lender, claim_value, product_type, account_number, start_date, end_date,
         lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
         lender_reference, dates_timeline, apr, outstanding_balance,
         dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
@@ -6232,7 +6394,7 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
         ];
 
         const fields = {
-            status, lender, claim_value, product_type, account_number, start_date, end_date,
+            contact_id, status, lender, claim_value, product_type, account_number, start_date, end_date,
             lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
             lender_reference, dates_timeline, apr, outstanding_balance,
             dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
@@ -6261,6 +6423,14 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
 
         if (updates.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        // Validate target contact exists when reassigning
+        if (contact_id !== undefined) {
+            const contactCheck = await pool.query(`SELECT id FROM contacts WHERE id = $1`, [contact_id]);
+            if (contactCheck.rows.length === 0) {
+                return res.status(404).json({ error: 'Target contact not found' });
+            }
         }
 
         // Handle DSAR Sent to Lender status
@@ -9767,6 +9937,15 @@ async function graphRequest(endpoint, options = {}) {
     }
     // For attachment downloads, return the raw response
     if (options.raw) return res;
+    // Some Graph endpoints (sendMail, reply, forward, send) return 202 with no body
+    const contentType = res.headers.get('content-type') || '';
+    if (res.status === 202 || res.status === 204 || !contentType.includes('application/json')) {
+        const text = await res.text();
+        if (text) {
+            try { return JSON.parse(text); } catch { return { success: true }; }
+        }
+        return { success: true };
+    }
     return res.json();
 }
 
@@ -10171,6 +10350,10 @@ app.delete('/api/email/accounts/:accountId/messages/:messageId', async (req, res
         });
         res.json({ success: true });
     } catch (err) {
+        // 404 means the message was already deleted (e.g. thread cascade) – treat as success
+        if (err.message && err.message.includes('404')) {
+            return res.json({ success: true });
+        }
         console.error('Graph delete message failed:', err.message);
         res.status(500).json({ success: false, error: 'Failed to delete email: ' + err.message });
     }
@@ -10239,6 +10422,210 @@ app.get('/api/email/accounts/:accountId/folders/archive', async (req, res) => {
     } catch (err) {
         console.error('Graph get archive folder failed:', err.message);
         res.status(500).json({ success: false, error: 'Failed to get archive folder: ' + err.message });
+    }
+});
+
+// --- SEND EMAIL (new compose) ---
+app.post('/api/email/accounts/:accountId/send', async (req, res) => {
+    const { accountId } = req.params;
+    const { to, cc, bcc, subject, bodyHtml, bodyText, attachments } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const message = {
+            subject: subject || '',
+            body: {
+                contentType: bodyHtml ? 'HTML' : 'Text',
+                content: bodyHtml || bodyText || '',
+            },
+            toRecipients: (to || []).map(addr => ({ emailAddress: { address: addr } })),
+            ccRecipients: (cc || []).map(addr => ({ emailAddress: { address: addr } })),
+            bccRecipients: (bcc || []).map(addr => ({ emailAddress: { address: addr } })),
+        };
+
+        if (attachments && attachments.length > 0) {
+            message.attachments = attachments.map(att => ({
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: att.name,
+                contentType: att.contentType,
+                contentBytes: att.contentBytes,
+            }));
+        }
+
+        await graphRequest(`/users/${config.email}/sendMail`, {
+            method: 'POST',
+            body: JSON.stringify({ message, saveToSentItems: true }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph sendMail failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to send email: ' + err.message });
+    }
+});
+
+// --- REPLY TO EMAIL ---
+app.post('/api/email/accounts/:accountId/messages/:messageId/reply', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { comment, to, cc } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const body = { comment: comment || '' };
+        // If custom recipients provided, use createReply + update + send pattern
+        if (to && to.length > 0) {
+            // Create a draft reply
+            const draft = await graphRequest(`/users/${config.email}/messages/${messageId}/createReply`, {
+                method: 'POST',
+                body: JSON.stringify({}),
+            });
+            // Update the draft with our content and recipients
+            const updateBody = {
+                body: { contentType: 'HTML', content: comment || '' },
+                toRecipients: to.map(addr => ({ emailAddress: { address: addr } })),
+            };
+            if (cc && cc.length > 0) {
+                updateBody.ccRecipients = cc.map(addr => ({ emailAddress: { address: addr } }));
+            }
+            await graphRequest(`/users/${config.email}/messages/${draft.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(updateBody),
+            });
+            // Send the draft
+            await graphRequest(`/users/${config.email}/messages/${draft.id}/send`, {
+                method: 'POST',
+            });
+        } else {
+            await graphRequest(`/users/${config.email}/messages/${messageId}/reply`, {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph reply failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to reply: ' + err.message });
+    }
+});
+
+// --- REPLY ALL TO EMAIL ---
+app.post('/api/email/accounts/:accountId/messages/:messageId/replyAll', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { comment } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}/replyAll`, {
+            method: 'POST',
+            body: JSON.stringify({ comment: comment || '' }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph replyAll failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to reply all: ' + err.message });
+    }
+});
+
+// --- FORWARD EMAIL ---
+app.post('/api/email/accounts/:accountId/messages/:messageId/forward', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const { to, comment } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}/forward`, {
+            method: 'POST',
+            body: JSON.stringify({
+                comment: comment || '',
+                toRecipients: (to || []).map(addr => ({ emailAddress: { address: addr } })),
+            }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph forward failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to forward: ' + err.message });
+    }
+});
+
+// --- CREATE FOLDER ---
+app.post('/api/email/accounts/:accountId/folders', async (req, res) => {
+    const { accountId } = req.params;
+    const { displayName, parentFolderId } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const endpoint = parentFolderId
+            ? `/users/${config.email}/mailFolders/${parentFolderId}/childFolders`
+            : `/users/${config.email}/mailFolders`;
+        const result = await graphRequest(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ displayName }),
+        });
+        res.json({ success: true, folder: { id: result.id, displayName: result.displayName } });
+    } catch (err) {
+        console.error('Graph create folder failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to create folder: ' + err.message });
+    }
+});
+
+// --- RENAME FOLDER ---
+app.patch('/api/email/accounts/:accountId/folders/:folderId', async (req, res) => {
+    const { accountId, folderId } = req.params;
+    const { displayName } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/mailFolders/${folderId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ displayName }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph rename folder failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to rename folder: ' + err.message });
+    }
+});
+
+// --- DELETE FOLDER ---
+app.delete('/api/email/accounts/:accountId/folders/:folderId', async (req, res) => {
+    const { accountId, folderId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/mailFolders/${folderId}`, {
+            method: 'DELETE',
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph delete folder failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to delete folder: ' + err.message });
+    }
+});
+
+// --- MOVE FOLDER (change parent) ---
+app.post('/api/email/accounts/:accountId/folders/:folderId/move', async (req, res) => {
+    const { accountId, folderId } = req.params;
+    const { destinationParentId } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        // Graph API: copy to new parent then delete original (Graph doesn't support folder move directly)
+        // Actually Graph supports PATCH with parentFolderId — but only for moving between parents
+        await graphRequest(`/users/${config.email}/mailFolders/${folderId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ parentFolderId: destinationParentId || 'msgfolderroot' }),
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph move folder failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to move folder: ' + err.message });
     }
 });
 
@@ -13728,24 +14115,42 @@ crmRouter.get('/contacts/ref/:ref', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /search?q= ── Search contacts by name, email, phone, or client_id
+// ── GET /search?q= ── Search contacts + claims (incl. claim reference)
 crmRouter.get('/search', async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (!q) return res.status(400).json({ error: 'q query parameter is required' });
 
+        const pattern = `%${q}%`;
+        const numericQ = q.replace(/^RR-/i, '');
+        const numericPattern = `%${numericQ}%`;
+
         const { rows } = await pool.query(
-            `SELECT id, first_name, last_name, full_name, email, phone, client_id, created_at
-             FROM contacts
-             WHERE full_name ILIKE $1
-                OR first_name ILIKE $1
-                OR last_name ILIKE $1
-                OR email ILIKE $1
-                OR phone ILIKE $1
-                OR client_id ILIKE $1
-             ORDER BY updated_at DESC
+            `SELECT
+                ct.id AS contact_id,
+                ct.first_name, ct.last_name, ct.full_name,
+                ct.email, ct.phone, ct.client_id, ct.postal_code,
+                cs.id AS claim_id, cs.case_number, cs.lender,
+                cs.status AS claim_status
+             FROM contacts ct
+             LEFT JOIN cases cs ON cs.contact_id = ct.id
+             WHERE ct.full_name ILIKE $1
+                OR ct.first_name ILIKE $1
+                OR ct.last_name ILIKE $1
+                OR ct.email ILIKE $1
+                OR ct.phone ILIKE $1
+                OR ct.client_id ILIKE $1
+                OR ct.postal_code ILIKE $1
+                OR CAST(ct.id AS TEXT) = $3
+                OR cs.lender ILIKE $1
+                OR cs.status ILIKE $1
+                OR cs.case_number ILIKE $1
+                OR cs.reference_specified ILIKE $2
+                OR CAST(cs.id AS TEXT) ILIKE $2
+                OR (CAST(ct.id AS TEXT) || CAST(cs.id AS TEXT)) ILIKE $2
+             ORDER BY ct.updated_at DESC, cs.created_at DESC
              LIMIT 50`,
-            [`%${q}%`]
+            [pattern, numericPattern, numericQ]
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -15798,6 +16203,438 @@ console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)')
 // Mount Marketing module routes
 app.use('/api/marketing', marketingRouter);
 console.log('Marketing module mounted at /api/marketing/*');
+
+// ============================================
+// TASK WORK MODULE (Management only) - Claims-based
+// ============================================
+
+// Helper: date filter for task work queries
+function twDateFilter(period, alias = 'al') {
+    switch (period) {
+        case 'day': return `AND ${alias}.timestamp >= CURRENT_DATE`;
+        case 'week': return `AND ${alias}.timestamp >= date_trunc('week', CURRENT_DATE)`;
+        case 'month': return `AND ${alias}.timestamp >= date_trunc('month', CURRENT_DATE)`;
+        case 'year': return `AND ${alias}.timestamp >= date_trunc('year', CURRENT_DATE)`;
+        default: return `AND ${alias}.timestamp >= date_trunc('week', CURRENT_DATE)`;
+    }
+}
+
+// ============================================
+// USER ACTIVITY HEARTBEAT
+// ============================================
+// Called by the frontend every 30 seconds when user has mouse/keyboard activity
+app.post('/api/heartbeat', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: 'userId required' });
+        await pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [userId]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Heartbeat error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get offline agents (offline > 10 minutes) - for Management notifications
+app.get('/api/task-work/offline-agents', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT u.id, u.full_name as name, u.role,
+                   COALESCE(u.last_active_at, u.last_login) as last_active_at,
+                   EXTRACT(EPOCH FROM (NOW() - COALESCE(u.last_active_at, u.last_login))) / 60 as minutes_offline
+            FROM users u
+            WHERE u.is_approved = true
+              AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
+              AND COALESCE(u.last_active_at, u.last_login) IS NOT NULL
+              AND COALESCE(u.last_active_at, u.last_login) < NOW() - INTERVAL '10 minutes'
+            ORDER BY COALESCE(u.last_active_at, u.last_login) ASC
+        `);
+        res.json({ offlineAgents: rows });
+    } catch (err) {
+        console.error('Error fetching offline agents:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// List CLAIMS for Task Work with pagination, filters (status, lender, assigned_to, date range)
+app.get('/api/task-work/claims', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const offset = (page - 1) * limit;
+        const search = req.query.search || '';
+        const statusFilter = req.query.status || '';
+        const lenderFilter = req.query.lender || '';
+        const assignedTo = req.query.assignedTo || '';
+        const dateFrom = req.query.dateFrom || '';
+        const dateTo = req.query.dateTo || '';
+
+        const conditions = [];
+        const params = [];
+        let paramIdx = 1;
+
+        if (search) {
+            conditions.push(`(ct.full_name ILIKE $${paramIdx} OR ct.email ILIKE $${paramIdx} OR ct.phone ILIKE $${paramIdx} OR cs.lender ILIKE $${paramIdx})`);
+            params.push(`%${search}%`);
+            paramIdx++;
+        }
+
+        if (statusFilter) {
+            conditions.push(`cs.status = $${paramIdx}`);
+            params.push(statusFilter);
+            paramIdx++;
+        }
+
+        if (lenderFilter) {
+            conditions.push(`cs.lender ILIKE $${paramIdx}`);
+            params.push(`%${lenderFilter}%`);
+            paramIdx++;
+        }
+
+        if (assignedTo === 'unassigned') {
+            conditions.push(`cs.tw_assigned_to IS NULL`);
+        } else if (assignedTo) {
+            conditions.push(`cs.tw_assigned_to = $${paramIdx}`);
+            params.push(parseInt(assignedTo));
+            paramIdx++;
+        }
+
+        if (dateFrom) {
+            conditions.push(`cs.created_at >= $${paramIdx}`);
+            params.push(dateFrom);
+            paramIdx++;
+        }
+        if (dateTo) {
+            conditions.push(`cs.created_at <= $${paramIdx}`);
+            params.push(dateTo);
+            paramIdx++;
+        }
+
+        const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+        const [claimsResult, totalResult] = await Promise.all([
+            pool.query(`
+                SELECT cs.id, cs.contact_id, cs.lender, cs.status, cs.claim_value, cs.created_at,
+                       cs.tw_assigned_to, cs.tw_assigned_at,
+                       cs.tw_completed, cs.tw_completed_at,
+                       cs.tw_red_flag, cs.tw_red_flag_at,
+                       ct.full_name as contact_name, ct.first_name, ct.last_name, ct.email, ct.phone,
+                       u.full_name as assigned_to_name
+                FROM cases cs
+                JOIN contacts ct ON cs.contact_id = ct.id
+                LEFT JOIN users u ON cs.tw_assigned_to = u.id
+                ${whereClause}
+                ORDER BY cs.tw_assigned_to IS NOT NULL ASC, cs.updated_at DESC
+                LIMIT ${limit} OFFSET ${offset}
+            `, params),
+            pool.query(`SELECT COUNT(*) as total FROM cases cs JOIN contacts ct ON cs.contact_id = ct.id ${whereClause}`, params)
+        ]);
+
+        const total = parseInt(totalResult.rows[0].total);
+
+        res.json({
+            claims: claimsResult.rows,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit), hasMore: page < Math.ceil(total / limit) }
+        });
+    } catch (err) {
+        console.error('Error fetching task work claims:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all distinct lenders for filter dropdown
+app.get('/api/task-work/lenders', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`SELECT DISTINCT lender FROM cases WHERE lender IS NOT NULL AND lender != '' ORDER BY lender`);
+        res.json({ lenders: rows.map(r => r.lender) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all distinct statuses for filter dropdown
+app.get('/api/task-work/statuses', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`SELECT DISTINCT status FROM cases WHERE status IS NOT NULL AND status != '' ORDER BY status`);
+        res.json({ statuses: rows.map(r => r.status) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get admin users for assignment dropdown
+app.get('/api/task-work/admins', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`SELECT id, full_name as "fullName", role FROM users WHERE role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales') AND is_approved = true ORDER BY full_name`);
+        res.json({ admins: rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Assign claims to an admin (bulk)
+app.post('/api/task-work/assign', async (req, res) => {
+    try {
+        const { claimIds, adminId } = req.body;
+        if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0 || !adminId) {
+            return res.status(400).json({ error: 'claimIds (array) and adminId are required' });
+        }
+
+        const placeholders = claimIds.map((_, i) => `$${i + 1}`).join(', ');
+        await pool.query(
+            `UPDATE cases SET tw_assigned_to = $${claimIds.length + 1}, tw_assigned_at = NOW() WHERE id IN (${placeholders})`,
+            [...claimIds, adminId]
+        );
+
+        console.log(`Task Work: Assigned ${claimIds.length} claims to admin ${adminId}`);
+        res.json({ success: true, assigned: claimIds.length });
+    } catch (err) {
+        console.error('Error assigning task work:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Unassign claims (bulk)
+app.post('/api/task-work/unassign', async (req, res) => {
+    try {
+        const { claimIds } = req.body;
+        if (!claimIds || !Array.isArray(claimIds) || claimIds.length === 0) {
+            return res.status(400).json({ error: 'claimIds (array) is required' });
+        }
+
+        const placeholders = claimIds.map((_, i) => `$${i + 1}`).join(', ');
+        await pool.query(
+            `UPDATE cases SET tw_assigned_to = NULL, tw_assigned_at = NULL WHERE id IN (${placeholders})`,
+            claimIds
+        );
+
+        console.log(`Task Work: Unassigned ${claimIds.length} claims`);
+        res.json({ success: true, unassigned: claimIds.length });
+    } catch (err) {
+        console.error('Error unassigning task work:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Mark claim task as completed
+app.post('/api/task-work/complete', async (req, res) => {
+    try {
+        const { claimId, userId } = req.body;
+        if (!claimId || !userId) {
+            return res.status(400).json({ error: 'claimId and userId are required' });
+        }
+        await pool.query(
+            `UPDATE cases SET tw_completed = true, tw_completed_at = NOW(), tw_completed_by = $1 WHERE id = $2`,
+            [userId, claimId]
+        );
+        // Log the action
+        const user = (await pool.query('SELECT full_name FROM users WHERE id = $1', [userId])).rows[0];
+        await pool.query(
+            `INSERT INTO action_logs (action_type, action_category, actor_type, actor_id, actor_name, client_id, description, metadata, timestamp)
+             VALUES ('task_completed', 'claims', 'agent', $1, $2, (SELECT contact_id FROM cases WHERE id = $3), 'Task marked as completed', $4, NOW())`,
+            [String(userId), user?.full_name || 'Unknown', claimId, JSON.stringify({ case_id: claimId })]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error completing task:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Mark claim task as red flagged
+app.post('/api/task-work/red-flag', async (req, res) => {
+    try {
+        const { claimId, userId } = req.body;
+        if (!claimId || !userId) {
+            return res.status(400).json({ error: 'claimId and userId are required' });
+        }
+        await pool.query(
+            `UPDATE cases SET tw_red_flag = true, tw_red_flag_at = NOW(), tw_red_flag_by = $1 WHERE id = $2`,
+            [userId, claimId]
+        );
+        const user = (await pool.query('SELECT full_name FROM users WHERE id = $1', [userId])).rows[0];
+        await pool.query(
+            `INSERT INTO action_logs (action_type, action_category, actor_type, actor_id, actor_name, client_id, description, metadata, timestamp)
+             VALUES ('task_red_flagged', 'claims', 'agent', $1, $2, (SELECT contact_id FROM cases WHERE id = $3), 'Task red flagged', $4, NOW())`,
+            [String(userId), user?.full_name || 'Unknown', claimId, JSON.stringify({ case_id: claimId })]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error red flagging task:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get task work status for a specific claim
+app.get('/api/task-work/claim/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT cs.tw_assigned_to, cs.tw_assigned_at, cs.tw_completed, cs.tw_completed_at, cs.tw_completed_by,
+                    cs.tw_red_flag, cs.tw_red_flag_at, cs.tw_red_flag_by,
+                    u.full_name as assigned_to_name
+             FROM cases cs LEFT JOIN users u ON cs.tw_assigned_to = u.id WHERE cs.id = $1`,
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Claim not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all claims assigned to a specific user (for My Tasks page)
+app.get('/api/task-work/my-tasks', async (req, res) => {
+    try {
+        const userId = parseInt(req.query.userId);
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        const { rows } = await pool.query(`
+            SELECT cs.id, cs.contact_id, cs.lender, cs.status, cs.claim_value, cs.created_at,
+                   cs.tw_assigned_at, cs.tw_completed, cs.tw_completed_at,
+                   cs.tw_red_flag, cs.tw_red_flag_at,
+                   ct.full_name as contact_name, ct.first_name, ct.last_name, ct.email, ct.phone,
+                   (SELECT n.content FROM notes n WHERE n.client_id = ct.id ORDER BY n.created_at DESC LIMIT 1) as last_note,
+                   (SELECT COUNT(*) FROM documents d WHERE d.contact_id = ct.id) as documents_count
+            FROM cases cs
+            JOIN contacts ct ON cs.contact_id = ct.id
+            WHERE cs.tw_assigned_to = $1
+            ORDER BY cs.tw_completed ASC, cs.tw_red_flag ASC, cs.tw_assigned_at DESC
+        `, [userId]);
+
+        // Compute summary counts
+        const totalTasks = rows.length;
+        const completedCount = rows.filter(r => r.tw_completed).length;
+        const awaitingCount = rows.filter(r => !r.tw_completed && !r.tw_red_flag).length;
+        const flaggedCount = rows.filter(r => r.tw_red_flag).length;
+        // Documents Sent = claims with status "DSAR Sent to Lender" or "Complaint Submitted"
+        const documentsCount = rows.filter(r => r.status === 'DSAR Sent to Lender' || r.status === 'Complaint Submitted').length;
+
+        res.json({ claims: rows, summary: { totalTasks, completedCount, awaitingCount, flaggedCount, documentsCount } });
+    } catch (err) {
+        console.error('Error fetching my tasks:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================
+// TASK WORK DASHBOARD API
+// ============================================
+
+// Dashboard KPIs: status counts for DSAR/Complaint/Counters, logged-in users, active agents
+app.get('/api/task-work/dashboard/kpis', async (req, res) => {
+    try {
+        const period = req.query.period || 'week';
+        const dateFilter = twDateFilter(period);
+
+        const [dsarResult, complaintResult, counterResult, agentsResult, loggedInResult] = await Promise.all([
+            pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'DSAR Sent to Lender' ${dateFilter}`),
+            pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'Complaint Submitted' ${dateFilter}`),
+            pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'Counter Response sent' ${dateFilter}`),
+            pool.query(`SELECT COUNT(*) as total FROM users WHERE is_approved = true AND role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')`),
+            // Users active in the last 3 minutes = logged in (using heartbeat last_active_at, fallback to last_login)
+            pool.query(`SELECT COUNT(*) as logged_in FROM users WHERE is_approved = true AND COALESCE(last_active_at, last_login) >= NOW() - INTERVAL '3 minutes'`)
+        ]);
+
+        res.json({
+            dsarSentToLender: parseInt(dsarResult.rows[0].count),
+            complaintSentToLender: parseInt(complaintResult.rows[0].count),
+            countersSentToLender: parseInt(counterResult.rows[0].count),
+            loggedInUsers: parseInt(loggedInResult.rows[0].logged_in),
+            totalAgents: parseInt(agentsResult.rows[0].total)
+        });
+    } catch (err) {
+        console.error('Error fetching task work KPIs:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Tasks completed leaderboard: agents ranked by tw_completed tasks
+app.get('/api/task-work/dashboard/leaderboard', async (req, res) => {
+    try {
+        const period = req.query.period || 'week';
+        const dateFilter = twDateFilter(period);
+
+        // Daily stats
+        const dailyResult = await pool.query(`
+            SELECT al.actor_name as name, al.actor_id, COUNT(*) as tasks_completed
+            FROM action_logs al
+            WHERE al.actor_type = 'agent'
+              AND al.action_type = 'task_completed'
+              AND al.action_category = 'claims'
+              AND al.timestamp >= CURRENT_DATE
+            GROUP BY al.actor_name, al.actor_id
+            ORDER BY tasks_completed DESC
+            LIMIT 20
+        `);
+
+        // Period stats (weekly by default)
+        const periodResult = await pool.query(`
+            SELECT al.actor_name as name, al.actor_id, COUNT(*) as tasks_completed
+            FROM action_logs al
+            WHERE al.actor_type = 'agent'
+              AND al.action_type = 'task_completed'
+              AND al.action_category = 'claims'
+              ${dateFilter}
+            GROUP BY al.actor_name, al.actor_id
+            ORDER BY tasks_completed DESC
+            LIMIT 20
+        `);
+
+        res.json({ daily: dailyResult.rows, weekly: periodResult.rows });
+    } catch (err) {
+        console.error('Error fetching leaderboard:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Status changes: from_status -> to_status with count
+app.get('/api/task-work/dashboard/status-actions', async (req, res) => {
+    try {
+        const period = req.query.period || 'week';
+        const dateFilter = twDateFilter(period);
+
+        const { rows } = await pool.query(`
+            SELECT al.metadata->>'old_status' as from_status,
+                   al.metadata->>'new_status' as to_status,
+                   COUNT(*) as total
+            FROM action_logs al
+            WHERE al.action_type = 'status_changed'
+              AND al.action_category = 'claims'
+              ${dateFilter}
+            GROUP BY al.metadata->>'old_status', al.metadata->>'new_status'
+            ORDER BY total DESC
+            LIMIT 50
+        `);
+
+        res.json({ statusActions: rows });
+    } catch (err) {
+        console.error('Error fetching status actions:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Agent status: each agent with allocated/completed/flagged counts and online status (3 min threshold)
+app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT u.id, u.full_name as name, u.role,
+                   (SELECT COUNT(*) FROM cases c2 WHERE c2.tw_assigned_to = u.id) as tasks_allocated,
+                   (SELECT COUNT(*) FROM cases c3 WHERE c3.tw_assigned_to = u.id AND c3.tw_completed = true) as tasks_completed,
+                   (SELECT COUNT(*) FROM cases c4 WHERE c4.tw_assigned_to = u.id AND c4.tw_red_flag = true) as tasks_flagged,
+                   CASE WHEN COALESCE(u.last_active_at, u.last_login) >= NOW() - INTERVAL '3 minutes'
+                        THEN true ELSE false END as is_online,
+                   COALESCE(u.last_active_at, u.last_login) as last_active_at
+            FROM users u
+            WHERE u.is_approved = true AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
+            ORDER BY u.full_name
+        `);
+
+        res.json({ agents: rows });
+    } catch (err) {
+        console.error('Error fetching agent status:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ============================================================================
 // WINDMILL REVERSE-PROXY CATCH-ALL

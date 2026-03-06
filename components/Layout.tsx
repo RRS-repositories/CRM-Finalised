@@ -1,15 +1,33 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   LayoutDashboard, Users, MessageSquare, Target, Building2,
   FileText, ClipboardList, Settings, Workflow, Calendar,
   Bell, Sparkles, Megaphone, Shield, ChevronDown, ChevronRight, ChevronLeft,
   Facebook, Smartphone, Mail, MessageCircle, Check, X, AlertCircle, Info, LogOut, MessagesSquare,
-  LifeBuoy, Search, Sun, Moon
+  LifeBuoy, Search, Sun, Moon, Loader2
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { ViewState } from '../types';
 import { useCRM } from '../context/CRMContext';
+import { API_ENDPOINTS } from '../src/config';
 import SupportTicketModal from './SupportTicketModal';
+
+interface SearchResult {
+  contact_id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  client_id: string;
+  postal_code: string;
+  claim_id: string | null;
+  case_number: string | null;
+  lender: string | null;
+  claim_status: string | null;
+  reference_specified: string | null;
+}
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -36,11 +54,83 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
   } = useCRM();
 
   const [conversationsOpen, setConversationsOpen] = useState(false);
+  const [taskWorkOpen, setTaskWorkOpen] = useState(false);
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Global search state
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(`${API_ENDPOINTS.api}/search?q=${encodeURIComponent(query.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data);
+        setSearchOpen(true);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!val.trim()) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => performSearch(val), 300);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      performSearch(searchQuery);
+    }
+    if (e.key === 'Escape') {
+      setSearchOpen(false);
+    }
+  };
+
+  const handleSelectResult = (result: SearchResult) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    navigate(`/contacts/${result.contact_id}`);
+  };
 
   // Live clock - update every minute
   useEffect(() => {
@@ -57,6 +147,47 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     return () => clearInterval(interval);
   }, [fetchPersistentNotifications]);
 
+  // Activity heartbeat: track mouse/keyboard activity, send heartbeat every 30s if active within last 3 min
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    let lastActivity = Date.now();
+
+    const onActivity = () => { lastActivity = Date.now(); };
+    window.addEventListener('mousemove', onActivity);
+    window.addEventListener('mousedown', onActivity);
+    window.addEventListener('keydown', onActivity);
+    window.addEventListener('scroll', onActivity, true);
+    window.addEventListener('touchstart', onActivity);
+
+    // Send heartbeat immediately on mount
+    fetch(`${API_ENDPOINTS.api}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id }),
+    }).catch(() => {});
+
+    const heartbeatInterval = setInterval(() => {
+      const idleMs = Date.now() - lastActivity;
+      // Only send heartbeat if user was active in the last 3 minutes (180000ms)
+      if (idleMs < 180000) {
+        fetch(`${API_ENDPOINTS.api}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id }),
+        }).catch(() => {});
+      }
+    }, 30000); // Every 30 seconds
+
+    return () => {
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('mousedown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+      window.removeEventListener('scroll', onActivity, true);
+      window.removeEventListener('touchstart', onActivity);
+      clearInterval(heartbeatInterval);
+    };
+  }, [currentUser?.id]);
+
   // Auto-expand menu if a sub-item is active
   useEffect(() => {
     if (
@@ -68,13 +199,22 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     ) {
       setConversationsOpen(true);
     }
+    if (
+      currentView === ViewState.TASK_WORK_DASHBOARD ||
+      currentView === ViewState.TASK_WORK_ASSIGNER
+    ) {
+      setTaskWorkOpen(true);
+    }
   }, [currentView]);
+
+  const emailAllowedRoles = ['Management', 'Admin', 'Payments'];
+  const canAccessEmail = currentUser && emailAllowedRoles.includes(currentUser.role);
 
   const conversationSubItems = [
     { id: ViewState.CONVERSATIONS_FACEBOOK, label: 'Facebook', icon: Facebook },
     { id: ViewState.CONVERSATIONS_WHATSAPP, label: 'WhatsApp', icon: MessageCircle },
     { id: ViewState.CONVERSATIONS_SMS, label: 'SMS', icon: Smartphone },
-    { id: ViewState.CONVERSATIONS_EMAIL, label: 'Email', icon: Mail },
+    ...(canAccessEmail ? [{ id: ViewState.CONVERSATIONS_EMAIL, label: 'Email', icon: Mail }] : []),
   ];
 
   const mainNavItems = [
@@ -131,6 +271,16 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     ViewState.CONVERSATIONS_EMAIL
   ].includes(currentView);
 
+  const isTaskWorkActive = [
+    ViewState.TASK_WORK_DASHBOARD,
+    ViewState.TASK_WORK_ASSIGNER
+  ].includes(currentView);
+
+  const taskWorkSubItems = [
+    { id: ViewState.TASK_WORK_DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
+    { id: ViewState.TASK_WORK_ASSIGNER, label: 'Task Assigner', icon: Users },
+  ];
+
   // Format live clock
   const formatClock = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -149,6 +299,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     const subItem = conversationSubItems.find(i => i.id === currentView);
     if (subItem) return `Conversations > ${subItem.label}`;
     if (currentView === ViewState.CONVERSATIONS_ALL) return 'Conversations > All Chats';
+    const taskWorkSub = taskWorkSubItems.find(i => i.id === currentView);
+    if (taskWorkSub) return `Task Work > ${taskWorkSub.label}`;
+    if (currentView === ViewState.MY_TASKS) return 'My Tasks';
     const navItem = allNavItems(mainNavItems, bottomNavItems).find(i => i.id === currentView);
     if (navItem?.label === 'Cases') return 'Claims Pipeline';
     return navItem?.label || 'Dashboard';
@@ -246,6 +399,73 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
           </div>
 
           {mainNavItems.slice(4).map(renderNavItem)}
+
+          {/* Tasks (Admin only - view assigned tasks) */}
+          {currentUser?.role === 'Admin' && renderNavItem({ id: ViewState.MY_TASKS, label: 'Tasks', icon: ClipboardList })}
+
+          {/* Collapsible Task Work Menu (Management only) */}
+          {currentUser?.role === 'Management' && (
+            <div>
+              <div
+                className={`w-full flex items-center justify-between transition-all duration-200 cursor-pointer group rounded-lg mx-2
+                  ${sidebarCollapsed ? 'px-3 py-3 justify-center' : 'px-4 py-2.5'}
+                  ${isTaskWorkActive
+                    ? 'bg-brand-orange/10 text-brand-orange'
+                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}
+                `}
+                style={{ width: 'calc(100% - 16px)' }}
+              >
+                {isTaskWorkActive && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-orange rounded-r-full" />
+                )}
+                <div
+                  className="flex items-center gap-3 flex-1"
+                  onClick={() => {
+                    if (isTaskWorkActive && taskWorkOpen) {
+                      setTaskWorkOpen(false);
+                    } else {
+                      onChangeView(ViewState.TASK_WORK_DASHBOARD);
+                      setTaskWorkOpen(true);
+                    }
+                  }}
+                >
+                  <ClipboardList size={20} className="shrink-0" />
+                  {!sidebarCollapsed && <span className="text-sm font-medium">Task Work</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTaskWorkOpen(!taskWorkOpen);
+                    }}
+                    className="p-1 rounded hover:bg-white/10"
+                  >
+                    {taskWorkOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                )}
+              </div>
+
+              {/* Task Work Sub-menu items */}
+              {!sidebarCollapsed && (
+                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${taskWorkOpen ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  {taskWorkSubItems.map(subItem => (
+                    <button
+                      key={subItem.id}
+                      onClick={() => onChangeView(subItem.id)}
+                      className={`w-full flex items-center pl-14 pr-4 py-2 text-xs font-medium transition-all duration-200 rounded-r-lg
+                        ${currentView === subItem.id
+                          ? 'text-brand-orange bg-brand-orange/5'
+                          : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}
+                      `}
+                    >
+                      <subItem.icon size={14} className="mr-3 opacity-80" />
+                      {subItem.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         {/* Bottom Section */}
@@ -309,14 +529,67 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
           </div>
 
           {/* Center: Search */}
-          <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
+          <div className="hidden md:flex items-center flex-1 max-w-lg mx-8" ref={searchRef}>
             <div className="relative w-full">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              {searchLoading ? (
+                <Loader2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />
+              ) : (
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              )}
               <input
                 type="text"
-                placeholder="Search contacts..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
+                placeholder="Search by name, email, phone, postcode, lender, status..."
                 className="w-full pl-10 pr-4 py-2 text-sm bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-full text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-orange/30 focus:border-brand-orange/50 transition-all"
               />
+
+              {/* Search Results Dropdown */}
+              {searchOpen && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-800 border border-gray-200 dark:border-white/10 rounded-xl shadow-xl z-[200] max-h-80 overflow-y-auto">
+                  {searchResults.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                      No results found for "{searchQuery}"
+                    </div>
+                  ) : (
+                    searchResults.map((r, idx) => (
+                      <button
+                        key={`${r.contact_id}-${r.claim_id || idx}`}
+                        onClick={() => handleSelectResult(r)}
+                        className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors border-b border-gray-100 dark:border-white/5 last:border-b-0"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono font-semibold text-brand-orange">
+                                {r.client_id || `RR-${r.contact_id}`}
+                                {r.claim_id ? `/${r.contact_id}${r.claim_id}` : ''}
+                              </span>
+                              <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {r.full_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              {r.lender && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  {r.lender}
+                                </span>
+                              )}
+                              {r.claim_status && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                                  {r.claim_status}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

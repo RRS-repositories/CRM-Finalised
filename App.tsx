@@ -26,6 +26,9 @@ const LenderIntake = lazy(() => import('./components/IntakeForm/LenderIntake'));
 const LoaSelectionForm = lazy(() => import('./components/LoaSelectionForm'));
 const LenderConfirmation = lazy(() => import('./components/LenderConfirmation'));
 const MattermostPanel = lazy(() => import('./components/MattermostPanel'));
+const TaskWork = lazy(() => import('./components/TaskWork'));
+const TaskWorkDashboard = lazy(() => import('./components/TaskWorkDashboard'));
+const MyTasks = lazy(() => import('./components/MyTasks'));
 const Notifications = lazy(() => import('./components/Notifications'));
 
 // Lightweight loading fallback for lazy-loaded modules
@@ -56,6 +59,10 @@ const routeToViewState: Record<string, ViewState> = {
   '/automation': ViewState.WORKFLOW,
   '/settings': ViewState.SETTINGS,
   '/management': ViewState.MANAGEMENT,
+  '/task-work': ViewState.TASK_WORK_DASHBOARD,
+  '/task-work/dashboard': ViewState.TASK_WORK_DASHBOARD,
+  '/task-work/assigner': ViewState.TASK_WORK_ASSIGNER,
+  '/my-tasks': ViewState.MY_TASKS,
   '/accounts': ViewState.LENDERS,
   '/mattermost': ViewState.MATTERMOST,
 };
@@ -78,6 +85,9 @@ export const viewStateToRoute: Record<ViewState, string> = {
   [ViewState.WORKFLOW]: '/automation',
   [ViewState.SETTINGS]: '/settings',
   [ViewState.MANAGEMENT]: '/management',
+  [ViewState.TASK_WORK_DASHBOARD]: '/task-work/dashboard',
+  [ViewState.TASK_WORK_ASSIGNER]: '/task-work/assigner',
+  [ViewState.MY_TASKS]: '/my-tasks',
   [ViewState.LENDERS]: '/accounts',
   [ViewState.CLIENT_INTAKE]: '/client-intake',
   [ViewState.MATTERMOST]: '/mattermost',
@@ -196,6 +206,14 @@ const AppContent = () => {
 
                 {/* Management (Admin Panel) */}
                 <Route path="/management" element={<AdminPanel />} />
+
+                {/* Task Work (Management only) */}
+                <Route path="/task-work" element={<TaskWorkDashboard />} />
+                <Route path="/task-work/dashboard" element={<TaskWorkDashboard />} />
+                <Route path="/task-work/assigner" element={<TaskWork />} />
+
+                {/* My Tasks (Admin role) */}
+                <Route path="/my-tasks" element={<MyTasks />} />
 
                 {/* Accounts/Lenders */}
                 <Route path="/accounts" element={

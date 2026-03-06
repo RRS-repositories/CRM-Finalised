@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { EmailAccount, EmailFolder, Email } from '../../types';
-import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread } from '../../services/emailApiService';
+import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread, createFolder, renameFolder, deleteFolder as apideleteFolder } from '../../services/emailApiService';
 import EmailAccountsSidebar from './EmailAccountsSidebar';
 import EmailMessageList from './EmailMessageList';
 import EmailViewer from './EmailViewer';
 import EmailThreadViewer from './EmailThreadViewer';
+import ComposeEmailModal, { ComposeMode } from './ComposeEmailModal';
 
 const PAGE_SIZE = 50;
 
@@ -42,6 +43,11 @@ const EmailConversations: React.FC = () => {
 
   // Currently selected folder name (inbox, drafts, sent, etc.)
   const [activeFolderName, setActiveFolderName] = useState<string>('inbox');
+
+  // Compose modal state
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeMode, setComposeMode] = useState<ComposeMode>('new');
+  const [composeOriginalEmail, setComposeOriginalEmail] = useState<Email | null>(null);
 
   // Get selected folder object
   const selectedFolder = folders.find(f => f.id === selectedFolderId);
@@ -160,17 +166,19 @@ const EmailConversations: React.FC = () => {
 
   // Handle account click - toggle expand/collapse and load folders
   const handleAccountClick = async (accountId: string) => {
-    const newExpanded = new Set(expandedAccounts);
-    if (newExpanded.has(accountId)) {
+    if (expandedAccounts.has(accountId)) {
+      // Collapse this account
+      const newExpanded = new Set(expandedAccounts);
       newExpanded.delete(accountId);
+      setExpandedAccounts(newExpanded);
     } else {
-      newExpanded.add(accountId);
+      // Collapse all others, expand only this one
+      setExpandedAccounts(new Set([accountId]));
       const existingFolders = folders.filter(f => f.accountId === accountId);
       if (existingFolders.length === 0) {
         await loadFoldersForAccount(accountId);
       }
     }
-    setExpandedAccounts(newExpanded);
   };
 
   // Handle folder click
@@ -374,6 +382,77 @@ const EmailConversations: React.FC = () => {
     }
   };
 
+  // --- Compose email handlers ---
+  const handleComposeNew = () => {
+    setComposeMode('new');
+    setComposeOriginalEmail(null);
+    setComposeOpen(true);
+  };
+
+  const handleReply = (email: Email) => {
+    setComposeMode('reply');
+    setComposeOriginalEmail(email);
+    setComposeOpen(true);
+  };
+
+  const handleReplyAll = (email: Email) => {
+    setComposeMode('replyAll');
+    setComposeOriginalEmail(email);
+    setComposeOpen(true);
+  };
+
+  const handleForward = (email: Email) => {
+    setComposeMode('forward');
+    setComposeOriginalEmail(email);
+    setComposeOpen(true);
+  };
+
+  const handleComposeSent = () => {
+    if (selectedAccountId && activeFolderName) {
+      loadEmailsForFolder(selectedAccountId, activeFolderName);
+    }
+  };
+
+  // --- Folder management ---
+  const handleCreateFolder = async (displayName: string, parentFolderId?: string) => {
+    if (!selectedAccountId) return;
+    try {
+      await createFolder(selectedAccountId, displayName, parentFolderId);
+      const fldrs = await fetchFolders(selectedAccountId);
+      setFolders(prev => {
+        const otherFolders = prev.filter(f => f.accountId !== selectedAccountId);
+        return [...otherFolders, ...fldrs];
+      });
+    } catch (err) {
+      console.error('Failed to create folder:', err);
+    }
+  };
+
+  const handleRenameFolder = async (folderId: string, newName: string) => {
+    if (!selectedAccountId) return;
+    try {
+      await renameFolder(selectedAccountId, folderId, newName);
+      setFolders(prev => prev.map(f => f.id === folderId ? { ...f, displayName: newName } : f));
+    } catch (err) {
+      console.error('Failed to rename folder:', err);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (!selectedAccountId) return;
+    try {
+      await apideleteFolder(selectedAccountId, folderId);
+      setFolders(prev => prev.filter(f => f.id !== folderId));
+      if (selectedFolderId === folderId) {
+        setSelectedFolderId(null);
+        setEmails([]);
+        setSelectedEmail(null);
+      }
+    } catch (err) {
+      console.error('Failed to delete folder:', err);
+    }
+  };
+
   // Handle drag-and-drop: email dropped onto a folder
   const handleDropOnFolder = async (emailIds: string[], targetAccountId: string, targetFolderId: string) => {
     if (!selectedAccountId) return;
@@ -412,6 +491,10 @@ const EmailConversations: React.FC = () => {
         onSyncAll={handleSyncAll}
         loading={loadingAccounts}
         onDropOnFolder={handleDropOnFolder}
+        onComposeNew={handleComposeNew}
+        onCreateFolder={handleCreateFolder}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
       />
 
       <EmailMessageList
@@ -448,6 +531,9 @@ const EmailConversations: React.FC = () => {
           loading={loadingThread}
           activeFolderName={activeFolderName}
           accountId={selectedAccountId}
+          onReply={handleReply}
+          onReplyAll={handleReplyAll}
+          onForward={handleForward}
         />
       ) : (
         <EmailViewer
@@ -460,6 +546,21 @@ const EmailConversations: React.FC = () => {
           loading={loadingDetail}
           activeFolderName={activeFolderName}
           accountId={selectedAccountId}
+          onReply={handleReply}
+          onReplyAll={handleReplyAll}
+          onForward={handleForward}
+        />
+      )}
+
+      {/* Compose Email Modal */}
+      {composeOpen && (
+        <ComposeEmailModal
+          mode={composeMode}
+          accounts={accounts}
+          defaultAccountId={selectedAccountId}
+          originalEmail={composeOriginalEmail || undefined}
+          onClose={() => setComposeOpen(false)}
+          onSent={handleComposeSent}
         />
       )}
     </div>

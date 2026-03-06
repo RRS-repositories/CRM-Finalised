@@ -128,7 +128,13 @@
       "Bash(cmd /c \"netstat -ano | findstr :5000 | findstr LISTENING\")",
       "Bash(cmd /c \"taskkill /F /IM node.exe /T\")",
       "Bash(cmd /c \"for /f \"\"tokens=5\"\" %a in \\(''netstat -ano ^| findstr :5000''\\) do echo PID: %a & tasklist /FI \"\"PID eq %a\"\" 2>nul\")",
-      "Bash(cmd /c \"netstat -ano -p TCP\")"
+      "Bash(cmd /c \"netstat -ano -p TCP\")",
+      "Bash(cmd /c \"powershell -Command \"\"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force\"\" & echo Done\")",
+      "Bash(cmd /c \"taskkill /F /IM node.exe /T 2>nul & echo Done\")",
+      "Bash(cmd /c \"netstat -ano | findstr :5000 | findstr LISTEN\")",
+      "Bash(cmd /c \"netstat -ano | findstr :3000 | findstr LISTEN\")",
+      "Bash(cmd /c \"powershell -NoProfile -Command Stop-Process -Name node -Force 2>nul & echo Done\")",
+      "Bash(cmd /c \"wmic process where \"\"name=''node.exe''\"\" call terminate 2>nul\")"
     ]
   }
 }

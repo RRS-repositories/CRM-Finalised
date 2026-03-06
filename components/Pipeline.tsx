@@ -116,11 +116,6 @@ const getAvatarColor = (name: string): string => {
   return colors[index];
 };
 
-// Generate Client ID (RR-contactId format) - same logic as Contacts.tsx
-const generateClientId = (contact: { id: string; clientId?: string; createdAt?: string }): string => {
-  return `RR-${contact.id}`;
-};
-
 // Date filter helper function
 const isWithinDateRange = (dateStr: string | undefined, range: string): boolean => {
   if (!dateStr || range === 'all') return true;
@@ -190,7 +185,7 @@ interface EnrichedClaim extends Claim {
 
 // Enriched claim type for list view
 interface ListEnrichedClaim extends EnrichedClaim {
-  clientId: string;
+  clientIdRef: string;
   workflowStage: string;
   createdAt: string;
 }
@@ -545,7 +540,11 @@ const Pipeline: React.FC = () => {
       // Add to flat list for list view
       allFiltered.push({
         ...enriched,
-        clientId: contact ? generateClientId({ id: contact.id, clientId: contact.clientId, createdAt: contact.createdAt }) : 'N/A',
+        clientIdRef: (() => {
+          const cid = `RR-${claim.contactId}`;
+          const ref = claim.lenderReference || claim.referenceSpecified || '';
+          return ref ? `${cid}/${ref}` : cid;
+        })(),
         workflowStage: statusToCategoryMap.get(claim.status) || 'Unknown',
         createdAt: claim.startDate || contact?.createdAt || ''
       });
@@ -1002,7 +1001,7 @@ const Pipeline: React.FC = () => {
                            />
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Client ID
+                           Client ID / Reference
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
                            Client Name
@@ -1063,10 +1062,10 @@ const Pipeline: React.FC = () => {
                                        className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                     />
                                  </td>
-                                 {/* Client ID */}
+                                 {/* Client ID / Reference */}
                                  <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
                                     <span className="text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded">
-                                       {claim.clientId}
+                                       {claim.clientIdRef}
                                     </span>
                                  </td>
                                  {/* Client Name */}

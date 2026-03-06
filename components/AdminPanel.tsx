@@ -182,6 +182,7 @@ const AdminPanel: React.FC = () => {
                 <tr>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">User</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Role</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Last Active</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase text-center">Login Approval</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase text-right">Edit Role</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase text-right">Delete</th>
@@ -200,6 +201,21 @@ const AdminPanel: React.FC = () => {
                         }`}>
                         {user.role}
                       </span>
+                    </td>
+                    {/* Last Active */}
+                    <td className="px-6 py-4">
+                      {user.lastLogin ? (
+                        <div>
+                          <div className="text-sm text-gray-700 dark:text-gray-300">
+                            {new Date(user.lastLogin).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500">
+                            {new Date(user.lastLogin).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400 dark:text-gray-500 italic">Never</span>
+                      )}
                     </td>
                     {/* Approval Toggle */}
                     <td className="px-6 py-4 text-center">

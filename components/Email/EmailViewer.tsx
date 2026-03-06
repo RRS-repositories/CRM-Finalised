@@ -26,6 +26,9 @@ interface EmailViewerProps {
   loading?: boolean;
   activeFolderName?: string;
   accountId?: string | null;
+  onReply?: (email: Email) => void;
+  onReplyAll?: (email: Email) => void;
+  onForward?: (email: Email) => void;
 }
 
 // Isolated HTML email body renderer using iframe
@@ -191,7 +194,10 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
   onMarkUnread,
   loading,
   activeFolderName,
-  accountId
+  accountId,
+  onReply,
+  onReplyAll,
+  onForward,
 }) => {
   // Preview modal state
   const [previewAttachment, setPreviewAttachment] = useState<{
@@ -413,15 +419,24 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
       {/* Action Toolbar */}
       <div className="flex items-center px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0">
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => email && onReply?.(email)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <Reply size={14} />
             <span className="hidden sm:inline">Reply</span>
           </button>
-          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => email && onReplyAll?.(email)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <ReplyAll size={14} />
             <span className="hidden sm:inline">Reply All</span>
           </button>
-          <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+          <button
+            onClick={() => email && onForward?.(email)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          >
             <Forward size={14} />
             <span className="hidden sm:inline">Forward</span>
           </button>

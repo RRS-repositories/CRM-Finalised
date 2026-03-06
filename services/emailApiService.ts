@@ -102,3 +102,95 @@ export async function markEmailUnread(accountId: string, messageId: string): Pro
   });
   if (!res.ok) throw new Error('Failed to mark as unread');
 }
+
+// --- Send / Reply / Forward ---
+
+export async function sendEmail(accountId: string, payload: {
+  to: string[]; cc?: string[]; bcc?: string[]; subject: string;
+  bodyHtml?: string; bodyText?: string;
+  attachments?: { name: string; contentType: string; contentBytes: string }[];
+}): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to send email');
+  }
+}
+
+export async function replyToEmail(accountId: string, messageId: string, comment: string, to?: string[], cc?: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment, to, cc }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to reply');
+  }
+}
+
+export async function replyAllToEmail(accountId: string, messageId: string, comment: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/replyAll`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to reply all');
+  }
+}
+
+export async function forwardEmail(accountId: string, messageId: string, to: string[], comment?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/forward`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, comment }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to forward email');
+  }
+}
+
+// --- Folder Management ---
+
+export async function createFolder(accountId: string, displayName: string, parentFolderId?: string): Promise<{ id: string; displayName: string }> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName, parentFolderId }),
+  });
+  if (!res.ok) throw new Error('Failed to create folder');
+  const data = await res.json();
+  return data.folder;
+}
+
+export async function renameFolder(accountId: string, folderId: string, displayName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/${encodeURIComponent(folderId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!res.ok) throw new Error('Failed to rename folder');
+}
+
+export async function deleteFolder(accountId: string, folderId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete folder');
+}
+
+export async function moveFolderToParent(accountId: string, folderId: string, destinationParentId?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/${encodeURIComponent(folderId)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ destinationParentId }),
+  });
+  if (!res.ok) throw new Error('Failed to move folder');
+}

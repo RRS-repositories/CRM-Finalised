@@ -878,6 +878,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createdAt: cs.created_at,
         daysInStage: 0,
         contactName: cs.contact_full_name || [cs.contact_first_name, cs.contact_last_name].filter(Boolean).join(' ') || '',
+        lenderReference: cs.lender_reference || '',
+        referenceSpecified: cs.reference_specified || '',
       }));
       setClaims(allClaims);
       claimsFetchedAtRef.current = now;
@@ -1040,7 +1042,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               accountNumber: cs.account_number,
               startDate: cs.start_date ? new Date(cs.start_date).toLocaleDateString('en-GB') : '',
               createdAt: cs.created_at,
-              daysInStage: 0
+              daysInStage: 0,
+              contactName: cs.contact_full_name || [cs.contact_first_name, cs.contact_last_name].filter(Boolean).join(' ') || '',
+              lenderReference: cs.lender_reference || '',
+              referenceSpecified: cs.reference_specified || '',
             }));
             setClaims(allClaims);
           }

@@ -16,7 +16,7 @@ import {
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES, PIPELINE_CATEGORIES } from '../constants';
-import { API_BASE_URL } from '../src/config';
+import { API_BASE_URL, API_ENDPOINTS } from '../src/config';
 import BulkImport from './BulkImport';
 
 // Date format helpers: ISO (YYYY-MM-DD) <-> display (dd/mm/yyyy)
@@ -2934,6 +2934,40 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
                               >
                                  {claimFileSaving ? 'Saving...' : 'Save'}
+                              </button>
+                              <button
+                                 onClick={async () => {
+                                    try {
+                                       const res = await fetch(`${API_ENDPOINTS.api}/task-work/complete`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ claimId: viewingClaimId, userId: currentUser?.id }),
+                                       });
+                                       const data = await res.json();
+                                       if (data.success) addNotification('success', 'Task marked as completed');
+                                       else addNotification('error', data.error || 'Failed to complete task');
+                                    } catch { addNotification('error', 'Failed to complete task'); }
+                                 }}
+                                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                              >
+                                 <Check size={14} /> Task Completed
+                              </button>
+                              <button
+                                 onClick={async () => {
+                                    try {
+                                       const res = await fetch(`${API_ENDPOINTS.api}/task-work/red-flag`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ claimId: viewingClaimId, userId: currentUser?.id }),
+                                       });
+                                       const data = await res.json();
+                                       if (data.success) addNotification('info', 'Task red flagged');
+                                       else addNotification('error', data.error || 'Failed to red flag task');
+                                    } catch { addNotification('error', 'Failed to red flag task'); }
+                                 }}
+                                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                              >
+                                 <AlertTriangle size={14} /> Red Flag
                               </button>
                               <button
                                  onClick={() => setShowDeleteClaimConfirm(true)}

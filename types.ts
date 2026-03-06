@@ -98,6 +98,8 @@ export interface Claim {
   contactName?: string;
   caseNumber?: string;
   createdAt?: string;
+  lenderReference?: string;
+  referenceSpecified?: string;
 }
 
 export interface PreviousAddressEntry {
@@ -241,6 +243,9 @@ export enum ViewState {
   WORKFLOW = 'WORKFLOW',
   SETTINGS = 'SETTINGS',
   MANAGEMENT = 'MANAGEMENT',
+  TASK_WORK_DASHBOARD = 'TASK_WORK_DASHBOARD',
+  TASK_WORK_ASSIGNER = 'TASK_WORK_ASSIGNER',
+  MY_TASKS = 'MY_TASKS',
   CLIENT_INTAKE = 'CLIENT_INTAKE',
   MATTERMOST = 'MATTERMOST'
 }
