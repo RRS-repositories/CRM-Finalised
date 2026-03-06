@@ -7862,6 +7862,10 @@ app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire2.html'));
 });
 
+app.get('/iddocument/:id', (req, res) => {
+    res.sendFile(path.join(__dirname, 'iddocument.html'));
+});
+
 // Submit Combined Questionnaire
 app.post('/api/submit-questionnaire', async (req, res) => {
     const { contactId, questions, isGambler, previousBettingCompanies, estimatedGamblingLosses, additionalInformation, signatureData } = req.body;
