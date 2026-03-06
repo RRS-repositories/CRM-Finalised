@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { EmailAccount, EmailFolder, Email } from '../../types';
-import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages } from '../../services/emailApiService';
+import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread } from '../../services/emailApiService';
 import EmailAccountsSidebar from './EmailAccountsSidebar';
 import EmailMessageList from './EmailMessageList';
 import EmailViewer from './EmailViewer';
 import EmailThreadViewer from './EmailThreadViewer';
+
+const PAGE_SIZE = 50;
 
 const EmailConversations: React.FC = () => {
   // Data state
@@ -24,6 +26,14 @@ const EmailConversations: React.FC = () => {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
+
+  // Bulk selection state
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
+
+  // Pagination state
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
 
   // Loading state
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -66,11 +76,10 @@ const EmailConversations: React.FC = () => {
         const otherFolders = prev.filter(f => f.accountId !== accountId);
         return [...otherFolders, ...fldrs];
       });
-      // Find Inbox by displayName (case-insensitive) since name is now the Graph folder ID
       const inbox = fldrs.find(f => f.displayName.toLowerCase() === 'inbox');
       if (inbox) {
         setSelectedFolderId(inbox.id);
-        setActiveFolderName(inbox.name); // Use the Graph folder ID
+        setActiveFolderName(inbox.name);
         await loadEmailsForFolder(accountId, inbox.name);
       }
     } catch (err: any) {
@@ -85,20 +94,40 @@ const EmailConversations: React.FC = () => {
     setSelectedThreadId(null);
     setThreadEmails([]);
     setViewMode('single');
+    setSelectedEmailIds(new Set());
     try {
-      const msgs = await fetchEmails(accountId, folderName);
-      setEmails(msgs);
-      if (msgs.length > 0) {
-        setSelectedEmailId(msgs[0].id);
-        loadEmailDetail(accountId, msgs[0].id);
+      const result = await fetchEmails(accountId, folderName, PAGE_SIZE, 0);
+      setEmails(result.emails);
+      setHasMore(result.hasMore);
+      setTotalCount(result.totalCount);
+      if (result.emails.length > 0) {
+        setSelectedEmailId(result.emails[0].id);
+        loadEmailDetail(accountId, result.emails[0].id);
       }
     } catch (err: any) {
       console.error('Failed to load emails:', err);
       setEmails([]);
+      setHasMore(false);
     } finally {
       setLoadingEmails(false);
     }
   }, []);
+
+  // Load more emails (infinite scroll)
+  const loadMoreEmails = useCallback(async () => {
+    if (!selectedAccountId || !activeFolderName || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchEmails(selectedAccountId, activeFolderName, PAGE_SIZE, emails.length);
+      setEmails(prev => [...prev, ...result.emails]);
+      setHasMore(result.hasMore);
+      if (result.totalCount !== null) setTotalCount(result.totalCount);
+    } catch (err: any) {
+      console.error('Failed to load more emails:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [selectedAccountId, activeFolderName, loadingMore, hasMore, emails.length]);
 
   const loadEmailDetail = async (accountId: string, messageId: string) => {
     setLoadingDetail(true);
@@ -194,10 +223,8 @@ const EmailConversations: React.FC = () => {
 
   // Handle delete email - remove from list and select next
   const handleDelete = (emailId: string) => {
-    // Remove from emails list
     setEmails(prev => {
       const filtered = prev.filter(e => e.id !== emailId);
-      // If the deleted email was selected, select the next one
       if (selectedEmailId === emailId && filtered.length > 0) {
         const nextEmail = filtered[0];
         setSelectedEmailId(nextEmail.id);
@@ -211,7 +238,12 @@ const EmailConversations: React.FC = () => {
       }
       return filtered;
     });
-    // Clear thread view if in thread mode
+    // Remove from bulk selection
+    setSelectedEmailIds(prev => {
+      const next = new Set(prev);
+      next.delete(emailId);
+      return next;
+    });
     if (viewMode === 'thread') {
       setViewMode('single');
       setSelectedThreadId(null);
@@ -227,7 +259,6 @@ const EmailConversations: React.FC = () => {
     if (selectedEmail?.id === emailId) {
       setSelectedEmail(prev => prev ? { ...prev, isStarred: flagged } : prev);
     }
-    // Update thread emails if in thread view
     setThreadEmails(prev => prev.map(e =>
       e.id === emailId ? { ...e, isStarred: flagged } : e
     ));
@@ -235,7 +266,6 @@ const EmailConversations: React.FC = () => {
 
   // Handle archive - remove from current folder view
   const handleArchive = (emailId: string) => {
-    // Same as delete - removes from current view
     handleDelete(emailId);
   };
 
@@ -247,7 +277,6 @@ const EmailConversations: React.FC = () => {
     if (selectedEmail?.id === emailId) {
       setSelectedEmail(prev => prev ? { ...prev, isRead: false } : prev);
     }
-    // Update thread emails if in thread view
     setThreadEmails(prev => prev.map(e =>
       e.id === emailId ? { ...e, isRead: false } : e
     ));
@@ -269,6 +298,107 @@ const EmailConversations: React.FC = () => {
     }
   };
 
+  // Bulk selection handlers
+  const handleToggleSelectEmail = (emailId: string) => {
+    setSelectedEmailIds(prev => {
+      const next = new Set(prev);
+      if (next.has(emailId)) {
+        next.delete(emailId);
+      } else {
+        next.add(emailId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = (emailIds: string[]) => {
+    setSelectedEmailIds(new Set(emailIds));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedEmailIds(new Set());
+  };
+
+  // Bulk actions
+  const handleBulkDelete = async () => {
+    if (!selectedAccountId || selectedEmailIds.size === 0) return;
+    const ids = Array.from(selectedEmailIds);
+    try {
+      await Promise.all(ids.map(id => deleteEmail(selectedAccountId!, id)));
+      setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+      setSelectedEmailIds(new Set());
+      if (selectedEmailId && selectedEmailIds.has(selectedEmailId)) {
+        setSelectedEmailId(null);
+        setSelectedEmail(null);
+      }
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+    }
+  };
+
+  const handleBulkMarkRead = async () => {
+    if (!selectedAccountId || selectedEmailIds.size === 0) return;
+    const ids = Array.from(selectedEmailIds);
+    try {
+      await Promise.all(ids.map(id => markEmailRead(selectedAccountId!, id, true)));
+      setEmails(prev => prev.map(e =>
+        selectedEmailIds.has(e.id) ? { ...e, isRead: true } : e
+      ));
+    } catch (err) {
+      console.error('Bulk mark read failed:', err);
+    }
+  };
+
+  const handleBulkMarkUnread = async () => {
+    if (!selectedAccountId || selectedEmailIds.size === 0) return;
+    const ids = Array.from(selectedEmailIds);
+    try {
+      await Promise.all(ids.map(id => apiMarkEmailUnread(selectedAccountId!, id)));
+      setEmails(prev => prev.map(e =>
+        selectedEmailIds.has(e.id) ? { ...e, isRead: false } : e
+      ));
+    } catch (err) {
+      console.error('Bulk mark unread failed:', err);
+    }
+  };
+
+  const handleBulkMove = async (destinationFolderId: string) => {
+    if (!selectedAccountId || selectedEmailIds.size === 0) return;
+    const ids = Array.from(selectedEmailIds);
+    try {
+      await Promise.all(ids.map(id => moveEmail(selectedAccountId!, id, destinationFolderId)));
+      setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+      setSelectedEmailIds(new Set());
+    } catch (err) {
+      console.error('Bulk move failed:', err);
+    }
+  };
+
+  // Handle drag-and-drop: email dropped onto a folder
+  const handleDropOnFolder = async (emailIds: string[], targetAccountId: string, targetFolderId: string) => {
+    if (!selectedAccountId) return;
+    try {
+      // Extract actual Graph folder ID from our composite folder ID
+      const graphFolderId = targetFolderId.replace(`${targetAccountId}-`, '');
+      const actualFolderId = folders.find(f => f.id === targetFolderId)?.name || graphFolderId;
+      await Promise.all(emailIds.map(id => moveEmail(selectedAccountId!, id, actualFolderId)));
+      // Remove moved emails from current view
+      const movedSet = new Set(emailIds);
+      setEmails(prev => prev.filter(e => !movedSet.has(e.id)));
+      setSelectedEmailIds(prev => {
+        const next = new Set(prev);
+        emailIds.forEach(id => next.delete(id));
+        return next;
+      });
+      if (selectedEmailId && movedSet.has(selectedEmailId)) {
+        setSelectedEmailId(null);
+        setSelectedEmail(null);
+      }
+    } catch (err) {
+      console.error('Failed to move emails via drag-and-drop:', err);
+    }
+  };
+
   return (
     <div className="flex h-full bg-white dark:bg-slate-900 overflow-hidden">
       <EmailAccountsSidebar
@@ -281,6 +411,7 @@ const EmailConversations: React.FC = () => {
         onFolderClick={handleFolderClick}
         onSyncAll={handleSyncAll}
         loading={loadingAccounts}
+        onDropOnFolder={handleDropOnFolder}
       />
 
       <EmailMessageList
@@ -292,9 +423,20 @@ const EmailConversations: React.FC = () => {
         onThreadClick={handleThreadClick}
         onRefresh={handleRefresh}
         loading={loadingEmails}
+        selectedEmailIds={selectedEmailIds}
+        onToggleSelectEmail={handleToggleSelectEmail}
+        onSelectAll={handleSelectAll}
+        onDeselectAll={handleDeselectAll}
+        onBulkDelete={handleBulkDelete}
+        onBulkMarkRead={handleBulkMarkRead}
+        onBulkMarkUnread={handleBulkMarkUnread}
+        onBulkMove={handleBulkMove}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={loadMoreEmails}
+        totalCount={totalCount}
       />
 
-      {/* Show thread viewer for multi-message threads, single viewer otherwise */}
       {viewMode === 'thread' ? (
         <EmailThreadViewer
           threadEmails={threadEmails}

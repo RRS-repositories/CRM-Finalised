@@ -488,6 +488,14 @@ crmEvents.init(pool);
                 ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP DEFAULT NULL;
             `);
 
+            // Link documents to a specific claim
+            await client.query(`
+                ALTER TABLE documents ADD COLUMN IF NOT EXISTS claim_id INTEGER REFERENCES cases(id) ON DELETE SET NULL
+            `);
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS idx_documents_claim_id ON documents(claim_id)
+            `);
+
             // Workflow triggers metadata column for document chase
             await client.query(`
                 ALTER TABLE workflow_triggers ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT NULL
@@ -3229,9 +3237,9 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
 
         // Store with original filename, category, and tags including lender + 'claim-document'
         const { rows } = await pool.query(
-            `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-            [contact_id, s3FileName, docType, category, s3Url, `${(file.size / 1024).toFixed(1)} KB`, [lender, category, 'claim-document', `Original: ${originalName}`]]
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags, claim_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [contact_id, s3FileName, docType, category, s3Url, `${(file.size / 1024).toFixed(1)} KB`, [lender, category, 'claim-document', `Original: ${originalName}`], claim_id || null]
         );
 
         console.log(`[Claim Doc Upload] "${originalName}" → "${key}" for contact ${contact_id}, lender ${lender}, category ${category}`);
@@ -9837,10 +9845,11 @@ app.get('/api/email/accounts/:accountId/folders', async (req, res) => {
     }
 });
 
-// --- GET EMAILS IN A FOLDER ---
+// --- GET EMAILS IN A FOLDER (with pagination) ---
 app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (req, res) => {
     const { accountId, folderName } = req.params;
     const limit = parseInt(req.query.limit) || 50;
+    const skip = parseInt(req.query.skip) || 0;
     const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
     if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
 
@@ -9850,8 +9859,9 @@ app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (re
     try {
         const data = await graphRequest(
             `/users/${config.email}/mailFolders/${graphFolder}/messages` +
-            `?$top=${limit}&$orderby=receivedDateTime desc` +
-            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId`
+            `?$top=${limit}&$skip=${skip}&$orderby=receivedDateTime desc` +
+            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId` +
+            `&$count=true`
         );
 
         const emails = (data.value || []).map(msg => ({
@@ -9881,7 +9891,8 @@ app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (re
             threadId: msg.conversationId || undefined,
         }));
 
-        res.json({ success: true, emails });
+        const hasMore = !!data['@odata.nextLink'] || (skip + emails.length) < (data['@odata.count'] || Infinity);
+        res.json({ success: true, emails, hasMore, totalCount: data['@odata.count'] || null });
     } catch (err) {
         console.error(`Graph message fetch failed for ${config.email}/${folderName}:`, err.message);
         res.status(500).json({ success: false, error: 'Failed to fetch messages: ' + err.message });
@@ -13901,6 +13912,47 @@ crmRouter.post('/email/send', async (req, res) => {
     }
 });
 
+// ── GET /contacts/:id/communications ── Get communications for a contact
+crmRouter.get('/contacts/:id/communications', async (req, res) => {
+    const { id } = req.params;
+    const { channel, direction, limit: queryLimit, offset: queryOffset } = req.query;
+
+    try {
+        const limitVal = Math.min(parseInt(queryLimit) || 50, 200);
+        const offsetVal = parseInt(queryOffset) || 0;
+        const params = [id];
+        let paramIdx = 2;
+
+        let query = `SELECT * FROM communications WHERE client_id = $1`;
+
+        if (channel) {
+            query += ` AND channel = $${paramIdx++}`;
+            params.push(channel);
+        }
+        if (direction) {
+            query += ` AND direction = $${paramIdx++}`;
+            params.push(direction);
+        }
+
+        query += ` ORDER BY timestamp DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
+        params.push(limitVal, offsetVal);
+
+        const { rows } = await pool.query(query, params);
+
+        const countResult = await pool.query(
+            `SELECT COUNT(*) as total FROM communications WHERE client_id = $1`,
+            [id]
+        );
+
+        res.json({
+            communications: rows,
+            total: parseInt(countResult.rows[0].total),
+            limit: limitVal,
+            offset: offsetVal
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /communications ── Log communication
 crmRouter.post('/communications', async (req, res) => {
     const { client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name } = req.body;
@@ -14575,9 +14627,9 @@ crmRouter.post('/documents/generate', async (req, res) => {
         let document = null;
         if (contact_id) {
             const docResult = await pool.query(
-                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
-                 VALUES ($1, $2, 'pdf', $3, $4, $5, $6) RETURNING *`,
-                [contact_id, displayName, resolvedDocType, downloadUrl,
+                `INSERT INTO documents (contact_id, claim_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, $3, 'pdf', $4, $5, $6, $7) RETURNING *`,
+                [contact_id, claim_id || null, displayName, resolvedDocType, downloadUrl,
                     `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
                     [resolvedDocType, 'Generated', lender || variables?.['claim.lender'] || 'Template'].filter(Boolean)]
             );

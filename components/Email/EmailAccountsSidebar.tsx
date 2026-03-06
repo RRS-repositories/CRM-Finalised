@@ -12,6 +12,7 @@ interface EmailAccountsSidebarProps {
   onFolderClick: (accountId: string, folderId: string) => void;
   onSyncAll?: () => void;
   loading?: boolean;
+  onDropOnFolder?: (emailIds: string[], accountId: string, folderId: string) => void;
 }
 
 const FolderIcon: React.FC<{ displayName: string; size?: number }> = ({ displayName, size = 16 }) => {
@@ -34,8 +35,33 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
   onFolderClick,
   onSyncAll,
   loading,
+  onDropOnFolder,
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+
+  const handleFolderDragOver = (e: React.DragEvent, folderId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverFolderId(folderId);
+  };
+
+  const handleFolderDragLeave = () => {
+    setDragOverFolderId(null);
+  };
+
+  const handleFolderDrop = (e: React.DragEvent, accountId: string, folderId: string) => {
+    e.preventDefault();
+    setDragOverFolderId(null);
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/json'));
+      if (data.emailIds && onDropOnFolder) {
+        onDropOnFolder(data.emailIds, accountId, folderId);
+      }
+    } catch (err) {
+      console.error('Drop parse error:', err);
+    }
+  };
 
   const getAccountFolders = (accountId: string) => {
     // Get folders for this account, sorted: main folders first, then by name
@@ -162,11 +188,14 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                   return (
                     <React.Fragment key={folder.id}>
                       <div
+                        onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                        onDragLeave={handleFolderDragLeave}
+                        onDrop={(e) => handleFolderDrop(e, account.id, folder.id)}
                         className={`flex items-center pl-8 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                           selectedFolderId === folder.id
                             ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
                             : 'border-l-4 border-l-transparent'
-                        }`}
+                        } ${dragOverFolderId === folder.id ? 'bg-blue-100 dark:bg-blue-800/40 ring-2 ring-blue-400 ring-inset' : ''}`}
                       >
                         {/* Expand/collapse for folders with children */}
                         {hasChildren ? (
@@ -214,11 +243,14 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                         <div
                           key={child.id}
                           onClick={() => onFolderClick(account.id, child.id)}
+                          onDragOver={(e) => handleFolderDragOver(e, child.id)}
+                          onDragLeave={handleFolderDragLeave}
+                          onDrop={(e) => handleFolderDrop(e, account.id, child.id)}
                           className={`flex items-center pl-14 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                             selectedFolderId === child.id
                               ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
                               : 'border-l-4 border-l-transparent'
-                          }`}
+                          } ${dragOverFolderId === child.id ? 'bg-blue-100 dark:bg-blue-800/40 ring-2 ring-blue-400 ring-inset' : ''}`}
                         >
                           <FolderIcon displayName={child.displayName} size={12} />
                           <span className={`ml-2 text-xs flex-1 truncate ${

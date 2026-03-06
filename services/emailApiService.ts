@@ -16,11 +16,17 @@ export async function fetchFolders(accountId: string): Promise<EmailFolder[]> {
   return data.folders;
 }
 
-export async function fetchEmails(accountId: string, folderName: string, limit = 50): Promise<Email[]> {
-  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/${folderName}/messages?limit=${limit}`);
+export interface FetchEmailsResult {
+  emails: Email[];
+  hasMore: boolean;
+  totalCount: number | null;
+}
+
+export async function fetchEmails(accountId: string, folderName: string, limit = 50, skip = 0): Promise<FetchEmailsResult> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/folders/${folderName}/messages?limit=${limit}&skip=${skip}`);
   if (!res.ok) throw new Error('Failed to fetch emails');
   const data = await res.json();
-  return data.emails;
+  return { emails: data.emails, hasMore: data.hasMore ?? false, totalCount: data.totalCount ?? null };
 }
 
 export async function fetchEmailDetail(accountId: string, messageId: string): Promise<Email> {

@@ -116,7 +116,19 @@
       "Bash(cmd.exe /c \"taskkill /F /IM node.exe /T & taskkill /F /IM cloudflared.exe /T\")",
       "Bash(cmd.exe /c \"tasklist | findstr /I \"\"node.exe cloudflared.exe\"\"\")",
       "Bash(TaskStop ba7804tzw)",
-      "Bash(chmod +x /Users/sayedmohammadfirdousi/Desktop/rrs/CRM-Finalised/copy_db_to_local.sh)"
+      "Bash(chmod +x /Users/sayedmohammadfirdousi/Desktop/rrs/CRM-Finalised/copy_db_to_local.sh)",
+      "Bash(npm run server)",
+      "Bash(cmd /c \"taskkill /PID 31396 /F\")",
+      "Bash(cmd /c \"netstat -ano | findstr :5000\")",
+      "Bash(cmd /c \"netstat -ano | findstr :3000\")",
+      "Bash(cmd /c \"wmic process where name=''node.exe'' get processid 2>nul\")",
+      "Bash(cmd /c \"tasklist /FI \"\"IMAGENAME eq node.exe\"\" 2>nul\")",
+      "Bash(cloudflared --version)",
+      "Bash(cmd /c \"for /f \"\"tokens=5\"\" %a in \\(''netstat -ano ^| findstr :5000 ^| findstr LISTENING''\\) do taskkill /PID %a /F\")",
+      "Bash(cmd /c \"netstat -ano | findstr :5000 | findstr LISTENING\")",
+      "Bash(cmd /c \"taskkill /F /IM node.exe /T\")",
+      "Bash(cmd /c \"for /f \"\"tokens=5\"\" %a in \\(''netstat -ano ^| findstr :5000''\\) do echo PID: %a & tasklist /FI \"\"PID eq %a\"\" 2>nul\")",
+      "Bash(cmd /c \"netstat -ano -p TCP\")"
     ]
   }
 }
