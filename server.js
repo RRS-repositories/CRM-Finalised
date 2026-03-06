@@ -3752,13 +3752,15 @@ app.patch('/api/crm/documents/reassign', async (req, res) => {
     }
 
     try {
-        // Look up document by numeric id, S3 key (url), or filename (name)
+        // Look up document by numeric id, S3 key (partial url match), or filename (name)
         let existing;
         if (doc_id) {
             existing = await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(doc_id)]);
+        } else if (s3_key) {
+            // s3_key is like "Henry_Trigg_182499/Lenders/..." — url contains it as part of the presigned URL
+            existing = await pool.query(`SELECT * FROM documents WHERE url LIKE '%' || $1 || '%' OR name = $1 LIMIT 1`, [s3_key]);
         } else {
-            const key = s3_key || doc_name;
-            existing = await pool.query(`SELECT * FROM documents WHERE url = $1 OR name = $1 LIMIT 1`, [key]);
+            existing = await pool.query(`SELECT * FROM documents WHERE name = $1 LIMIT 1`, [doc_name]);
         }
         if (existing.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
