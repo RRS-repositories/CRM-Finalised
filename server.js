@@ -3739,23 +3739,27 @@ app.put('/api/documents/:id/status', async (req, res) => {
     }
 });
 
-// --- PATCH /api/crm/documents/:id --- Reassign document to different contact/claim
-// Accepts numeric id in URL, or s3_key/doc_name in body for S3-key-based lookup
-app.patch('/api/crm/documents/:id', async (req, res) => {
-    const id = req.params.id;
-    const { contact_id, claim_id, userId, userName, s3_key } = req.body;
+// --- PATCH /api/crm/documents/reassign --- Reassign document to different contact/claim
+// Accepts: { doc_id (numeric), s3_key (string), or doc_name (string) } + contact_id / claim_id
+app.patch('/api/crm/documents/reassign', async (req, res) => {
+    const { doc_id, s3_key, doc_name, contact_id, claim_id, userId, userName } = req.body;
 
     if (contact_id === undefined && claim_id === undefined) {
         return res.status(400).json({ error: 'No fields to update. Provide contact_id or claim_id.' });
     }
+    if (!doc_id && !s3_key && !doc_name) {
+        return res.status(400).json({ error: 'Provide doc_id, s3_key, or doc_name to identify the document.' });
+    }
 
     try {
-        // Check document exists — support numeric id in URL param, or s3_key in body
-        const lookupKey = s3_key || id;
-        const isNumeric = /^\d+$/.test(lookupKey);
-        const existing = isNumeric
-            ? await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(lookupKey)])
-            : await pool.query(`SELECT * FROM documents WHERE url = $1 OR name = $1 LIMIT 1`, [lookupKey]);
+        // Look up document by numeric id, S3 key (url), or filename (name)
+        let existing;
+        if (doc_id) {
+            existing = await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(doc_id)]);
+        } else {
+            const key = s3_key || doc_name;
+            existing = await pool.query(`SELECT * FROM documents WHERE url = $1 OR name = $1 LIMIT 1`, [key]);
+        }
         if (existing.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
         }
@@ -3807,10 +3811,10 @@ app.patch('/api/crm/documents/:id', async (req, res) => {
             ]
         );
 
-        console.log(`[API PATCH /api/crm/documents/${id}] Reassigned: ${changedParts.join(', ')}`);
+        console.log(`[API documents/reassign] doc ${docId} reassigned: ${changedParts.join(', ')}`);
         res.json(rows[0]);
     } catch (err) {
-        console.error('[API PATCH /api/crm/documents/:id] Error:', err);
+        console.error('[API documents/reassign] Error:', err);
         res.status(500).json({ error: err.message });
     }
 });
