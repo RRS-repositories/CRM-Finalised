@@ -2548,6 +2548,7 @@ function standardizeLender(lenderName) {
         'LOGBOOK MONEY', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT',
         'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK',
         'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE', 'POST OFFICE MONEY',
+        'PRA', 'PRA GROUP',
         'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT',
         'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE', 'NEYBER', 'SNAP FINANCE', 'SHAWBROOK',
         'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN',
@@ -7361,7 +7362,8 @@ app.post('/api/submit-loa-form', async (req, res) => {
 // Combined Questionnaire Form (GET + POST)
 // ============================================
 
-// Serve Combined Questionnaire form page
+// Serve Combined Questionnaire form page (DISABLED - Commented out as requested)
+/*
 app.get('/questionnaire/:contactId', async (req, res) => {
     const { contactId } = req.params;
 
@@ -7848,6 +7850,16 @@ app.get('/questionnaire/:contactId', async (req, res) => {
         console.error('Error serving questionnaire form:', error);
         res.status(500).send('Server error');
     }
+});
+*/
+
+// Static Questionnaire Routes
+app.get(['/questionnaire1', '/questionnaire/1'], (req, res) => {
+    res.sendFile(path.join(__dirname, 'questionnaire1.html'));
+});
+
+app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
+    res.sendFile(path.join(__dirname, 'questionnaire2.html'));
 });
 
 // Submit Combined Questionnaire
@@ -9158,428 +9170,428 @@ app.get('/intake/sales/:token', async (req, res) => {
                     }
                     /* Left Sidebar - Rowan Rose Branding */
                     .sidebar {
-                        width: 380px;
-                        background: linear-gradient(180deg, #0D1B2A 0%, #1B263B 100%);
-                        padding: 50px 40px;
-                        display: flex;
-                        flex-direction: column;
-                        position: fixed;
-                        height: 100vh;
-                        left: 0;
-                        top: 0;
-                    }
-                    .logo-container {
-                        margin-bottom: 40px;
-                    }
-                    .logo-container img {
-                        max-width: 200px;
-                        height: auto;
-                    }
-                    .sidebar-title {
-                        font-family: 'Playfair Display', serif;
-                        font-size: 28px;
-                        font-weight: 600;
-                        color: #ffffff;
-                        margin-bottom: 20px;
-                        line-height: 1.3;
-                    }
-                    .sidebar-text {
-                        color: #94a3b8;
-                        font-size: 15px;
-                        line-height: 1.7;
-                        margin-bottom: 30px;
-                    }
-                    .contact-details {
-                        margin-top: auto;
-                        padding-top: 30px;
-                        border-top: 1px solid rgba(255,255,255,0.1);
-                    }
-                    .contact-item {
-                        color: #cbd5e1;
-                        font-size: 14px;
-                        margin-bottom: 12px;
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                    }
-                    .contact-item span { color: #F18F01; }
+    width: 380px;
+    background: linear - gradient(180deg, #0D1B2A 0 %, #1B263B 100 %);
+    padding: 50px 40px;
+    display: flex;
+    flex - direction: column;
+    position: fixed;
+    height: 100vh;
+    left: 0;
+    top: 0;
+}
+                    .logo - container {
+    margin - bottom: 40px;
+}
+                    .logo - container img {
+    max - width: 200px;
+    height: auto;
+}
+                    .sidebar - title {
+    font - family: 'Playfair Display', serif;
+    font - size: 28px;
+    font - weight: 600;
+    color: #ffffff;
+    margin - bottom: 20px;
+    line - height: 1.3;
+}
+                    .sidebar - text {
+    color: #94a3b8;
+    font - size: 15px;
+    line - height: 1.7;
+    margin - bottom: 30px;
+}
+                    .contact - details {
+    margin - top: auto;
+    padding - top: 30px;
+    border - top: 1px solid rgba(255, 255, 255, 0.1);
+}
+                    .contact - item {
+    color: #cbd5e1;
+    font - size: 14px;
+    margin - bottom: 12px;
+    display: flex;
+    align - items: center;
+    gap: 10px;
+}
+                    .contact - item span { color: #F18F01; }
                     /* Right Content Area */
-                    .main-content {
-                        flex: 1;
-                        margin-left: 380px;
-                        padding: 40px 60px;
-                        min-height: 100vh;
-                        background: #ffffff;
-                    }
-                    .form-header {
-                        margin-bottom: 30px;
-                    }
-                    .lender-badge {
-                        display: inline-block;
-                        background: linear-gradient(135deg, #1E3A5F, #0D1B2A);
-                        color: #F18F01;
-                        padding: 10px 20px;
-                        border-radius: 25px;
-                        font-weight: 700;
-                        font-size: 14px;
-                        margin-bottom: 20px;
-                        letter-spacing: 0.5px;
-                    }
-                    .form-title {
-                        font-family: 'Playfair Display', serif;
-                        font-size: 32px;
-                        font-weight: 600;
-                        color: #0D1B2A;
-                        margin-bottom: 10px;
-                    }
-                    .form-subtitle {
-                        color: #64748b;
-                        font-size: 16px;
-                    }
+                    .main - content {
+    flex: 1;
+    margin - left: 380px;
+    padding: 40px 60px;
+    min - height: 100vh;
+    background: #ffffff;
+}
+                    .form - header {
+    margin - bottom: 30px;
+}
+                    .lender - badge {
+    display: inline - block;
+    background: linear - gradient(135deg, #1E3A5F, #0D1B2A);
+    color: #F18F01;
+    padding: 10px 20px;
+    border - radius: 25px;
+    font - weight: 700;
+    font - size: 14px;
+    margin - bottom: 20px;
+    letter - spacing: 0.5px;
+}
+                    .form - title {
+    font - family: 'Playfair Display', serif;
+    font - size: 32px;
+    font - weight: 600;
+    color: #0D1B2A;
+    margin - bottom: 10px;
+}
+                    .form - subtitle {
+    color: #64748b;
+    font - size: 16px;
+}
                     /* Contact Info Grid */
-                    .contact-info {
-                        background: #f8fafc;
-                        border-radius: 12px;
-                        padding: 25px;
-                        margin-bottom: 30px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    .info-grid {
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 20px;
-                    }
-                    .info-item {
-                        background: white;
-                        padding: 15px 18px;
-                        border-radius: 8px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    .info-label {
-                        font-size: 11px;
-                        color: #64748b;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        margin-bottom: 5px;
-                    }
-                    .info-value {
-                        font-size: 16px;
-                        color: #0D1B2A;
-                        font-weight: 600;
-                    }
-                    .full-width { grid-column: 1 / -1; }
+                    .contact - info {
+    background: #f8fafc;
+    border - radius: 12px;
+    padding: 25px;
+    margin - bottom: 30px;
+    border: 1px solid #e2e8f0;
+}
+                    .info - grid {
+    display: grid;
+    grid - template - columns: 1fr 1fr;
+    gap: 20px;
+}
+                    .info - item {
+    background: white;
+    padding: 15px 18px;
+    border - radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+                    .info - label {
+    font - size: 11px;
+    color: #64748b;
+    text - transform: uppercase;
+    letter - spacing: 0.5px;
+    margin - bottom: 5px;
+}
+                    .info - value {
+    font - size: 16px;
+    color: #0D1B2A;
+    font - weight: 600;
+}
+                    .full - width { grid - column: 1 / -1; }
                     /* Signature Section */
-                    .signature-section {
-                        margin: 30px 0;
-                    }
-                    .signature-label {
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: #0D1B2A;
-                        margin-bottom: 12px;
-                    }
-                    .signature-box {
-                        border: 2px dashed #1E3A5F;
-                        border-radius: 12px;
-                        background: #fafafa;
-                        position: relative;
-                        height: 180px;
-                        cursor: crosshair;
-                        transition: all 0.2s;
-                    }
-                    .signature-box:hover {
-                        border-color: #F18F01;
-                        background: #fffbf5;
-                    }
-                    #signatureCanvas {
-                        width: 100%;
-                        height: 100%;
-                        border-radius: 10px;
-                    }
-                    .clear-btn {
-                        position: absolute;
-                        top: 10px;
-                        right: 10px;
-                        background: #ef4444;
-                        color: white;
-                        border: none;
-                        padding: 8px 14px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 12px;
-                        font-weight: 600;
-                    }
-                    .signature-hint {
-                        text-align: center;
-                        color: #94a3b8;
-                        font-size: 13px;
-                        margin-top: 10px;
-                    }
+                    .signature - section {
+    margin: 30px 0;
+}
+                    .signature - label {
+    font - size: 16px;
+    font - weight: 700;
+    color: #0D1B2A;
+    margin - bottom: 12px;
+}
+                    .signature - box {
+    border: 2px dashed #1E3A5F;
+    border - radius: 12px;
+    background: #fafafa;
+    position: relative;
+    height: 180px;
+    cursor: crosshair;
+    transition: all 0.2s;
+}
+                    .signature - box:hover {
+    border - color: #F18F01;
+    background: #fffbf5;
+}
+#signatureCanvas {
+    width: 100 %;
+    height: 100 %;
+    border - radius: 10px;
+}
+                    .clear - btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border - radius: 6px;
+    cursor: pointer;
+    font - size: 12px;
+    font - weight: 600;
+}
+                    .signature - hint {
+    text - align: center;
+    color: #94a3b8;
+    font - size: 13px;
+    margin - top: 10px;
+}
                     /* Consent */
-                    .consent-text {
-                        font-size: 13px;
-                        color: #475569;
-                        line-height: 1.8;
-                        margin: 25px 0;
-                        padding: 20px;
-                        background: #f8fafc;
-                        border-radius: 10px;
-                        border-left: 4px solid #1E3A5F;
-                    }
+                    .consent - text {
+    font - size: 13px;
+    color: #475569;
+    line - height: 1.8;
+    margin: 25px 0;
+    padding: 20px;
+    background: #f8fafc;
+    border - radius: 10px;
+    border - left: 4px solid #1E3A5F;
+}
                     /* Links */
-                    .doc-links {
-                        display: flex;
-                        gap: 20px;
-                        margin: 20px 0;
-                        justify-content: center;
-                    }
-                    .doc-link {
-                        color: #1E3A5F;
-                        text-decoration: none;
-                        font-size: 14px;
-                        font-weight: 600;
-                        padding: 10px 20px;
-                        border: 2px solid #1E3A5F;
-                        border-radius: 8px;
-                        transition: all 0.2s;
-                    }
-                    .doc-link:hover {
-                        background: #1E3A5F;
-                        color: white;
-                    }
+                    .doc - links {
+    display: flex;
+    gap: 20px;
+    margin: 20px 0;
+    justify - content: center;
+}
+                    .doc - link {
+    color: #1E3A5F;
+    text - decoration: none;
+    font - size: 14px;
+    font - weight: 600;
+    padding: 10px 20px;
+    border: 2px solid #1E3A5F;
+    border - radius: 8px;
+    transition: all 0.2s;
+}
+                    .doc - link:hover {
+    background: #1E3A5F;
+    color: white;
+}
                     /* Submit Button */
-                    .submit-btn {
-                        width: 100%;
-                        background: linear-gradient(135deg, #F18F01, #d97706);
-                        color: white;
-                        border: none;
-                        padding: 18px;
-                        border-radius: 12px;
-                        font-size: 18px;
-                        font-weight: 700;
-                        cursor: pointer;
-                        margin-top: 25px;
-                        transition: all 0.3s ease;
-                        text-transform: uppercase;
-                        letter-spacing: 1px;
-                    }
-                    .submit-btn:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 10px 25px rgba(241, 143, 1, 0.35);
-                    }
+                    .submit - btn {
+    width: 100 %;
+    background: linear - gradient(135deg, #F18F01, #d97706);
+    color: white;
+    border: none;
+    padding: 18px;
+    border - radius: 12px;
+    font - size: 18px;
+    font - weight: 700;
+    cursor: pointer;
+    margin - top: 25px;
+    transition: all 0.3s ease;
+    text - transform: uppercase;
+    letter - spacing: 1px;
+}
+                    .submit - btn:hover {
+    transform: translateY(-2px);
+    box - shadow: 0 10px 25px rgba(241, 143, 1, 0.35);
+}
                     /* States */
-                    .loading, .success-message { display: none; text-align: center; padding: 60px 40px; }
+                    .loading, .success - message { display: none; text - align: center; padding: 60px 40px; }
                     .spinner {
-                        width: 50px;
-                        height: 50px;
-                        border: 4px solid #e2e8f0;
-                        border-top-color: #F18F01;
-                        border-radius: 50%;
-                        animation: spin 1s linear infinite;
-                        margin: 0 auto 20px;
-                    }
-                    @keyframes spin { to { transform: rotate(360deg); } }
-                    .success-icon { font-size: 70px; margin-bottom: 20px; }
-                    .success-title { font-family: 'Playfair Display', serif; font-size: 28px; color: #059669; margin-bottom: 10px; }
-                    .success-text { color: #64748b; font-size: 16px; }
-                    .error-message {
-                        background: #fef2f2;
-                        color: #dc2626;
-                        padding: 15px;
-                        border-radius: 8px;
-                        margin-top: 15px;
-                        display: none;
-                        text-align: center;
-                        font-weight: 500;
-                    }
-                    /* Mobile */
-                    @media (max-width: 900px) {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #e2e8f0;
+    border - top - color: #F18F01;
+    border - radius: 50 %;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+                    .success - icon { font - size: 70px; margin - bottom: 20px; }
+                    .success - title { font - family: 'Playfair Display', serif; font - size: 28px; color: #059669; margin - bottom: 10px; }
+                    .success - text { color: #64748b; font - size: 16px; }
+                    .error - message {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 15px;
+    border - radius: 8px;
+    margin - top: 15px;
+    display: none;
+    text - align: center;
+    font - weight: 500;
+}
+/* Mobile */
+@media(max - width: 900px) {
                         .sidebar { display: none; }
-                        .main-content { margin-left: 0; padding: 30px 20px; }
-                        .info-grid { grid-template-columns: 1fr; }
-                        .doc-links { flex-direction: column; align-items: center; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="page-container">
-                    <!-- Left Sidebar -->
-                    <div class="sidebar">
-                        <div class="logo-container">
-                            ${logoBase64 ? `<img src="${logoBase64}" alt="Rowan Rose Solicitors">` : '<div style="color:#fff;font-size:24px;font-weight:bold;">Rowan Rose</div>'}
-                        </div>
-                        <h2 class="sidebar-title">Authorisation for Claims Investigation</h2>
-                        <p class="sidebar-text">
-                            Please review your details and sign below to authorize Rowan Rose Solicitors to investigate potential claims on your behalf.
-                        </p>
-                        <div class="contact-details">
-                            <div class="contact-item"><span>✉</span> info@fastactionclaims.co.uk</div>
-                            <div class="contact-item"><span>☎</span> 0161 533 1706</div>
-                            <div class="contact-item"><span>🌐</span> fastactionclaims.co.uk</div>
-                        </div>
+                        .main - content { margin - left: 0; padding: 30px 20px; }
+                        .info - grid { grid - template - columns: 1fr; }
+                        .doc - links { flex - direction: column; align - items: center; }
+}
+                </style >
+            </head >
+    <body>
+        <div class="page-container">
+            <!-- Left Sidebar -->
+            <div class="sidebar">
+                <div class="logo-container">
+                    ${logoBase64 ? `<img src="${logoBase64}" alt="Rowan Rose Solicitors">` : '<div style="color:#fff;font-size:24px;font-weight:bold;">Rowan Rose</div>'}
+                </div>
+                <h2 class="sidebar-title">Authorisation for Claims Investigation</h2>
+                <p class="sidebar-text">
+                    Please review your details and sign below to authorize Rowan Rose Solicitors to investigate potential claims on your behalf.
+                </p>
+                <div class="contact-details">
+                    <div class="contact-item"><span>✉</span> info@fastactionclaims.co.uk</div>
+                    <div class="contact-item"><span>☎</span> 0161 533 1706</div>
+                    <div class="contact-item"><span>🌐</span> fastactionclaims.co.uk</div>
+                </div>
+            </div>
+            <!-- Right Content -->
+            <div class="main-content">
+                <div id="formContent">
+                    <div class="form-header">
+                        <div class="lender-badge">CLAIMS FORM : ${contact.intake_lender || ''}</div>
+                        <h1 class="form-title">Hello, ${contact.first_name}!</h1>
+                        <p class="form-subtitle">Please verify your details and provide your signature below.</p>
                     </div>
-                    <!-- Right Content -->
-                    <div class="main-content">
-                        <div id="formContent">
-                            <div class="form-header">
-                                <div class="lender-badge">CLAIMS FORM : ${contact.intake_lender || ''}</div>
-                                <h1 class="form-title">Hello, ${contact.first_name}!</h1>
-                                <p class="form-subtitle">Please verify your details and provide your signature below.</p>
+                    <div class="contact-info">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <div class="info-label">First Name</div>
+                                <div class="info-value">${contact.first_name || '-'}</div>
                             </div>
-                            <div class="contact-info">
-                                <div class="info-grid">
-                                    <div class="info-item">
-                                        <div class="info-label">First Name</div>
-                                        <div class="info-value">${contact.first_name || '-'}</div>
-                                    </div>
-                                    <div class="info-item">
-                                        <div class="info-label">Last Name</div>
-                                        <div class="info-value">${contact.last_name || '-'}</div>
-                                    </div>
-                                    <div class="info-item">
-                                        <div class="info-label">Date of Birth</div>
-                                        <div class="info-value">${dob || '-'}</div>
-                                    </div>
-                                    <div class="info-item">
-                                        <div class="info-label">Postcode</div>
-                                        <div class="info-value">${contact.postal_code || '-'}</div>
-                                    </div>
-                                    <div class="info-item full-width">
-                                        <div class="info-label">Current Address</div>
-                                        <div class="info-value">${fullAddress || '-'}</div>
-                                    </div>
-                                    ${allPreviousAddresses.length > 0 ? allPreviousAddresses.map((addr, idx) => `
+                            <div class="info-item">
+                                <div class="info-label">Last Name</div>
+                                <div class="info-value">${contact.last_name || '-'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Date of Birth</div>
+                                <div class="info-value">${dob || '-'}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Postcode</div>
+                                <div class="info-value">${contact.postal_code || '-'}</div>
+                            </div>
+                            <div class="info-item full-width">
+                                <div class="info-label">Current Address</div>
+                                <div class="info-value">${fullAddress || '-'}</div>
+                            </div>
+                            ${allPreviousAddresses.length > 0 ? allPreviousAddresses.map((addr, idx) => `
                                     <div class="info-item full-width">
                                         <div class="info-label">Previous Address ${allPreviousAddresses.length > 1 ? (idx + 1) : ''}</div>
                                         <div class="info-value">${addr}</div>
                                     </div>
                                     `).join('') : ''}
-                                </div>
-                            </div>
-                            <div class="signature-section">
-                                <div class="signature-label">Sign Here:</div>
-                                <div class="signature-box">
-                                    <canvas id="signatureCanvas"></canvas>
-                                    <button type="button" class="clear-btn" onclick="clearSignature()">Clear</button>
-                                </div>
-                                <div class="signature-hint">Please sign in the box above using your mouse or finger.</div>
-                            </div>
-                            <div class="consent-text">
-                                By signing here you consent to us to look into any potential claim/claims on your behalf. We will share your information with Rowan Rose Solicitors, a UK law Firm who will be submitting your claim. Your information will be handled in accordance with the applicable privacy laws and professional standards. You consent to us sharing your information with a credit reference agency for verification and assessment purposes. You agree that your electronic signature may be used for each letter of authority and Conditional Fee Agreement applicable to your claim. Furthermore, you hereby agree to accept our Terms of Use, Disclaimers, and Privacy Policy. Your IP address will be stored in our database.
-                            </div>
-                            <div class="doc-links">
-                                <a href="/terms%20and%20conditions.pdf" target="_blank" class="doc-link">Terms and Conditions</a>
-                                <a href="/Privacy%20Policy.pdf" target="_blank" class="doc-link">Privacy Policy</a>
-                            </div>
-                            <div class="error-message" id="errorMessage"></div>
-                            <button type="button" class="submit-btn" onclick="submitSignature()">Sign & Submit</button>
-                        </div>
-                        <div class="loading" id="loading">
-                            <div class="spinner"></div>
-                            <p>Submitting your signature...</p>
-                        </div>
-                        <div class="success-message" id="successMessage">
-                            <div class="success-icon">✓</div>
-                            <div class="success-title">Signature Submitted Successfully!</div>
-                            <div class="success-text">Thank you. Your authorization has been recorded.</div>
                         </div>
                     </div>
+                    <div class="signature-section">
+                        <div class="signature-label">Sign Here:</div>
+                        <div class="signature-box">
+                            <canvas id="signatureCanvas"></canvas>
+                            <button type="button" class="clear-btn" onclick="clearSignature()">Clear</button>
+                        </div>
+                        <div class="signature-hint">Please sign in the box above using your mouse or finger.</div>
+                    </div>
+                    <div class="consent-text">
+                        By signing here you consent to us to look into any potential claim/claims on your behalf. We will share your information with Rowan Rose Solicitors, a UK law Firm who will be submitting your claim. Your information will be handled in accordance with the applicable privacy laws and professional standards. You consent to us sharing your information with a credit reference agency for verification and assessment purposes. You agree that your electronic signature may be used for each letter of authority and Conditional Fee Agreement applicable to your claim. Furthermore, you hereby agree to accept our Terms of Use, Disclaimers, and Privacy Policy. Your IP address will be stored in our database.
+                    </div>
+                    <div class="doc-links">
+                        <a href="/terms%20and%20conditions.pdf" target="_blank" class="doc-link">Terms and Conditions</a>
+                        <a href="/Privacy%20Policy.pdf" target="_blank" class="doc-link">Privacy Policy</a>
+                    </div>
+                    <div class="error-message" id="errorMessage"></div>
+                    <button type="button" class="submit-btn" onclick="submitSignature()">Sign & Submit</button>
                 </div>
-                <script>
-                    const canvas = document.getElementById('signatureCanvas');
-                    const ctx = canvas.getContext('2d');
-                    let isDrawing = false;
-                    let hasSignature = false;
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Submitting your signature...</p>
+                </div>
+                <div class="success-message" id="successMessage">
+                    <div class="success-icon">✓</div>
+                    <div class="success-title">Signature Submitted Successfully!</div>
+                    <div class="success-text">Thank you. Your authorization has been recorded.</div>
+                </div>
+            </div>
+        </div>
+        <script>
+            const canvas = document.getElementById('signatureCanvas');
+            const ctx = canvas.getContext('2d');
+            let isDrawing = false;
+            let hasSignature = false;
 
-                    function resizeCanvas() {
+            function resizeCanvas() {
                         const rect = canvas.parentElement.getBoundingClientRect();
-                        canvas.width = rect.width;
-                        canvas.height = rect.height;
-                        ctx.strokeStyle = '#1e293b';
-                        ctx.lineWidth = 2;
-                        ctx.lineCap = 'round';
-                        ctx.lineJoin = 'round';
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
                     }
-                    resizeCanvas();
-                    window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
 
-                    function getPos(e) {
+            function getPos(e) {
                         const rect = canvas.getBoundingClientRect();
-                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                        return {
-                            x: (clientX - rect.left) * (canvas.width / rect.width),
-                            y: (clientY - rect.top) * (canvas.height / rect.height)
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+            y: (clientY - rect.top) * (canvas.height / rect.height)
                         };
                     }
 
-                    function startDrawing(e) {
-                        e.preventDefault();
-                        isDrawing = true;
-                        const pos = getPos(e);
-                        ctx.beginPath();
-                        ctx.moveTo(pos.x, pos.y);
+            function startDrawing(e) {
+                e.preventDefault();
+            isDrawing = true;
+            const pos = getPos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
                     }
 
-                    function draw(e) {
+            function draw(e) {
                         if (!isDrawing) return;
-                        e.preventDefault();
-                        hasSignature = true;
-                        const pos = getPos(e);
-                        ctx.lineTo(pos.x, pos.y);
-                        ctx.stroke();
+            e.preventDefault();
+            hasSignature = true;
+            const pos = getPos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
                     }
 
-                    function stopDrawing() { isDrawing = false; }
+            function stopDrawing() {isDrawing = false; }
 
-                    canvas.addEventListener('mousedown', startDrawing);
-                    canvas.addEventListener('mousemove', draw);
-                    canvas.addEventListener('mouseup', stopDrawing);
-                    canvas.addEventListener('mouseout', stopDrawing);
-                    canvas.addEventListener('touchstart', startDrawing);
-                    canvas.addEventListener('touchmove', draw);
-                    canvas.addEventListener('touchend', stopDrawing);
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            canvas.addEventListener('touchstart', startDrawing);
+            canvas.addEventListener('touchmove', draw);
+            canvas.addEventListener('touchend', stopDrawing);
 
-                    function clearSignature() {
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        hasSignature = false;
+            function clearSignature() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasSignature = false;
                     }
 
-                    async function submitSignature() {
+            async function submitSignature() {
                         if (!hasSignature) {
-                            document.getElementById('errorMessage').textContent = 'Please sign in the box above before submitting.';
-                            document.getElementById('errorMessage').style.display = 'block';
-                            return;
+                document.getElementById('errorMessage').textContent = 'Please sign in the box above before submitting.';
+            document.getElementById('errorMessage').style.display = 'block';
+            return;
                         }
-                        const signatureData = canvas.toDataURL('image/png');
-                        document.getElementById('formContent').style.display = 'none';
-                        document.getElementById('loading').style.display = 'block';
-                        document.getElementById('errorMessage').style.display = 'none';
+            const signatureData = canvas.toDataURL('image/png');
+            document.getElementById('formContent').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('errorMessage').style.display = 'none';
 
-                        try {
+            try {
                             const response = await fetch('/api/submit-sales-signature', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ token: '${token}', caseId: '${caseId}', signatureData })
+                method: 'POST',
+            headers: {'Content-Type': 'application/json' },
+            body: JSON.stringify({token: '${token}', caseId: '${caseId}', signatureData })
                             });
-                            const result = await response.json();
-                            if (result.success) {
-                                document.getElementById('loading').style.display = 'none';
-                                document.getElementById('successMessage').style.display = 'block';
+            const result = await response.json();
+            if (result.success) {
+                document.getElementById('loading').style.display = 'none';
+            document.getElementById('successMessage').style.display = 'block';
                             } else {
                                 throw new Error(result.message || 'Failed to submit signature');
                             }
                         } catch (error) {
-                            document.getElementById('loading').style.display = 'none';
-                            document.getElementById('formContent').style.display = 'block';
-                            document.getElementById('errorMessage').textContent = error.message;
-                            document.getElementById('errorMessage').style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+            document.getElementById('formContent').style.display = 'block';
+            document.getElementById('errorMessage').textContent = error.message;
+            document.getElementById('errorMessage').style.display = 'block';
                         }
                     }
-                </script>
-            </body>
-            </html>
-        `);
+        </script>
+    </body>
+            </html >
+    `);
     } catch (error) {
         console.error('Error serving sales signature page:', error);
         res.status(500).send('Server error');
@@ -9617,7 +9629,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
 
         // Upload to S3 as signature.png (will replace existing)
-        const signatureKey = `${folderPath}Signatures/signature.png`;
+        const signatureKey = `${folderPath} Signatures / signature.png`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -9626,7 +9638,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
             ContentType: 'image/png'
         }));
 
-        console.log(`[Sales Signature] Uploaded signature for contact ${contactId} (case ${actualCaseId}) to ${signatureKey}`);
+        console.log(`[Sales Signature] Uploaded signature for contact ${contactId}(case ${actualCaseId}) to ${signatureKey} `);
 
         // Generate presigned URL
         const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
@@ -9656,37 +9668,37 @@ app.post('/api/submit-sales-signature', async (req, res) => {
             );
         } else {
             await pool.query(
-                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                `INSERT INTO documents(contact_id, name, type, category, url, size, tags)
+VALUES($1, $2, $3, $4, $5, $6, $7)`,
                 [contactId, 'signature.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Sales']]
             );
         }
 
         // Log the action
         await pool.query(
-            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-            [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'signature_captured', 'Document', `Signature captured via sales form for ${record.lender} claim`]
+            `INSERT INTO action_logs(client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+VALUES($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name} `, 'signature_captured', 'Document', `Signature captured via sales form for ${record.lender} claim`]
         );
 
         // Auto-complete: Mark acceptance/signature documents as Completed
         const sigCompleted = await pool.query(
             `UPDATE documents SET document_status = 'Completed', updated_at = NOW()
              WHERE contact_id = $1
-               AND document_status IN ('Sent', 'Viewed')
-               AND (name ILIKE '%signature%' OR name ILIKE '%acceptance%' OR tags @> ARRAY['Signature']::text[])
+               AND document_status IN('Sent', 'Viewed')
+AND(name ILIKE '%signature%' OR name ILIKE '%acceptance%' OR tags @> ARRAY['Signature']:: text[])
              RETURNING id, name`,
             [contactId]
         );
         for (const sd of sigCompleted.rows) {
             await pool.query(
-                `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
-                 VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+                `INSERT INTO action_logs(client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+VALUES($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
                 [contactId, `Signature captured - document "${sd.name}" marked Completed`, JSON.stringify({ document_id: sd.id, trigger: 'sales_signature' })]
             );
             await pool.query(
                 `UPDATE workflow_triggers SET status = 'cancelled', cancelled_at = NOW()
-                 WHERE workflow_type = 'document_chase' AND metadata->>'document_id' = $1 AND status = 'active'`,
+                 WHERE workflow_type = 'document_chase' AND metadata ->> 'document_id' = $1 AND status = 'active'`,
                 [sd.id.toString()]
             );
         }
