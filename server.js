@@ -3752,15 +3752,21 @@ app.patch('/api/crm/documents/reassign', async (req, res) => {
     }
 
     try {
-        // Look up document by numeric id, S3 key (partial url match), or filename (name)
+        // Look up document by numeric id, S3 key, or filename
         let existing;
         if (doc_id) {
             existing = await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(doc_id)]);
         } else if (s3_key) {
-            // s3_key is like "Henry_Trigg_182499/Lenders/..." — url contains it as part of the presigned URL
-            existing = await pool.query(`SELECT * FROM documents WHERE url LIKE '%' || $1 || '%' OR name = $1 LIMIT 1`, [s3_key]);
-        } else {
+            // url column stores presigned S3 URLs with %20 for spaces — try both encoded and raw
+            const encodedKey = s3_key.split('/').map(p => encodeURIComponent(p)).join('/');
+            existing = await pool.query(
+                `SELECT * FROM documents WHERE url LIKE '%' || $1 || '%' OR url LIKE '%' || $2 || '%' OR name = $3 LIMIT 1`,
+                [s3_key, encodedKey, s3_key.split('/').pop()]
+            );
+        } else if (doc_name) {
             existing = await pool.query(`SELECT * FROM documents WHERE name = $1 LIMIT 1`, [doc_name]);
+        } else {
+            return res.status(400).json({ error: 'Provide doc_id, s3_key, or doc_name' });
         }
         if (existing.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
@@ -3809,7 +3815,7 @@ app.patch('/api/crm/documents/reassign', async (req, res) => {
                 contact_id || oldDoc.contact_id, 'agent', userId || 'api', userName || 'API',
                 'document_reassigned', 'documents',
                 `Document "${oldDoc.name}" reassigned: ${changedParts.join(', ')}`,
-                JSON.stringify({ document_id: id, old_contact_id: oldDoc.contact_id, new_contact_id: contact_id, old_claim_id: oldDoc.claim_id, new_claim_id: claim_id })
+                JSON.stringify({ document_id: docId, old_contact_id: oldDoc.contact_id, new_contact_id: contact_id, old_claim_id: oldDoc.claim_id, new_claim_id: claim_id })
             ]
         );
 
