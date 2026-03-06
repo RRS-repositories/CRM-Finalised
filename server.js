@@ -3740,20 +3740,22 @@ app.put('/api/documents/:id/status', async (req, res) => {
 });
 
 // --- PATCH /api/crm/documents/:id --- Reassign document to different contact/claim
-app.patch('/api/crm/documents/:id(*)', async (req, res) => {
-    const id = req.params.id || req.params[0];
-    const { contact_id, claim_id, userId, userName } = req.body;
+// Accepts numeric id in URL, or s3_key/doc_name in body for S3-key-based lookup
+app.patch('/api/crm/documents/:id', async (req, res) => {
+    const id = req.params.id;
+    const { contact_id, claim_id, userId, userName, s3_key } = req.body;
 
     if (contact_id === undefined && claim_id === undefined) {
         return res.status(400).json({ error: 'No fields to update. Provide contact_id or claim_id.' });
     }
 
     try {
-        // Check document exists — support both numeric id and S3 key/name lookup
-        const isNumeric = /^\d+$/.test(id);
+        // Check document exists — support numeric id in URL param, or s3_key in body
+        const lookupKey = s3_key || id;
+        const isNumeric = /^\d+$/.test(lookupKey);
         const existing = isNumeric
-            ? await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(id)])
-            : await pool.query(`SELECT * FROM documents WHERE url = $1 OR name = $1 LIMIT 1`, [id]);
+            ? await pool.query(`SELECT * FROM documents WHERE id = $1`, [parseInt(lookupKey)])
+            : await pool.query(`SELECT * FROM documents WHERE url = $1 OR name = $1 LIMIT 1`, [lookupKey]);
         if (existing.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
         }
