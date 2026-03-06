@@ -8032,6 +8032,10 @@ app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire2.html'));
 });
 
+app.get('/iddocument/:id', (req, res) => {
+    res.sendFile(path.join(__dirname, 'iddocument.html'));
+});
+
 // Submit Combined Questionnaire
 app.post('/api/submit-questionnaire', async (req, res) => {
     const { contactId, questions, isGambler, previousBettingCompanies, estimatedGamblingLosses, additionalInformation, signatureData } = req.body;
@@ -14758,8 +14762,7 @@ crmRouter.post('/documents/generate', async (req, res) => {
         if (claim && claim.lender) {
             try {
                 const { default: allLenders } = await import('./all_lenders_details.json', { assert: { type: 'json' } });
-                const lenderKey = claim.lender.toLowerCase().replace(/\s+/g, '_');
-                const lenderEntry = allLenders[lenderKey] || allLenders[claim.lender] || allLenders[claim.lender.toLowerCase()];
+                const lenderEntry = allLenders.find(l => l.lender && l.lender.toLowerCase() === claim.lender.toLowerCase());
                 if (lenderEntry && lenderEntry.address) {
                     Object.assign(autoVariables, {
                         'lender.companyName': _s(lenderEntry.address.company_name || claim.lender),
