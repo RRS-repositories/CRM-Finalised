@@ -540,6 +540,16 @@
         }
     },
     {
+        "lender": "EVERY DAY LENDING",
+        "email": "dpo@evlo.co.uk",
+        "address": {
+            "company_name": "Everyday Lending Limited",
+            "first_line_address": "Suite 3, 1st Floor Aquasulis House, 10-14 Bath Road",
+            "town_city": "Slough",
+            "postcode": "SL1 3SQ"
+        }
+    },
+    {
         "lender": "EVOLUTION FUNDING'",
         "email": "complaints@evolutionfunding.com",
         "address": {
@@ -571,7 +581,7 @@
     },
     {
         "lender": "FAIR FINANCE",
-        "email": "collections@fairfinance.org.uk",
+        "email": "compliance@fairfinance.org.uk",
         "address": {
             "company_name": "Fair Finance Ltd",
             "first_line_address": "19-21 Eastern Road",
