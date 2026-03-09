@@ -4083,19 +4083,32 @@ app.patch('/api/crm/documents/update', async (req, res) => {
         const docId = docRes.rows[0].id;
         const contactId = docRes.rows[0].contact_id;
 
-        // Update lender directly on the documents table
+        // Build a single UPDATE with all provided fields
+        const setClauses = [];
+        const values = [];
+        let paramIdx = 1;
+
         if (lender !== undefined) {
             const lenderVal = (typeof lender === 'string' && lender.trim()) ? lender.trim() : null;
-            await pool.query('UPDATE documents SET lender = $1, updated_at = NOW() WHERE id = $2', [lenderVal, docId]);
+            setClauses.push(`lender = $${paramIdx++}`);
+            values.push(lenderVal);
         }
-
-        // Update category directly on the documents table
         if (category !== undefined) {
             const catVal = (typeof category === 'string' && category.trim()) ? category.trim() : null;
-            await pool.query('UPDATE documents SET category = $1, updated_at = NOW() WHERE id = $2', [catVal, docId]);
+            setClauses.push(`category = $${paramIdx++}`);
+            values.push(catVal);
         }
 
-        res.json({ success: true, id: docId });
+        setClauses.push('updated_at = NOW()');
+        values.push(docId);
+
+        const result = await pool.query(
+            `UPDATE documents SET ${setClauses.join(', ')} WHERE id = $${paramIdx} RETURNING id, lender, category`,
+            values
+        );
+
+        console.log(`[PATCH /api/crm/documents/update] Updated doc ${docId}:`, result.rows[0]);
+        res.json({ success: true, id: docId, lender: result.rows[0]?.lender, category: result.rows[0]?.category });
     } catch (err) {
         console.error('[PATCH /api/crm/documents/update]', err);
         res.status(500).json({ error: err.message });
