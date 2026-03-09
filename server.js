@@ -4849,7 +4849,10 @@ app.get('/api/contacts', async (req, res) => {
 app.get('/api/init-data', async (req, res) => {
     try {
         const limit = 50;
+        const t0 = Date.now();
+
         // Run queries in parallel for maximum performance
+        const t1 = Date.now();
         const [contactsResult, totalResult] = await Promise.all([
             // First page of contacts only
             pool.query(`
@@ -4864,10 +4867,12 @@ app.get('/api/init-data', async (req, res) => {
             `),
             pool.query(`SELECT COUNT(*) as total FROM contacts`)
         ]);
+        console.log(`[init-data] contacts query: ${Date.now()-t1}ms (${contactsResult.rows.length} rows)`);
 
         const total = parseInt(totalResult.rows[0].total);
 
-        res.json({
+        const t2 = Date.now();
+        const payload = {
             contacts: contactsResult.rows,
             contactsPagination: {
                 page: 1,
@@ -4879,7 +4884,9 @@ app.get('/api/init-data', async (req, res) => {
             cases: [], // Lazy load per contact - fetched via /contacts/:id/cases
             actionLogs: [], // Lazy load per contact
             documents: []  // Lazy load per contact
-        });
+        };
+        console.log(`[init-data] JSON serialise: ${Date.now()-t2}ms | total: ${Date.now()-t0}ms`);
+        res.json(payload);
     } catch (err) {
         console.error('Error fetching init data:', err);
         res.status(500).json({ error: err.message });

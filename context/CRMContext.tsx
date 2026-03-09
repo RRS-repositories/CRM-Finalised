@@ -961,10 +961,14 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       try {
         // Try optimized combined endpoint first
+        const t1 = performance.now();
         const response = await fetch(`${API_BASE_URL}/init-data`);
+        console.log(`[init] /init-data fetch: ${(performance.now()-t1).toFixed(0)}ms`);
 
         if (response.ok) {
+          const t2 = performance.now();
           const data = await response.json();
+          console.log(`[init] JSON parse: ${(performance.now()-t2).toFixed(0)}ms`);
 
           // Map contacts
           if (data.contacts && Array.isArray(data.contacts)) {
@@ -1105,7 +1109,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           ]);
         }
         // Fetch templates from backend (separate from init-data)
+        const tTpl = performance.now();
         await fetchTemplates();
+        console.log(`[init] fetchTemplates: ${(performance.now()-tTpl).toFixed(0)}ms`);
       } catch (error) {
         console.error('Error during init:', error);
         // Fallback to individual fetches
