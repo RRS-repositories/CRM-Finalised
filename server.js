@@ -4851,10 +4851,8 @@ app.get('/api/contacts', async (req, res) => {
 app.get('/api/init-data', async (req, res) => {
     try {
         const limit = 50;
-        const t0 = Date.now();
 
         // Run queries in parallel for maximum performance
-        const t1 = Date.now();
         const [contactsResult, totalResult] = await Promise.all([
             // First page of contacts only
             pool.query(`
@@ -4869,11 +4867,9 @@ app.get('/api/init-data', async (req, res) => {
             `),
             pool.query(`SELECT COUNT(*) as total FROM contacts`)
         ]);
-        console.log(`[init-data] contacts query: ${Date.now()-t1}ms (${contactsResult.rows.length} rows)`);
 
         const total = parseInt(totalResult.rows[0].total);
 
-        const t2 = Date.now();
         const payload = {
             contacts: contactsResult.rows,
             contactsPagination: {
@@ -4887,7 +4883,6 @@ app.get('/api/init-data', async (req, res) => {
             actionLogs: [], // Lazy load per contact
             documents: []  // Lazy load per contact
         };
-        console.log(`[init-data] JSON serialise: ${Date.now()-t2}ms | total: ${Date.now()-t0}ms`);
         res.json(payload);
     } catch (err) {
         console.error('Error fetching init data:', err);
@@ -8426,13 +8421,61 @@ app.get('/questionnaire/:contactId', async (req, res) => {
 });
 */
 
-// Static Questionnaire Routes
+// Static Questionnaire Routes (preview only - no contact data injected)
 app.get(['/questionnaire1', '/questionnaire/1'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire1.html'));
 });
 
 app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire2.html'));
+});
+
+// Dynamic Questionnaire Routes - inject contact data into HTML template
+// /questionnaire/1/:contactId → questionnaire1 (Gambling Questionnaire: IRL first, gambling second)
+// /questionnaire/2/:contactId → questionnaire2 (IRL Questionnaire: gambling first, IRL second)
+async function serveQuestionnaire(req, res, templateFile) {
+    const { contactId } = req.params;
+    try {
+        const contactRes = await pool.query(
+            'SELECT id, first_name, last_name, full_name, client_id, questionnaire_submitted FROM contacts WHERE id = $1',
+            [contactId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).send(`<!DOCTYPE html><html><head><title>Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#EF4444;}</style></head><body><h1>Contact Not Found</h1><p>This questionnaire link is not valid. Please contact Rowan Rose Solicitors for assistance.</p></body></html>`);
+        }
+
+        const contact = contactRes.rows[0];
+
+        if (contact.questionnaire_submitted) {
+            return res.status(400).send(`<!DOCTYPE html><html><head><title>Already Submitted</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#F59E0B;}</style></head><body><h1>Already Submitted</h1><p>This questionnaire has already been submitted. Thank you.</p></body></html>`);
+        }
+
+        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`.trim();
+        const clientRef = contact.client_id || `RR-${contact.id}`;
+        const today = new Date().toLocaleDateString('en-GB');
+
+        const fs = require('fs');
+        let html = fs.readFileSync(path.join(__dirname, templateFile), 'utf8');
+
+        html = html.replace(/\$\{contactName\}/g, contactName);
+        html = html.replace(/\$\{clientRef\}/g, clientRef);
+        html = html.replace(/\$\{contact\.id\}/g, contact.id);
+        html = html.replace(/\$\{new Date\(\)\.toLocaleDateString\('en-GB'\)\}/g, today);
+
+        res.send(html);
+    } catch (error) {
+        console.error('Error serving questionnaire:', error);
+        res.status(500).send('Server error');
+    }
+}
+
+app.get('/questionnaire/1/:contactId', (req, res) => {
+    serveQuestionnaire(req, res, 'questionnaire1.html');
+});
+
+app.get('/questionnaire/2/:contactId', (req, res) => {
+    serveQuestionnaire(req, res, 'questionnaire2.html');
 });
 
 app.get('/iddocument/:id', (req, res) => {
