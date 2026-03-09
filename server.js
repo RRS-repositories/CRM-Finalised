@@ -3704,19 +3704,26 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
         // Merge lender + category from the documents DB table (written by PATCH /api/crm/documents/update)
         try {
             const dbDocs = await pool.query(
-                'SELECT name, lender, category FROM documents WHERE contact_id = $1 AND lender IS NOT NULL',
+                'SELECT name, lender, category, url FROM documents WHERE contact_id = $1 AND lender IS NOT NULL',
                 [parseInt(contactId)]
             );
             if (dbDocs.rows.length > 0) {
-                const dbMap = {};
-                for (const row of dbDocs.rows) dbMap[row.name] = row;
                 for (const doc of documents) {
-                    const match = dbMap[doc.name];
+                    // Match DB doc to S3 doc: by name OR by S3 key in the DB url
+                    // DB urls have %20-encoded spaces; S3 SDK returns keys with literal spaces
+                    const match = dbDocs.rows.find(r =>
+                        r.name === doc.name ||
+                        (r.url && doc.s3_key && (
+                            r.url.includes(doc.s3_key) ||
+                            decodeURIComponent(r.url).includes(doc.s3_key)
+                        ))
+                    );
                     if (match) {
                         if (match.lender) doc.lender = match.lender;
                         if (match.category) doc.category = match.category;
                     }
                 }
+                console.log(`[Documents] Merged lender from ${dbDocs.rows.length} DB docs for contact ${contactId}`);
             }
         } catch (e) {
             console.warn('[Documents] DB lender merge skipped:', e.message);
