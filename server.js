@@ -8635,7 +8635,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                         const templateVars = {
                             // All 83 question checkboxes: q1...q83
                             ...Object.fromEntries(
-                                Array.from({ length: 75 }, (_, i) => {
+                                Array.from({ length: 83 }, (_, i) => {
                                     const key = `q${i + 1}`;
                                     return [key, questions[key] ? CHECKED : UNCHECKED];
                                 })
