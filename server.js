@@ -4850,7 +4850,7 @@ app.get('/api/init-data', async (req, res) => {
     try {
         const limit = 50;
         // Run queries in parallel for maximum performance
-        const [contactsResult, totalResult, casesResult] = await Promise.all([
+        const [contactsResult, totalResult] = await Promise.all([
             // First page of contacts only
             pool.query(`
                 SELECT c.*,
@@ -4862,16 +4862,7 @@ app.get('/api/init-data', async (req, res) => {
                 ORDER BY c.updated_at DESC
                 LIMIT ${limit}
             `),
-            pool.query(`SELECT COUNT(*) as total FROM contacts`),
-            // All cases
-            pool.query(`
-                SELECT c.id, c.contact_id, c.lender, c.status, c.claim_value, c.product_type, c.account_number, c.start_date, c.created_at,
-                       c.lender_reference, c.reference_specified,
-                       con.first_name AS contact_first_name, con.last_name AS contact_last_name, con.full_name AS contact_full_name
-                FROM cases c
-                LEFT JOIN contacts con ON c.contact_id = con.id
-                ORDER BY c.created_at DESC
-            `)
+            pool.query(`SELECT COUNT(*) as total FROM contacts`)
         ]);
 
         const total = parseInt(totalResult.rows[0].total);
@@ -4885,7 +4876,7 @@ app.get('/api/init-data', async (req, res) => {
                 totalPages: Math.ceil(total / limit),
                 hasMore: 1 < Math.ceil(total / limit)
             },
-            cases: casesResult.rows,
+            cases: [], // Lazy load per contact - fetched via /contacts/:id/cases
             actionLogs: [], // Lazy load per contact
             documents: []  // Lazy load per contact
         });
