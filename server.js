@@ -4046,79 +4046,54 @@ app.patch('/api/documents/category', async (req, res) => {
     }
 });
 
-// --- PATCH /api/crm/documents/:id --- Update document lender and/or category by document ID
-app.patch('/api/crm/documents/:id', async (req, res) => {
-    const docId = parseInt(req.params.id);
-    const { lender, category, s3_key, contact_id } = req.body;
+// --- PATCH /api/crm/documents/update --- Update document lender and/or category by s3_key
+app.patch('/api/crm/documents/update', async (req, res) => {
+    const { s3_key, lender, category } = req.body;
 
-    if (isNaN(docId)) {
-        return res.status(400).json({ error: 'Invalid document id' });
+    if (!s3_key) {
+        return res.status(400).json({ error: 's3_key is required' });
     }
     if (lender === undefined && category === undefined) {
         return res.status(400).json({ error: 'At least one of lender or category must be provided' });
     }
 
     try {
-        // Look up document to get s3_key and contact_id if not provided
-        const docRes = await pool.query('SELECT id, url, contact_id FROM documents WHERE id = $1', [docId]);
+        // Look up document by url (s3_key) to get contact_id
+        const docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url = $1', [s3_key]);
         if (docRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Document not found' });
+            return res.status(404).json({ error: 'Document not found for given s3_key' });
         }
-        const doc = docRes.rows[0];
-        const resolvedS3Key = s3_key || doc.url;
-        const resolvedContactId = contact_id || doc.contact_id;
-
-        const results = {};
+        const contactId = docRes.rows[0].contact_id;
 
         // Update lender if provided
         if (lender !== undefined) {
-            await pool.query(`
-                CREATE TABLE IF NOT EXISTS document_lender_map (
-                    s3_key TEXT PRIMARY KEY,
-                    contact_id INTEGER NOT NULL,
-                    lender TEXT NOT NULL,
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            `);
             if (typeof lender === 'string' && lender.trim()) {
                 await pool.query(`
                     INSERT INTO document_lender_map (s3_key, contact_id, lender, updated_at)
                     VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (s3_key) DO UPDATE SET lender = EXCLUDED.lender, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [resolvedS3Key, resolvedContactId, lender.trim()]);
-                results.lender = lender.trim();
+                `, [s3_key, contactId, lender.trim()]);
             } else {
-                await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [resolvedS3Key]);
-                results.lender = null;
+                await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [s3_key]);
             }
         }
 
         // Update category if provided
         if (category !== undefined) {
-            await pool.query(`
-                CREATE TABLE IF NOT EXISTS document_category_map (
-                    s3_key TEXT PRIMARY KEY,
-                    contact_id INTEGER NOT NULL,
-                    category TEXT NOT NULL,
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            `);
             if (typeof category === 'string' && category.trim()) {
                 await pool.query(`
                     INSERT INTO document_category_map (s3_key, contact_id, category, updated_at)
                     VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (s3_key) DO UPDATE SET category = EXCLUDED.category, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [resolvedS3Key, resolvedContactId, category.trim()]);
-                results.category = category.trim();
+                `, [s3_key, contactId, category.trim()]);
             } else {
-                await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [resolvedS3Key]);
-                results.category = null;
+                await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [s3_key]);
             }
         }
 
-        res.json({ success: true, document_id: docId, ...results });
+        res.json({ success: true });
     } catch (err) {
-        console.error('[PATCH /api/crm/documents/:id]', err);
+        console.error('[PATCH /api/crm/documents/update]', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -4155,9 +4130,12 @@ app.get('/api/crm/documents/dropdown/categories', async (req, res) => {
         'Proof of Address',
         'Bank Statement',
         'DSAR',
+        'DSAR Response',
         'Letter of Authority',
+        'LOA',
         'Cover Letter',
         'Complaint Letter',
+        'Client Care Letter',
         'Final Response Letter (FRL)',
         'Counter Response',
         'FOS Complaint Form',
@@ -4166,21 +4144,20 @@ app.get('/api/crm/documents/dropdown/categories', async (req, res) => {
         'Acceptance Form',
         'Settlement Agreement',
         'Invoice',
-        'Other',
+        'Extra Lender',
+        'Questionnaire',
         'Client',
         'Legal',
-        'LOA',
-        'Extra Lender',
-        'Questionnaire'
+        'Other'
     ];
     res.json({ categories });
 });
 
-// --- GET /api/crm/documents/all --- Bulk fetch all documents with pagination
-app.get('/api/crm/documents/all', async (req, res) => {
+// --- GET /api/crm/documents --- Bulk list all documents with pagination
+app.get('/api/crm/documents', async (req, res) => {
     try {
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
+        const limit = Math.min(5000, Math.max(1, parseInt(req.query.limit) || 1000));
         const offset = (page - 1) * limit;
         const { lender, category, contact_id } = req.query;
 
@@ -4191,48 +4168,49 @@ app.get('/api/crm/documents/all', async (req, res) => {
             params.push(parseInt(contact_id));
             conditions.push(`d.contact_id = $${params.length}`);
         }
-
-        // Join lender_map and category_map for filtering & returning mapped values
-        let query = `
-            SELECT d.*,
-                   lm.lender AS mapped_lender,
-                   cm.category AS mapped_category,
-                   c.first_name, c.last_name
-            FROM documents d
-            LEFT JOIN document_lender_map lm ON lm.s3_key = d.url
-            LEFT JOIN document_category_map cm ON cm.s3_key = d.url
-            LEFT JOIN contacts c ON c.id = d.contact_id
-        `;
-
         if (lender) {
             params.push(lender);
-            conditions.push(`(lm.lender ILIKE $${params.length} OR d.tags @> ARRAY[$${params.length}]::text[])`);
+            conditions.push(`lm.lender ILIKE $${params.length}`);
         }
         if (category) {
             params.push(category);
             conditions.push(`(cm.category ILIKE $${params.length} OR d.category ILIKE $${params.length})`);
         }
 
-        if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+        const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
         // Get total count
-        const countQuery = query.replace(/SELECT d\.\*,[\s\S]*?FROM documents d/, 'SELECT COUNT(*) FROM documents d');
-        const countRes = await pool.query(countQuery, params);
+        const countRes = await pool.query(`
+            SELECT COUNT(*) FROM documents d
+            LEFT JOIN document_lender_map lm ON lm.s3_key = d.url
+            LEFT JOIN document_category_map cm ON cm.s3_key = d.url
+            ${whereClause}
+        `, params);
         const total = parseInt(countRes.rows[0].count);
 
-        query += ' ORDER BY d.created_at DESC';
-        params.push(limit);
-        query += ` LIMIT $${params.length}`;
-        params.push(offset);
-        query += ` OFFSET $${params.length}`;
+        // Fetch page
+        const dataParams = [...params, limit, offset];
+        const { rows } = await pool.query(`
+            SELECT d.id, d.url AS s3_key, d.name, d.contact_id,
+                   COALESCE(cm.category, d.category) AS category,
+                   COALESCE(lm.lender, NULL) AS lender,
+                   d.created_at
+            FROM documents d
+            LEFT JOIN document_lender_map lm ON lm.s3_key = d.url
+            LEFT JOIN document_category_map cm ON cm.s3_key = d.url
+            ${whereClause}
+            ORDER BY d.created_at DESC
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `, dataParams);
 
-        const { rows } = await pool.query(query, params);
         res.json({
             documents: rows,
-            pagination: { page, limit, total, total_pages: Math.ceil(total / limit) }
+            total,
+            page,
+            pages: Math.ceil(total / limit)
         });
     } catch (err) {
-        console.error('[GET /api/crm/documents/all]', err);
+        console.error('[GET /api/crm/documents]', err);
         res.status(500).json({ error: err.message });
     }
 });
