@@ -4082,50 +4082,20 @@ app.patch('/api/crm/documents/update', async (req, res) => {
         }
         const docId = docRes.rows[0].id;
         const contactId = docRes.rows[0].contact_id;
-        const docUrl = docRes.rows[0].url;
-        // Extract the clean S3 key from the presigned URL (strip domain + query params)
-        // e.g. "https://s3.../bucket/First_Last_123/file.pdf?X-Amz..." → "First_Last_123/file.pdf"
-        let cleanS3Key = docUrl;
-        try {
-            const urlObj = new URL(docUrl);
-            // Remove the bucket name prefix (first path segment)
-            const pathParts = urlObj.pathname.split('/').filter(Boolean);
-            if (pathParts.length > 1) {
-                cleanS3Key = decodeURIComponent(pathParts.slice(1).join('/'));
-            }
-        } catch (_) {
-            // docUrl wasn't a valid URL — use as-is (already a clean key)
-        }
-        // Prefer caller-supplied s3_key, then extracted clean key
-        const mapKey = s3_key || cleanS3Key;
 
-        // Update lender if provided
+        // Update lender directly on the documents table
         if (lender !== undefined) {
-            if (typeof lender === 'string' && lender.trim()) {
-                await pool.query(`
-                    INSERT INTO document_lender_map (s3_key, contact_id, lender, updated_at)
-                    VALUES ($1, $2, $3, NOW())
-                    ON CONFLICT (s3_key) DO UPDATE SET lender = EXCLUDED.lender, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [mapKey, contactId, lender.trim()]);
-            } else {
-                await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [mapKey]);
-            }
+            const lenderVal = (typeof lender === 'string' && lender.trim()) ? lender.trim() : null;
+            await pool.query('UPDATE documents SET lender = $1, updated_at = NOW() WHERE id = $2', [lenderVal, docId]);
         }
 
-        // Update category if provided
+        // Update category directly on the documents table
         if (category !== undefined) {
-            if (typeof category === 'string' && category.trim()) {
-                await pool.query(`
-                    INSERT INTO document_category_map (s3_key, contact_id, category, updated_at)
-                    VALUES ($1, $2, $3, NOW())
-                    ON CONFLICT (s3_key) DO UPDATE SET category = EXCLUDED.category, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [mapKey, contactId, category.trim()]);
-            } else {
-                await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [mapKey]);
-            }
+            const catVal = (typeof category === 'string' && category.trim()) ? category.trim() : null;
+            await pool.query('UPDATE documents SET category = $1, updated_at = NOW() WHERE id = $2', [catVal, docId]);
         }
 
-        res.json({ success: true });
+        res.json({ success: true, id: docId });
     } catch (err) {
         console.error('[PATCH /api/crm/documents/update]', err);
         res.status(500).json({ error: err.message });
@@ -4204,22 +4174,18 @@ app.get('/api/crm/documents', async (req, res) => {
         }
         if (lender) {
             params.push(lender);
-            conditions.push(`lm.lender ILIKE $${params.length}`);
+            conditions.push(`d.lender ILIKE $${params.length}`);
         }
         if (category) {
             params.push(category);
-            conditions.push(`(cm.category ILIKE $${params.length} OR d.category ILIKE $${params.length})`);
+            conditions.push(`d.category ILIKE $${params.length}`);
         }
 
         const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
-        // Get total count
-        // Map tables store clean S3 keys; documents.url stores full presigned URLs
-        // Join using LIKE so the clean key matches within the full URL
+        // Get total count — read lender & category directly from documents table
         const countRes = await pool.query(`
             SELECT COUNT(*) FROM documents d
-            LEFT JOIN document_lender_map lm ON d.url LIKE '%' || lm.s3_key || '%'
-            LEFT JOIN document_category_map cm ON d.url LIKE '%' || cm.s3_key || '%'
             ${whereClause}
         `, params);
         const total = parseInt(countRes.rows[0].count);
@@ -4228,12 +4194,10 @@ app.get('/api/crm/documents', async (req, res) => {
         const dataParams = [...params, limit, offset];
         const { rows } = await pool.query(`
             SELECT d.id, d.url AS s3_key, d.name, d.contact_id,
-                   COALESCE(cm.category, d.category) AS category,
-                   COALESCE(lm.lender, NULL) AS lender,
+                   d.category,
+                   d.lender,
                    d.created_at
             FROM documents d
-            LEFT JOIN document_lender_map lm ON d.url LIKE '%' || lm.s3_key || '%'
-            LEFT JOIN document_category_map cm ON d.url LIKE '%' || cm.s3_key || '%'
             ${whereClause}
             ORDER BY d.created_at DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
