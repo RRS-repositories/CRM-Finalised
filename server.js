@@ -8455,7 +8455,6 @@ async function serveQuestionnaire(req, res, templateFile) {
         const clientRef = contact.client_id || `RR-${contact.id}`;
         const today = new Date().toLocaleDateString('en-GB');
 
-        const fs = require('fs');
         let html = fs.readFileSync(path.join(__dirname, templateFile), 'utf8');
 
         html = html.replace(/\$\{contactName\}/g, contactName);
