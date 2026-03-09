@@ -103,12 +103,15 @@ export const PIPELINE_CATEGORIES = [
     title: 'Debt Recovery',
     color: 'border-l-cyan-500',
     statuses: [
-      ClaimStatus.DEBT_RECOVERY_INITIATED,
-      ClaimStatus.PAYMENT_PLAN_AGREED,
-      ClaimStatus.DEBT_COLLECTION_STARTED,
-      ClaimStatus.PARTIAL_PAYMENT_RECEIVED,
-      ClaimStatus.DEBT_SETTLED,
-      ClaimStatus.DEBT_WRITTEN_OFF,
+      ClaimStatus.DEBT_CONTACT_ATTEMPTED,
+      ClaimStatus.FAILED_PAYMENT_PLAN,
+      ClaimStatus.DEBT_LETTER_SENT,
+      ClaimStatus.IRL_PAYMENTS_CANCELLATION_FEE_PAID,
+      ClaimStatus.IRL_POA_REQUEST,
+      ClaimStatus.IRL_TIMEBARRED,
+      ClaimStatus.TEXT_INFORM_ABOUT_DSAR,
+      ClaimStatus.CHASING_DEBT,
+      ClaimStatus.IRL_PAYMENT_UPHELD_DEBT,
     ],
   },
 ];
@@ -509,9 +512,11 @@ export const getSpecStatusColor = (status: string): string => {
   }
 
   // Category 7: Debt Recovery - Cyan (#0891B2)
-  if (status === 'Debt Recovery Initiated' || status === 'Payment Plan Agreed' ||
-    status === 'Debt Collection Started' || status === 'Partial Payment Received' ||
-    status === 'Debt Settled' || status === 'Debt Written Off') {
+  if (status === 'DEBT Contact Attempted' || status === 'Failed Payment Plan' ||
+    status === 'DEBT LETTER SENT' || status === 'IRL/PAYMENTS/CANCELLATION FEE PAID' ||
+    status === 'IRL POA REQUEST' || status === 'IRL- TIMEBARRED' ||
+    status === 'TEXT INFORM ABOUT DSAR' || status === 'CHASING DEBT' ||
+    status === 'IRL/PAYMENT UPHELD DEBT (partial legal fees cover)') {
     return '#0891B2';
   }
 

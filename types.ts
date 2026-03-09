@@ -67,12 +67,15 @@ export enum ClaimStatus {
   CLAIM_WITHDRAWN = "Claim Withdrawn",
 
   // Category 7: Debt Recovery
-  DEBT_RECOVERY_INITIATED = "Debt Recovery Initiated",
-  PAYMENT_PLAN_AGREED = "Payment Plan Agreed",
-  DEBT_COLLECTION_STARTED = "Debt Collection Started",
-  PARTIAL_PAYMENT_RECEIVED = "Partial Payment Received",
-  DEBT_SETTLED = "Debt Settled",
-  DEBT_WRITTEN_OFF = "Debt Written Off"
+  DEBT_CONTACT_ATTEMPTED = "DEBT Contact Attempted",
+  FAILED_PAYMENT_PLAN = "Failed Payment Plan",
+  DEBT_LETTER_SENT = "DEBT LETTER SENT",
+  IRL_PAYMENTS_CANCELLATION_FEE_PAID = "IRL/PAYMENTS/CANCELLATION FEE PAID",
+  IRL_POA_REQUEST = "IRL POA REQUEST",
+  IRL_TIMEBARRED = "IRL- TIMEBARRED",
+  TEXT_INFORM_ABOUT_DSAR = "TEXT INFORM ABOUT DSAR",
+  CHASING_DEBT = "CHASING DEBT",
+  IRL_PAYMENT_UPHELD_DEBT = "IRL/PAYMENT UPHELD DEBT (partial legal fees cover)"
 }
 
 export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments" | "Debt Recovery";

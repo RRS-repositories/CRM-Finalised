@@ -108,13 +108,16 @@ export const KNOWLEDGE_BASE = {
 - Claim Unsuccessful
 - Claim Withdrawn
 
-**CATEGORY 7: DEBT RECOVERY** (6 statuses)
-- Debt Recovery Initiated
-- Payment Plan Agreed
-- Debt Collection Started
-- Partial Payment Received
-- Debt Settled
-- Debt Written Off`
+**CATEGORY 7: DEBT RECOVERY** (9 statuses)
+- DEBT Contact Attempted
+- Failed Payment Plan
+- DEBT LETTER SENT
+- IRL/PAYMENTS/CANCELLATION FEE PAID
+- IRL POA REQUEST
+- IRL- TIMEBARRED
+- TEXT INFORM ABOUT DSAR
+- CHASING DEBT
+- IRL/PAYMENT UPHELD DEBT (partial legal fees cover)`
     },
 
     lenders: {
