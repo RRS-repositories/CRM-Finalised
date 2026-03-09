@@ -3,6 +3,7 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import multer from 'multer';
 import pkg from 'pg';
 const { Pool } = pkg;
@@ -132,6 +133,7 @@ async function createMattermostUser(email, password, fullName) {
 }
 
 // --- MIDDLEWARE ---
+app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));

@@ -39,6 +39,7 @@
     "@types/pg": "^8.16.0",
     "canvas": "^3.2.1",
     "clsx": "2.1.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "docx-templates": "^4.15.0",
     "docxtemplater": "^3.68.2",
