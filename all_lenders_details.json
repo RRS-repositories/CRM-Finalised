@@ -780,6 +780,16 @@
         }
     },
     {
+        "lender": "H&T PAWN BROKERS",
+        "email": "complaints@handt.co.uk",
+        "address": {
+            "company_name": "H&T Group PLC",
+            "first_line_address": "Times Square, Sutton",
+            "town_city": "Surrey",
+            "postcode": "SM1 1LF"
+        }
+    },
+    {
         "lender": "HALIFAX",
         "email": "DSAR@lloydsbanking.com",
         "address": {
