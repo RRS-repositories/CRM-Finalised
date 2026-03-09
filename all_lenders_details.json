@@ -160,6 +160,16 @@
         }
     },
     {
+        "lender": "BAMBOO",
+        "email": "complaints@bambooloans.com",
+        "address": {
+            "company_name": "Bamboo Limited",
+            "first_line_address": "4th Floor, Peat House, 1 Waterloo Way",
+            "town_city": "Leicester",
+            "postcode": "LE1 6LP"
+        }
+    },
+    {
         "lender": "BANK OF SCOTLAND",
         "email": "DSAR@lloydsbanking.com",
         "address": {
