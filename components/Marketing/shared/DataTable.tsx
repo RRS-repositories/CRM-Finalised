@@ -124,4 +124,5 @@ function DataTable<T extends Record<string, any>>({
   );
 }
 
-export default DataTable;
+// React.memo wrapper for generic component - prevents re-render when parent re-renders with same props
+export default React.memo(DataTable) as typeof DataTable;

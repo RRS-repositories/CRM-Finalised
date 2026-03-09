@@ -3686,6 +3686,70 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
         // Sort by date descending (newest first)
         documents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+        // Merge saved lender assignments from document_lender_map
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS document_lender_map (
+                    s3_key TEXT PRIMARY KEY,
+                    contact_id INTEGER NOT NULL,
+                    lender TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            const lenderRes = await pool.query(
+                'SELECT s3_key, lender FROM document_lender_map WHERE contact_id = $1',
+                [parseInt(contactId)]
+            );
+            if (lenderRes.rows.length > 0) {
+                const lenderMap = {};
+                for (const row of lenderRes.rows) lenderMap[row.s3_key] = row.lender;
+                const systemTagSet = new Set([
+                    'Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form',
+                    'claim-document', 'Client', 'Legal', 'ID Document', 'Proof of Address', 'Bank Statement',
+                    'DSAR', 'Letter of Authority', 'Complaint Letter', 'Final Response Letter (FRL)',
+                    'Counter Response', 'FOS Complaint Form', 'FOS Decision', 'Offer Letter',
+                    'Acceptance Form', 'Settlement Agreement', 'Invoice', 'Other'
+                ]);
+                for (const doc of documents) {
+                    if (lenderMap[doc.id]) {
+                        // Replace auto-detected lender tags with the saved one
+                        const otherTags = (doc.tags || []).filter(t => systemTagSet.has(t) || t.startsWith('Original:'));
+                        doc.tags = [lenderMap[doc.id], ...otherTags];
+                    }
+                }
+            }
+        } catch (e) {
+            // Non-fatal — return documents without lender merge if table not ready
+            console.warn('[Documents] lender merge skipped:', e.message);
+        }
+
+        // Merge saved category assignments from document_category_map
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS document_category_map (
+                    s3_key TEXT PRIMARY KEY,
+                    contact_id INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            const catRes = await pool.query(
+                'SELECT s3_key, category FROM document_category_map WHERE contact_id = $1',
+                [parseInt(contactId)]
+            );
+            if (catRes.rows.length > 0) {
+                const catMap = {};
+                for (const row of catRes.rows) catMap[row.s3_key] = row.category;
+                for (const doc of documents) {
+                    if (catMap[doc.id]) {
+                        doc.category = catMap[doc.id];
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[Documents] category merge skipped:', e.message);
+        }
+
         res.json(documents);
     } catch (err) {
         console.error('[Documents] S3 list error:', err);
@@ -3887,6 +3951,84 @@ app.delete('/api/documents/:id', async (req, res) => {
     } catch (err) {
         console.error('❌ Error deleting document:', err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// --- DOCUMENT LENDER UPDATE ---
+// Documents in the contacts tab are fetched from S3 and use the S3 key as their ID.
+// We store lender overrides in a dedicated table keyed by S3 key.
+app.patch('/api/documents/lender', async (req, res) => {
+    const { s3_key, contact_id, lender } = req.body;
+
+    if (!s3_key || !contact_id) {
+        return res.status(400).json({ error: 's3_key and contact_id are required' });
+    }
+    if (typeof lender !== 'string') {
+        return res.status(400).json({ error: 'lender must be a string' });
+    }
+
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS document_lender_map (
+                s3_key TEXT PRIMARY KEY,
+                contact_id INTEGER NOT NULL,
+                lender TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        if (lender.trim()) {
+            await pool.query(`
+                INSERT INTO document_lender_map (s3_key, contact_id, lender, updated_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (s3_key) DO UPDATE SET lender = EXCLUDED.lender, contact_id = EXCLUDED.contact_id, updated_at = NOW()
+            `, [s3_key, contact_id, lender.trim()]);
+        } else {
+            await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [s3_key]);
+        }
+
+        res.json({ success: true, lender: lender.trim() });
+    } catch (err) {
+        console.error('[PATCH /api/documents/lender]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PATCH /api/documents/category --- Update document category (S3-based docs)
+app.patch('/api/documents/category', async (req, res) => {
+    const { s3_key, contact_id, category } = req.body;
+
+    if (!s3_key || !contact_id) {
+        return res.status(400).json({ error: 's3_key and contact_id are required' });
+    }
+    if (typeof category !== 'string') {
+        return res.status(400).json({ error: 'category must be a string' });
+    }
+
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS document_category_map (
+                s3_key TEXT PRIMARY KEY,
+                contact_id INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        if (category.trim()) {
+            await pool.query(`
+                INSERT INTO document_category_map (s3_key, contact_id, category, updated_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (s3_key) DO UPDATE SET category = EXCLUDED.category, contact_id = EXCLUDED.contact_id, updated_at = NOW()
+            `, [s3_key, contact_id, category.trim()]);
+        } else {
+            await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [s3_key]);
+        }
+
+        res.json({ success: true, category: category.trim() });
+    } catch (err) {
+        console.error('[PATCH /api/documents/category]', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -10368,6 +10510,31 @@ app.get('/api/email/accounts/:accountId/messages/:messageId/attachments/:attachm
     }
 });
 
+// --- GET ALL ATTACHMENTS AS BASE64 JSON (for draft editing) ---
+app.get('/api/email/accounts/:accountId/messages/:messageId/attachments-base64', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const data = await graphRequest(
+            `/users/${config.email}/messages/${messageId}/attachments`
+        );
+        const attachments = (data.value || [])
+            .filter(att => att['@odata.type'] === '#microsoft.graph.fileAttachment')
+            .map(att => ({
+                name: att.name,
+                contentType: att.contentType || 'application/octet-stream',
+                contentBytes: att.contentBytes,
+                size: att.size,
+            }));
+        res.json({ success: true, attachments });
+    } catch (err) {
+        console.error('Fetch attachments base64 failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to fetch attachments: ' + err.message });
+    }
+});
+
 // --- DOWNLOAD EMAIL AS MIME (EML) ---
 app.get('/api/email/accounts/:accountId/messages/:messageId/download', async (req, res) => {
     const { accountId, messageId } = req.params;
@@ -10534,6 +10701,45 @@ app.post('/api/email/accounts/:accountId/send', async (req, res) => {
     } catch (err) {
         console.error('Graph sendMail failed:', err.message);
         res.status(500).json({ success: false, error: 'Failed to send email: ' + err.message });
+    }
+});
+
+// --- SAVE AS DRAFT ---
+app.post('/api/email/accounts/:accountId/drafts', async (req, res) => {
+    const { accountId } = req.params;
+    const { to, cc, bcc, subject, bodyHtml, bodyText, attachments } = req.body;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        const message = {
+            subject: subject || '',
+            body: {
+                contentType: bodyHtml ? 'HTML' : 'Text',
+                content: bodyHtml || bodyText || '',
+            },
+            toRecipients: (to || []).map(addr => ({ emailAddress: { address: addr } })),
+            ccRecipients: (cc || []).map(addr => ({ emailAddress: { address: addr } })),
+            bccRecipients: (bcc || []).map(addr => ({ emailAddress: { address: addr } })),
+        };
+
+        if (attachments && attachments.length > 0) {
+            message.attachments = attachments.map(att => ({
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: att.name,
+                contentType: att.contentType,
+                contentBytes: att.contentBytes,
+            }));
+        }
+
+        const draft = await graphRequest(`/users/${config.email}/messages`, {
+            method: 'POST',
+            body: JSON.stringify(message),
+        });
+        res.json({ success: true, draftId: draft.id });
+    } catch (err) {
+        console.error('Graph createDraft failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to save draft: ' + err.message });
     }
 });
 

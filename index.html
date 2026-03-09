@@ -8,13 +8,20 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-circle.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png" />
     <title>ROWAN ROSE SOLICITORS</title>
+    <!-- PERFORMANCE: Preconnect to external origins to reduce DNS/TLS latency -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" />
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <!-- PERFORMANCE: Font Awesome loaded async (non-render-blocking) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" media="print" onload="this.media='all'" />
+    <!-- PERFORMANCE: Google Fonts with font-display=swap to prevent FOIT -->
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Google Maps Places API -->
+    <!-- Google Maps Places API - loaded async/defer already -->
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASX_LF5dFYnZbVz67QZpc62gyzwRj4-n4&libraries=places" async defer></script>
-    <!-- React Flow CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/style.css" />
+    <!-- PERFORMANCE: React Flow CSS loaded async (only needed on Automation page) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/style.css" media="print" onload="this.media='all'" />
     <script>
       // Polyfill process for libraries that expect it
       window.process = {

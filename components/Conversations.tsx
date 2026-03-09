@@ -38,8 +38,18 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
   
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Search State
+  // PERFORMANCE: Debounced search to avoid filtering on every keystroke
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 250);
+  }, []);
+
+  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
 
   // Refs for scrolling to bottom of chat
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -48,9 +58,9 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
   // Filter conversations based on prop and search
   const filteredConversations = conversations.filter(c => {
     const matchesPlatform = platformFilter === 'all' || c.platform === platformFilter;
-    const matchesSearch = 
-       c.contactName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-       c.lastMessage.text.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch =
+       c.contactName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+       c.lastMessage.text.toLowerCase().includes(debouncedSearch.toLowerCase());
     return matchesPlatform && matchesSearch;
   });
 
@@ -156,7 +166,7 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
                 type="text" 
                 placeholder="Search messages..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 text-gray-900 dark:text-white placeholder:text-gray-400"
               />
            </div>
@@ -182,9 +192,10 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
                      <div className="flex items-center gap-2">
                         <div className="w-10 h-10 rounded-full bg-navy-100 dark:bg-slate-700 flex items-center justify-center text-navy-700 dark:text-white font-bold overflow-hidden border border-gray-200 dark:border-slate-600 shrink-0">
                            {conv.avatar ? (
-                              <img 
-                                src={conv.avatar} 
-                                alt={conv.contactName} 
+                              <img
+                                src={conv.avatar}
+                                alt={conv.contactName}
+                                loading="lazy"
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                   // Fallback if image fails to load
@@ -387,7 +398,7 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
                      {activeConversation.mediaGallery.images.map((img, i) => (
                         <div key={i} className="aspect-square bg-gray-200 dark:bg-slate-700 rounded-lg relative overflow-hidden group cursor-pointer border border-gray-200 dark:border-slate-600">
                            {img.url && !img.url.startsWith('#') ? (
-                              <img src={img.url} alt={img.name} className="w-full h-full object-contain p-1" />
+                              <img src={img.url} alt={img.name} loading="lazy" className="w-full h-full object-contain p-1" />
                            ) : (
                               <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-gray-100 dark:bg-slate-800">
                                  <ImageIcon size={24} />

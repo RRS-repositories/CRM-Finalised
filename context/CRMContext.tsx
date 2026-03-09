@@ -413,16 +413,18 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const newTheme = prev === 'light' ? 'dark' : 'light';
+      localStorage.setItem('theme', newTheme);
+      if (newTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return newTheme;
+    });
+  }, []);
 
   // Helper to add activity log
   const logActivity = (
@@ -444,18 +446,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActivityLogs(prev => [newLog, ...prev]);
   };
 
-  // Helper to add notification with auto-exit animation
-  const addNotification = (type: 'success' | 'error' | 'info', message: string) => {
-    const id = Math.random().toString(36).substr(2, 9);
-    setNotifications(prev => [...prev, { id, type, message, isExiting: false }]);
-
-    // Trigger remove sequence after 3 seconds
-    setTimeout(() => {
-      removeNotification(id);
-    }, 3000);
-  };
-
-  const removeNotification = (id: string) => {
+  // Helper to remove notification with exit animation
+  const removeNotification = useCallback((id: string) => {
     // 1. Mark as exiting to trigger CSS animation
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, isExiting: true } : n));
 
@@ -463,7 +455,18 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 400);
-  };
+  }, []);
+
+  // Helper to add notification with auto-exit animation
+  const addNotification = useCallback((type: 'success' | 'error' | 'info', message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setNotifications(prev => [...prev, { id, type, message, isExiting: false }]);
+
+    // Trigger remove sequence after 3 seconds
+    setTimeout(() => {
+      removeNotification(id);
+    }, 3000);
+  }, [removeNotification]);
 
   // --- Error Toast Notifications (from worker errors) ---
   const playNotificationSound = useCallback(() => {
@@ -584,16 +587,21 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Load more contacts (for pagination/infinite scroll)
-  const loadMoreContacts = async (search?: string) => {
-    if (contactsPagination.isLoadingMore || !contactsPagination.hasMore) return;
+  // PERFORMANCE: useCallback to prevent unnecessary context re-renders
+  // Uses ref for pagination state to avoid stale closures
+  const paginationRef = useRef(contactsPagination);
+  paginationRef.current = contactsPagination;
+
+  const loadMoreContacts = useCallback(async (search?: string) => {
+    const pg = paginationRef.current;
+    if (pg.isLoadingMore || !pg.hasMore) return;
 
     setContactsPagination(prev => ({ ...prev, isLoadingMore: true }));
 
     try {
-      const nextPage = contactsPagination.page + 1;
+      const nextPage = pg.page + 1;
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-      const response = await fetch(`${API_BASE_URL}/contacts/paginated?page=${nextPage}&limit=${contactsPagination.limit}${searchParam}`);
+      const response = await fetch(`${API_BASE_URL}/contacts/paginated?page=${nextPage}&limit=${pg.limit}${searchParam}`);
 
       if (!response.ok) throw new Error('Failed to fetch more contacts');
       const data = await response.json();
@@ -685,10 +693,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error('Error loading more contacts:', error);
       setContactsPagination(prev => ({ ...prev, isLoadingMore: false }));
     }
-  };
+  }, []);
 
   // Server-side paginated fetch (replaces contacts in state)
-  const fetchContactsPage = async (page: number, limit: number, filters?: {
+  const fetchContactsPage = useCallback(async (page: number, limit: number, filters?: {
     fullName?: string;
     email?: string;
     phone?: string;
@@ -794,7 +802,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error('Error fetching contacts page:', error);
       setContactsPagination(prev => ({ ...prev, isLoadingMore: false }));
     }
-  };
+  }, []);
 
   const fetchDocuments = async () => {
     try {
@@ -825,7 +833,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Lazy-load cases for a specific contact (called when contact detail is opened)
-  const fetchCasesForContact = async (contactId: string) => {
+  const fetchCasesForContact = useCallback(async (contactId: string) => {
     try {
       const caseRes = await fetch(`${API_BASE_URL}/contacts/${contactId}/cases`);
       if (!caseRes.ok) return;
@@ -850,7 +858,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (e) {
       console.error(`Error fetching cases for contact ${contactId}:`, e);
     }
-  };
+  }, []);
 
   // Fetch all claims at once (for Pipeline view)
   // === PERFORMANCE: Track last fetch time to avoid re-fetching on every mount ===
@@ -2029,7 +2037,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const fetchDocumentTimeline = async (docId: string): Promise<any[]> => {
+  const fetchDocumentTimeline = useCallback(async (docId: string): Promise<any[]> => {
     try {
       const res = await fetch(`${API_BASE_URL}/documents/${docId}/timeline`);
       if (!res.ok) throw new Error('Failed to fetch timeline');
@@ -2038,7 +2046,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error('Failed to fetch document timeline:', err);
       return [];
     }
-  };
+  }, []);
 
   // --- Template Logic ---
   const addTemplate = async (tplData: Partial<Template>): Promise<{ success: boolean; message: string; id?: string }> => {
@@ -3098,7 +3106,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const fetchCombinedTimeline = async (contactId: string): Promise<TimelineItem[]> => {
+  const fetchCombinedTimeline = useCallback(async (contactId: string): Promise<TimelineItem[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/contacts/${contactId}/combined-timeline`);
       if (!response.ok) throw new Error('Failed to fetch timeline');
@@ -3118,7 +3126,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error('Error fetching combined timeline:', error);
       return [];
     }
-  };
+  }, []);
 
   // Fetch tasks and notifications on user login
   useEffect(() => {

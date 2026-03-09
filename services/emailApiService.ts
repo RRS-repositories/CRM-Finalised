@@ -128,6 +128,31 @@ export async function searchAllEmails(accountId: string, query: string, limit = 
   return { emails: data.emails || [], hasMore: data.hasMore ?? false };
 }
 
+export async function fetchAttachmentsBase64(accountId: string, messageId: string): Promise<{ name: string; contentType: string; contentBytes: string; size: number }[]> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/attachments-base64`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.attachments || [];
+}
+
+export async function saveDraft(accountId: string, payload: {
+  to: string[]; cc?: string[]; bcc?: string[]; subject: string;
+  bodyHtml?: string; bodyText?: string;
+  attachments?: { name: string; contentType: string; contentBytes: string }[];
+}): Promise<{ draftId: string }> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/drafts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to save draft');
+  }
+  const data = await res.json();
+  return { draftId: data.draftId };
+}
+
 export async function sendDraftEmail(accountId: string, messageId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/send`, {
     method: 'POST',

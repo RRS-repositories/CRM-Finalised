@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
    Search, Filter, Upload, Download, MoreHorizontal,
@@ -245,6 +245,9 @@ const getLenderColorIndex = (lender: string): number => {
 };
 
 const getLenderColor = (lender: string) => LENDER_COLORS[getLenderColorIndex(lender)];
+
+// PERFORMANCE: Static array created once instead of on every render
+const LOAN_NUMBER_OPTIONS = Array.from({ length: 50 }, (_, i) => i + 1);
 
 // Parse lender from note content (format: {{lender:NAME}} at start)
 const parseLenderFromNote = (content: string): { lender: string; noteContent: string } => {
@@ -736,9 +739,22 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [localContactDocs, setLocalContactDocs] = useState<Document[]>([]);
    const [docsLoading, setDocsLoading] = useState(false);
 
-   // Document pagination - show 10 at a time for faster loading
+   // Document pagination
    const [docsPage, setDocsPage] = useState(1);
-   const docsPerPage = 10;
+   const [docsPerPage, setDocsPerPage] = useState(20);
+
+   // Lender dropdown state for documents table
+   const [docLenderDropdown, setDocLenderDropdown] = useState<string | null>(null); // doc id
+   const [docLenderSearch, setDocLenderSearch] = useState('');
+   const [docLenderSaving, setDocLenderSaving] = useState<string | null>(null); // doc id saving
+
+   // Category dropdown state for documents table
+   const [docCategoryDropdown, setDocCategoryDropdown] = useState<string | null>(null); // doc id
+   const [docCategorySaving, setDocCategorySaving] = useState<string | null>(null); // doc id saving
+
+   // Lender & Category filters for the documents list
+   const [docsLenderFilter, setDocsLenderFilter] = useState('');
+   const [docsCategoryFilter, setDocsCategoryFilter] = useState('');
 
    const fetchContactDocuments = useCallback(async () => {
       if (!contactId) return;
@@ -762,6 +778,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          }));
          setLocalContactDocs(mapped);
          setDocsPage(1);
+         setDocsLenderFilter('');
 
          // Auto-derive checklist from loaded documents
          const twelveWeeksAgo = new Date();
@@ -821,6 +838,25 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          .catch(() => {});
    }, [contactId]);
 
+   // Close doc lender dropdown when clicking outside
+   useEffect(() => {
+      if (!docLenderDropdown) return;
+      const handleClickOutside = () => {
+         setDocLenderDropdown(null);
+         setDocLenderSearch('');
+      };
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+   }, [docLenderDropdown]);
+
+   // Close doc category dropdown when clicking outside
+   useEffect(() => {
+      if (!docCategoryDropdown) return;
+      const handleClickOutside = () => setDocCategoryDropdown(null);
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+   }, [docCategoryDropdown]);
+
    // Note: Loading/not-found early returns moved to just before JSX to preserve hook call order
 
    // Filter documents for this contact, only hiding signature.png and signature2.png
@@ -830,10 +866,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (lowerName === 'signature.png' || lowerName === 'signature_2.png') return false;
       return true;
    });
-
-   // Paginated documents for Documents tab - show 10 at a time for faster loading
-   const totalDocsPages = Math.ceil(contactDocs.length / docsPerPage);
-   const paginatedDocs = contactDocs.slice((docsPage - 1) * docsPerPage, docsPage * docsPerPage);
 
    // Helper to extract lender from document tags or name
    const getLenderFromDoc = (doc: Document) => {
@@ -858,6 +890,86 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          return nameParts[0].replace(/_/g, ' ');
       }
       return '';
+   };
+
+   // PERFORMANCE: Memoize lender options to avoid recalculating on every render
+   const docsLenderOptions = useMemo(() => Array.from(new Set(
+      contactDocs.map(d => getLenderFromDoc(d)).filter(Boolean)
+   )).sort(), [contactDocs]);
+
+   const docsCategoryOptions = useMemo(() => Array.from(new Set(
+      contactDocs.map(d => d.category || 'General').filter(Boolean)
+   )).sort(), [contactDocs]);
+
+   // PERFORMANCE: Memoize filtered & paginated docs
+   const filteredDocs = useMemo(() => {
+      let docs = contactDocs;
+      if (docsLenderFilter) docs = docs.filter(d => getLenderFromDoc(d) === docsLenderFilter);
+      if (docsCategoryFilter) docs = docs.filter(d => (d.category || 'General') === docsCategoryFilter);
+      return docs;
+   }, [contactDocs, docsLenderFilter, docsCategoryFilter]);
+   const totalDocsPages = Math.ceil(filteredDocs.length / docsPerPage);
+   const paginatedDocs = useMemo(() => filteredDocs.slice((docsPage - 1) * docsPerPage, docsPage * docsPerPage), [filteredDocs, docsPage, docsPerPage]);
+
+   // Save lender for a document (documents are S3-based; lender stored in document_lender_map)
+   const handleDocLenderSave = async (docId: string, lender: string) => {
+      setDocLenderSaving(docId);
+      try {
+         const res = await fetch(`${API_BASE_URL}/api/documents/lender`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ s3_key: docId, contact_id: contactId, lender })
+         });
+         if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error((errData as any).error || 'Failed to save lender');
+         }
+         // Update local state immediately so UI reflects change without re-fetch
+         setLocalContactDocs(prev => prev.map(d => {
+            if (d.id !== docId) return d;
+            const systemTags = new Set([
+               'Cover Letter', 'LOA', 'T&C', 'Signature', 'Uploaded', 'Previous Address', 'Signed', 'LOA Form',
+               'claim-document', 'Client', 'Legal', 'ID Document', 'Proof of Address', 'Bank Statement',
+               'DSAR', 'Letter of Authority', 'Complaint Letter', 'Final Response Letter (FRL)',
+               'Counter Response', 'FOS Complaint Form', 'FOS Decision', 'Offer Letter',
+               'Acceptance Form', 'Settlement Agreement', 'Invoice', 'Other'
+            ]);
+            const otherTags = d.tags.filter(t => systemTags.has(t) || t.startsWith('Original:'));
+            return { ...d, tags: lender.trim() ? [lender.trim(), ...otherTags] : otherTags };
+         }));
+         addNotification('success', lender.trim() ? `Lender set to "${lender}"` : 'Lender cleared');
+      } catch (e: any) {
+         addNotification('error', e.message || 'Failed to update lender');
+      } finally {
+         setDocLenderSaving(null);
+         setDocLenderDropdown(null);
+         setDocLenderSearch('');
+      }
+   };
+
+   // Save category for a document
+   const handleDocCategorySave = async (docId: string, category: string) => {
+      setDocCategorySaving(docId);
+      try {
+         const res = await fetch(`${API_BASE_URL}/api/documents/category`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ s3_key: docId, contact_id: contactId, category })
+         });
+         if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error((errData as any).error || 'Failed to save category');
+         }
+         setLocalContactDocs(prev => prev.map(d =>
+            d.id === docId ? { ...d, category } : d
+         ));
+         addNotification('success', `Category set to "${category}"`);
+      } catch (e: any) {
+         addNotification('error', e.message || 'Failed to update category');
+      } finally {
+         setDocCategorySaving(null);
+         setDocCategoryDropdown(null);
+      }
    };
 
    // Helper to format date from yyyy-mm-dd to dd-mm-yyyy
@@ -1068,11 +1180,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
 
-   // Unique lenders from notes for filter options
-   const noteLenders = [...new Set(crmNotes.map(n => parseLenderFromNote(n.content).lender).filter(Boolean))];
+   // PERFORMANCE: Memoize lender extraction from notes
+   const noteLenders = useMemo(() => [...new Set(crmNotes.map(n => parseLenderFromNote(n.content).lender).filter(Boolean))], [crmNotes]);
 
-   // Active workflows for this client
-   const activeWorkflows = workflowTriggers.filter(w => w.status === 'active');
+   // PERFORMANCE: Memoize active workflows filter
+   const activeWorkflows = useMemo(() => workflowTriggers.filter(w => w.status === 'active'), [workflowTriggers]);
 
    const handleAddClaim = async () => {
       if (selectedLenders.length === 0) {
@@ -3322,7 +3434,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              }}
                                              className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                           >
-                                             {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                             {LOAN_NUMBER_OPTIONS.map(num => (
                                                 <option key={num} value={num}>{num}</option>
                                              ))}
                                           </select>
@@ -4346,29 +4458,66 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         {/* Pagination Info Header */}
                         <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 flex items-center justify-between">
                            <span className="text-sm text-gray-600 dark:text-gray-400">
-                              Showing {((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, contactDocs.length)} of {contactDocs.length} documents
+                              Showing {filteredDocs.length === 0 ? 0 : ((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, filteredDocs.length)} of {filteredDocs.length}{(docsLenderFilter || docsCategoryFilter) ? ` (filtered from ${contactDocs.length})` : ''} documents
                            </span>
-                           {totalDocsPages > 1 && (
-                              <div className="flex items-center gap-2">
-                                 <button
-                                    onClick={() => setDocsPage(p => Math.max(1, p - 1))}
-                                    disabled={docsPage === 1}
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                           <div className="flex items-center gap-3">
+                              {/* Lender filter */}
+                              {docsLenderOptions.length > 0 && (
+                                 <select
+                                    value={docsLenderFilter}
+                                    onChange={e => { setDocsLenderFilter(e.target.value); setDocsPage(1); }}
+                                    className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
                                  >
-                                    Previous
-                                 </button>
-                                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                                    Page {docsPage} of {totalDocsPages}
-                                 </span>
-                                 <button
-                                    onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
-                                    disabled={docsPage === totalDocsPages}
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    <option value="">All Lenders</option>
+                                    {docsLenderOptions.map(l => (
+                                       <option key={l} value={l}>{l}</option>
+                                    ))}
+                                 </select>
+                              )}
+                              {/* Category filter */}
+                              {docsCategoryOptions.length > 0 && (
+                                 <select
+                                    value={docsCategoryFilter}
+                                    onChange={e => { setDocsCategoryFilter(e.target.value); setDocsPage(1); }}
+                                    className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
                                  >
-                                    Next
-                                 </button>
-                              </div>
-                           )}
+                                    <option value="">All Categories</option>
+                                    {docsCategoryOptions.map(c => (
+                                       <option key={c} value={c}>{c}</option>
+                                    ))}
+                                 </select>
+                              )}
+                              <select
+                                 value={docsPerPage}
+                                 onChange={e => { setDocsPerPage(Number(e.target.value)); setDocsPage(1); }}
+                                 className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                              >
+                                 <option value={20}>20 / page</option>
+                                 <option value={50}>50 / page</option>
+                                 <option value={100}>100 / page</option>
+                              </select>
+                              {totalDocsPages > 1 && (
+                                 <div className="flex items-center gap-2">
+                                    <button
+                                       onClick={() => setDocsPage(p => Math.max(1, p - 1))}
+                                       disabled={docsPage === 1}
+                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       Previous
+                                    </button>
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                                       Page {docsPage} of {totalDocsPages}
+                                    </span>
+                                    <button
+                                       onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
+                                       disabled={docsPage === totalDocsPages}
+                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       Next
+                                    </button>
+                                 </div>
+                              )}
+                           </div>
                         </div>
                         <table className="w-full text-left">
                            <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-700 dark:to-purple-700">
@@ -4415,19 +4564,123 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        </div>
                                     </td>
                                     <td className="py-4 px-5">
-                                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                          {getLenderFromDoc(doc) || 'N/A'}
-                                       </span>
+                                       <div className="relative">
+                                          <button
+                                             onClick={e => {
+                                                e.stopPropagation();
+                                                if (docLenderDropdown === doc.id) {
+                                                   setDocLenderDropdown(null);
+                                                   setDocLenderSearch('');
+                                                } else {
+                                                   setDocLenderDropdown(doc.id);
+                                                   setDocLenderSearch('');
+                                                }
+                                             }}
+                                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors cursor-pointer"
+                                             title="Click to change lender"
+                                          >
+                                             {docLenderSaving === doc.id ? (
+                                                <span className="animate-pulse">Saving...</span>
+                                             ) : (
+                                                <>
+                                                   {getLenderFromDoc(doc) || 'N/A'}
+                                                   <svg className="w-3 h-3 ml-0.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                                </>
+                                             )}
+                                          </button>
+                                          {docLenderDropdown === doc.id && (
+                                             <div className="absolute z-50 left-0 mt-1 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden" onClick={e => e.stopPropagation()}>
+                                                <div className="p-2 border-b border-gray-100 dark:border-slate-700">
+                                                   <input
+                                                      autoFocus
+                                                      type="text"
+                                                      value={docLenderSearch}
+                                                      onChange={e => setDocLenderSearch(e.target.value)}
+                                                      placeholder="Search lender..."
+                                                      className="w-full px-2 py-1.5 text-xs rounded border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                      onClick={e => e.stopPropagation()}
+                                                   />
+                                                </div>
+                                                <div className="max-h-48 overflow-y-auto">
+                                                   <button
+                                                      className="w-full text-left px-3 py-2 text-xs text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-slate-700 italic"
+                                                      onClick={() => handleDocLenderSave(doc.id, '')}
+                                                   >
+                                                      — Clear (N/A)
+                                                   </button>
+                                                   {COMMON_LENDERS.filter(l =>
+                                                      !docLenderSearch || l.toLowerCase().includes(docLenderSearch.toLowerCase())
+                                                   ).map(lender => (
+                                                      <button
+                                                         key={lender}
+                                                         className={`w-full text-left px-3 py-2 text-xs hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors ${getLenderFromDoc(doc) === lender ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}
+                                                         onClick={() => handleDocLenderSave(doc.id, lender)}
+                                                      >
+                                                         {lender}
+                                                      </button>
+                                                   ))}
+                                                   {COMMON_LENDERS.filter(l =>
+                                                      !docLenderSearch || l.toLowerCase().includes(docLenderSearch.toLowerCase())
+                                                   ).length === 0 && (
+                                                      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500 italic">No lenders found</p>
+                                                   )}
+                                                </div>
+                                             </div>
+                                          )}
+                                       </div>
                                     </td>
                                     <td className="py-4 px-5">
-                                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${doc.category === 'Cover Letter'
-                                             ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
-                                             : doc.category === 'LOA'
-                                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                                                : 'bg-gray-100 dark:bg-slate-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-500'
-                                          }`}>
-                                          {doc.category || 'General'}
-                                       </span>
+                                       <div className="relative">
+                                          <button
+                                             onClick={e => {
+                                                e.stopPropagation();
+                                                if (docCategoryDropdown === doc.id) {
+                                                   setDocCategoryDropdown(null);
+                                                } else {
+                                                   setDocCategoryDropdown(doc.id);
+                                                }
+                                             }}
+                                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-colors ${doc.category === 'Cover Letter'
+                                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
+                                                : doc.category === 'LOA' || doc.category === 'Letter of Authority'
+                                                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                                   : doc.category === 'ID Document' || doc.category === 'Proof of Address'
+                                                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                                      : doc.category === 'DSAR'
+                                                         ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800'
+                                                         : doc.category === 'Complaint Letter' || doc.category === 'Counter Response'
+                                                            ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800'
+                                                            : doc.category === 'Invoice' || doc.category === 'Settlement Agreement'
+                                                               ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                                               : 'bg-gray-100 dark:bg-slate-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-500'
+                                             }`}
+                                             title="Click to change category"
+                                          >
+                                             {docCategorySaving === doc.id ? (
+                                                <span className="animate-pulse">Saving...</span>
+                                             ) : (
+                                                <>
+                                                   {doc.category || 'General'}
+                                                   <svg className="w-3 h-3 ml-0.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                                </>
+                                             )}
+                                          </button>
+                                          {docCategoryDropdown === doc.id && (
+                                             <div className="absolute z-50 left-0 mt-1 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden" onClick={e => e.stopPropagation()}>
+                                                <div className="max-h-56 overflow-y-auto">
+                                                   {DOCUMENT_CATEGORIES.map(cat => (
+                                                      <button
+                                                         key={cat}
+                                                         className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors ${(doc.category || 'Other') === cat ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}
+                                                         onClick={() => handleDocCategorySave(doc.id, cat)}
+                                                      >
+                                                         {cat}
+                                                      </button>
+                                                   ))}
+                                                </div>
+                                             </div>
+                                          )}
+                                       </div>
                                     </td>
                                     <td className="py-4 px-5">
                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${doc.type === 'pdf'
@@ -4479,46 +4732,57 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            </tbody>
                         </table>
                         {/* Pagination Footer */}
-                        {totalDocsPages > 1 && (
-                           <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600 flex items-center justify-between">
-                              <span className="text-sm text-gray-600 dark:text-gray-400">
-                                 Showing {((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, contactDocs.length)} of {contactDocs.length}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                 <button
-                                    onClick={() => setDocsPage(1)}
-                                    disabled={docsPage === 1}
-                                    className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                 >
-                                    First
-                                 </button>
-                                 <button
-                                    onClick={() => setDocsPage(p => Math.max(1, p - 1))}
-                                    disabled={docsPage === 1}
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                 >
-                                    ← Prev
-                                 </button>
-                                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {docsPage} / {totalDocsPages}
-                                 </span>
-                                 <button
-                                    onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
-                                    disabled={docsPage === totalDocsPages}
-                                    className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                 >
-                                    Next →
-                                 </button>
-                                 <button
-                                    onClick={() => setDocsPage(totalDocsPages)}
-                                    disabled={docsPage === totalDocsPages}
-                                    className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                 >
-                                    Last
-                                 </button>
-                              </div>
+                        <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600 flex items-center justify-between">
+                           <span className="text-sm text-gray-600 dark:text-gray-400">
+                              Showing {filteredDocs.length === 0 ? 0 : ((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, filteredDocs.length)} of {filteredDocs.length}{(docsLenderFilter || docsCategoryFilter) ? ` (filtered)` : ''}
+                           </span>
+                           <div className="flex items-center gap-2">
+                              <select
+                                 value={docsPerPage}
+                                 onChange={e => { setDocsPerPage(Number(e.target.value)); setDocsPage(1); }}
+                                 className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                              >
+                                 <option value={20}>20 / page</option>
+                                 <option value={50}>50 / page</option>
+                                 <option value={100}>100 / page</option>
+                              </select>
+                              {totalDocsPages > 1 && (
+                                 <>
+                                    <button
+                                       onClick={() => setDocsPage(1)}
+                                       disabled={docsPage === 1}
+                                       className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       First
+                                    </button>
+                                    <button
+                                       onClick={() => setDocsPage(p => Math.max(1, p - 1))}
+                                       disabled={docsPage === 1}
+                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       ← Prev
+                                    </button>
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                       {docsPage} / {totalDocsPages}
+                                    </span>
+                                    <button
+                                       onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
+                                       disabled={docsPage === totalDocsPages}
+                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       Next →
+                                    </button>
+                                    <button
+                                       onClick={() => setDocsPage(totalDocsPages)}
+                                       disabled={docsPage === totalDocsPages}
+                                       className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                       Last
+                                    </button>
+                                 </>
+                              )}
                            </div>
-                        )}
+                        </div>
                      </div>
                   ) : (
                      <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800">
@@ -4686,7 +4950,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               disabled={isUploadingDocument}
                            >
                               <option value="">-- No Lender --</option>
-                              {[...new Set(contactClaims.map(c => c.lender).filter(Boolean))].map(lender => (
+                              {docsLenderOptions.map(lender => (
                                  <option key={lender} value={lender}>{lender}</option>
                               ))}
                            </select>

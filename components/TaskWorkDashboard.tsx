@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, AlertTriangle } from 'lucide-react';
+import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, AlertTriangle, Bell, X } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -56,7 +56,9 @@ const TaskWorkDashboard: React.FC = () => {
   const [allStatuses, setAllStatuses] = useState<string[]>([]);
   const [offlineAlerts, setOfflineAlerts] = useState<OfflineAlert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(new Set());
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const notifiedAgentsRef = useRef<Set<number>>(new Set());
+  const bellRef = useRef<HTMLDivElement>(null);
 
   if (currentUser?.role !== 'Management') {
     return (
@@ -166,6 +168,17 @@ const TaskWorkDashboard: React.FC = () => {
 
   const onlineCount = agents.filter(a => a.is_online).length;
 
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setNotificationOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const periodButtons: { value: Period; label: string }[] = [
     { value: 'day', label: 'Day' },
     { value: 'week', label: 'Week' },
@@ -185,6 +198,56 @@ const TaskWorkDashboard: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Notification Bell */}
+          <div className="relative" ref={bellRef}>
+            <button
+              onClick={() => setNotificationOpen(prev => !prev)}
+              className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/5 transition-all"
+            >
+              <Bell size={18} />
+              {visibleAlerts.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  {visibleAlerts.length}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Dropdown */}
+            {notificationOpen && (
+              <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-surface-800 border border-gray-200 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
+                  <h4 className="text-sm font-bold text-gray-900 dark:text-white">Offline Alerts</h4>
+                  <span className="text-xs text-gray-400">{visibleAlerts.length} alert{visibleAlerts.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="max-h-80 overflow-auto">
+                  {visibleAlerts.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-gray-400">No offline alerts</div>
+                  ) : (
+                    visibleAlerts.map(agent => (
+                      <div key={agent.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 dark:border-white/5 last:border-b-0 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                        <div className="mt-0.5 p-1 rounded-full bg-red-100 dark:bg-red-500/20 shrink-0">
+                          <AlertTriangle size={14} className="text-red-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {agent.name} <span className="text-gray-400 font-normal">({agent.role})</span>
+                          </p>
+                          <p className="text-xs text-red-500 mt-0.5">Offline for {Math.round(agent.minutes_offline)} minutes</p>
+                        </div>
+                        <button
+                          onClick={() => dismissAlert(agent.id)}
+                          className="p-1 rounded-lg text-gray-300 hover:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Period Toggle */}
           <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-white/10">
             {periodButtons.map(pb => (
@@ -209,28 +272,6 @@ const TaskWorkDashboard: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* Offline Agent Alerts */}
-      {visibleAlerts.length > 0 && (
-        <div className="mb-4 space-y-2">
-          {visibleAlerts.map(agent => (
-            <div key={agent.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl">
-              <AlertTriangle size={18} className="text-red-500 shrink-0" />
-              <div className="flex-1">
-                <span className="text-sm font-medium text-red-800 dark:text-red-300">
-                  {agent.name} ({agent.role}) has been offline for {Math.round(agent.minutes_offline)} minutes
-                </span>
-              </div>
-              <button
-                onClick={() => dismissAlert(agent.id)}
-                className="text-red-400 hover:text-red-600 dark:hover:text-red-300 text-xs font-medium px-2 py-1 rounded hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
-              >
-                Dismiss
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* KPI Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

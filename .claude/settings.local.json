@@ -134,7 +134,13 @@
       "Bash(cmd /c \"netstat -ano | findstr :5000 | findstr LISTEN\")",
       "Bash(cmd /c \"netstat -ano | findstr :3000 | findstr LISTEN\")",
       "Bash(cmd /c \"powershell -NoProfile -Command Stop-Process -Name node -Force 2>nul & echo Done\")",
-      "Bash(cmd /c \"wmic process where \"\"name=''node.exe''\"\" call terminate 2>nul\")"
+      "Bash(cmd /c \"wmic process where \"\"name=''node.exe''\"\" call terminate 2>nul\")",
+      "Bash(xargs wc -l)",
+      "Bash(wc -l /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/components/*.tsx)",
+      "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/components -name \"*.tsx\" -exec wc -l {} +)",
+      "Bash(find \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS2\\\\CRM-Finalised/components\" -type f -name \"*.tsx\" -exec wc -l {} +)",
+      "Read(//c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/**)",
+      "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/components/Email -name \"*.tsx\" -exec wc -l {} +)"
     ]
   }
 }

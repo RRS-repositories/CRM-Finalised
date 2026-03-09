@@ -98,4 +98,4 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({ preset, onPresetChang
   );
 };
 
-export default DateRangePicker;
+export default React.memo(DateRangePicker);

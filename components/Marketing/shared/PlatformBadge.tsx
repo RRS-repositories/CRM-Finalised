@@ -32,4 +32,4 @@ const PlatformBadge: React.FC<PlatformBadgeProps> = ({ platform, size = 'sm' }) 
   );
 };
 
-export default PlatformBadge;
+export default React.memo(PlatformBadge);

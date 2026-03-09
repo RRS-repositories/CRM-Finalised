@@ -32,4 +32,4 @@ const FilterBar: React.FC<FilterBarProps> = ({ platformFilter, onPlatformChange 
   );
 };
 
-export default FilterBar;
+export default React.memo(FilterBar);

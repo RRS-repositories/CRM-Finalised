@@ -1,9 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  X, Send, Paperclip, Trash2, Loader2, Minus, Maximize2, Minimize2
+  X, Send, Paperclip, Trash2, Loader2, Minus, Maximize2, Minimize2, Save
 } from 'lucide-react';
 import { EmailAccount } from '../../types';
-import { sendEmail, replyToEmail, replyAllToEmail, forwardEmail } from '../../services/emailApiService';
+import { sendEmail, replyToEmail, replyAllToEmail, forwardEmail, saveDraft, fetchAttachmentsBase64 } from '../../services/emailApiService';
 
 export type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward' | 'draft';
 
@@ -22,6 +22,8 @@ export interface ComposeEmailProps {
     bodyHtml?: string;
     bodyText: string;
     receivedAt: string;
+    hasAttachments?: boolean;
+    attachments?: { id: string; filename: string; mimeType: string; size: number }[];
   };
   onClose: () => void;
   onSent?: () => void;
@@ -85,11 +87,33 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
   });
 
   const [attachments, setAttachments] = useState<{ name: string; contentType: string; contentBytes: string }[]>([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [sending, setSending] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
   const [error, setError] = useState('');
   const [minimized, setMinimized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Load attachments when editing a draft that has them
+  useEffect(() => {
+    if (mode === 'draft' && originalEmail && (originalEmail.hasAttachments || (originalEmail.attachments && originalEmail.attachments.length > 0))) {
+      setLoadingAttachments(true);
+      fetchAttachmentsBase64(originalEmail.accountId, originalEmail.id)
+        .then(atts => {
+          setAttachments(atts.map(a => ({
+            name: a.name,
+            contentType: a.contentType,
+            contentBytes: a.contentBytes,
+          })));
+        })
+        .catch(err => {
+          console.error('Failed to load draft attachments:', err);
+        })
+        .finally(() => setLoadingAttachments(false));
+    }
+  }, []);
 
   const parseEmails = (field: string) =>
     field.split(/[,;]/).map(e => e.trim()).filter(Boolean);
@@ -129,6 +153,29 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
       setError(err.message || 'Failed to send email');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    setError('');
+    setDraftSaved(false);
+    try {
+      const htmlContent = bodyRef.current?.innerHTML || bodyHtml;
+      await saveDraft(fromAccountId, {
+        to: parseEmails(toField),
+        cc: parseEmails(ccField),
+        bcc: parseEmails(bccField),
+        subject,
+        bodyHtml: htmlContent,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      });
+      setDraftSaved(true);
+      setTimeout(() => setDraftSaved(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save draft');
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -266,9 +313,15 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
         />
 
         {/* Attachments */}
-        {attachments.length > 0 && (
+        {(attachments.length > 0 || loadingAttachments) && (
           <div className="px-4 py-2 border-t border-gray-200 dark:border-slate-600">
             <div className="flex flex-wrap gap-2">
+              {loadingAttachments && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>Loading attachments...</span>
+                </div>
+              )}
               {attachments.map((att, i) => (
                 <div key={i} className="flex items-center gap-1.5 bg-gray-100 dark:bg-slate-700 rounded-lg px-2.5 py-1.5 text-xs">
                   <Paperclip size={12} className="text-gray-500" />
@@ -300,6 +353,15 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
           >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             <span>Send</span>
+          </button>
+          <button
+            onClick={handleSaveDraft}
+            disabled={savingDraft || sending}
+            className="flex items-center gap-1.5 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-50 text-sm rounded-lg transition-colors"
+            title="Save as Draft"
+          >
+            {savingDraft ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            <span>{draftSaved ? 'Saved!' : 'Draft'}</span>
           </button>
           <button
             onClick={handleAttach}

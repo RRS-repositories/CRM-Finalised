@@ -1,30 +1,39 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { useMarketingStore } from '../../stores/marketingStore';
 import MarketingLayout from './MarketingLayout';
-import OverviewDashboard from './OverviewDashboard';
-import CampaignPerformance from './CampaignPerformance';
-import CampaignDetail from './CampaignDetail';
-import CreativePerformance from './CreativePerformance';
-import LeadAnalytics from './LeadAnalytics';
-import AICommandCentre from './AICommandCentre';
-import SpendBudget from './SpendBudget';
-import CreativeWarRoom from './CreativeWarRoom';
-import PlacementOptimisation from './PlacementOptimisation';
-import TimeOfDayHeatmap from './TimeOfDayHeatmap';
-import EmotionalCycleCalendar from './EmotionalCycleCalendar';
-import TikTokCommandCentre from './TikTokCommandCentre';
-import ContentByPillar from './ContentByPillar';
-import SparkAdsPipeline from './SparkAdsPipeline';
-import CommentEngagement from './CommentEngagement';
-import LiveStreamPlanning from './LiveStreamPlanning';
-import BlendedPerformance from './BlendedPerformance';
-import ROIBySource from './ROIBySource';
-import UnifiedInbox from './UnifiedInbox';
-import BotPerformance from './BotPerformance';
-import ConversationIntelligence from './ConversationIntelligence';
-import FollowUpPerformance from './FollowUpPerformance';
-import CredentialHealth from './CredentialHealth';
-import LenderPerformance from './LenderPerformance';
+
+// === PERFORMANCE: Lazy-load all Marketing sub-pages ===
+// Only the active page's JS is loaded, saving ~200KB+ of parsing per page switch
+const OverviewDashboard = lazy(() => import('./OverviewDashboard'));
+const CampaignPerformance = lazy(() => import('./CampaignPerformance'));
+const CampaignDetail = lazy(() => import('./CampaignDetail'));
+const CreativePerformance = lazy(() => import('./CreativePerformance'));
+const LeadAnalytics = lazy(() => import('./LeadAnalytics'));
+const AICommandCentre = lazy(() => import('./AICommandCentre'));
+const SpendBudget = lazy(() => import('./SpendBudget'));
+const CreativeWarRoom = lazy(() => import('./CreativeWarRoom'));
+const PlacementOptimisation = lazy(() => import('./PlacementOptimisation'));
+const TimeOfDayHeatmap = lazy(() => import('./TimeOfDayHeatmap'));
+const EmotionalCycleCalendar = lazy(() => import('./EmotionalCycleCalendar'));
+const TikTokCommandCentre = lazy(() => import('./TikTokCommandCentre'));
+const ContentByPillar = lazy(() => import('./ContentByPillar'));
+const SparkAdsPipeline = lazy(() => import('./SparkAdsPipeline'));
+const CommentEngagement = lazy(() => import('./CommentEngagement'));
+const LiveStreamPlanning = lazy(() => import('./LiveStreamPlanning'));
+const BlendedPerformance = lazy(() => import('./BlendedPerformance'));
+const ROIBySource = lazy(() => import('./ROIBySource'));
+const UnifiedInbox = lazy(() => import('./UnifiedInbox'));
+const BotPerformance = lazy(() => import('./BotPerformance'));
+const ConversationIntelligence = lazy(() => import('./ConversationIntelligence'));
+const FollowUpPerformance = lazy(() => import('./FollowUpPerformance'));
+const CredentialHealth = lazy(() => import('./CredentialHealth'));
+const LenderPerformance = lazy(() => import('./LenderPerformance'));
+
+const SubPageLoader = () => (
+  <div className="flex items-center justify-center py-20">
+    <div className="w-6 h-6 border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin" />
+  </div>
+);
 
 const Marketing: React.FC = () => {
   const { currentPage } = useMarketingStore();
@@ -86,7 +95,9 @@ const Marketing: React.FC = () => {
 
   return (
     <MarketingLayout>
-      {renderPage()}
+      <Suspense fallback={<SubPageLoader />}>
+        {renderPage()}
+      </Suspense>
     </MarketingLayout>
   );
 };
