@@ -4062,19 +4062,19 @@ app.patch('/api/crm/documents/update', async (req, res) => {
         // Look up document — prefer numeric id, then exact url match, then partial S3 key match
         let docRes;
         if (id) {
-            docRes = await pool.query('SELECT id, contact_id FROM documents WHERE id = $1', [id]);
+            docRes = await pool.query('SELECT id, contact_id, url FROM documents WHERE id = $1', [id]);
         }
         if (!docRes || docRes.rows.length === 0) {
             // Try exact url match (works if caller passes the full presigned URL)
             if (s3_key) {
-                docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url = $1', [s3_key]);
+                docRes = await pool.query('SELECT id, contact_id, url FROM documents WHERE url = $1', [s3_key]);
             }
         }
         if (!docRes || docRes.rows.length === 0) {
             // Try partial match — the url column contains presigned URLs that include the S3 key as a path
             if (s3_key) {
                 const cleanKey = s3_key.replace(/^https?:\/\/[^/]+\//, '').split('?')[0];
-                docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url LIKE $1 LIMIT 1', [`%${cleanKey}%`]);
+                docRes = await pool.query('SELECT id, contact_id, url FROM documents WHERE url LIKE $1 LIMIT 1', [`%${cleanKey}%`]);
             }
         }
         if (!docRes || docRes.rows.length === 0) {
@@ -4082,8 +4082,10 @@ app.patch('/api/crm/documents/update', async (req, res) => {
         }
         const docId = docRes.rows[0].id;
         const contactId = docRes.rows[0].contact_id;
-        // Use the clean S3 key for the map tables — prefer the passed s3_key, fallback to doc id
-        const mapKey = s3_key || String(docId);
+        const docUrl = docRes.rows[0].url;
+        // Use the document's stored URL as the map key — this is what the bulk GET endpoint joins on
+        // If caller passed an s3_key, prefer that (supports per-contact S3-based docs)
+        const mapKey = s3_key || docUrl;
 
         // Update lender if provided
         if (lender !== undefined) {
