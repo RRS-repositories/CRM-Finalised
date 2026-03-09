@@ -983,35 +983,38 @@ async function generateIrlMultipleLenderPdf({
         // Nested object for {{claim.lender}} in template
         claim: { lender: contact.intake_lender || '' },
 
-        // Signature image (docx-templates native image format)
-        signatureImage: signatureBase64 ? {
-            _type: 'image',
-            data: signatureBase64.split(',')[1],
-            extension: '.png',
-            width: 5,
-            height: 2.5,
-        } : null,
     };
 
-    // 5. Pre-process: ensure {{signatureImage}} uses IMAGE command ({{IMAGE signatureImage}})
-    //    createReport requires the IMAGE keyword for image objects
+    // Convert signatureBase64 to a Buffer for docx-templates IMAGE command
+    const signatureBuffer = signatureBase64
+        ? Buffer.from(signatureBase64.split(',')[1], 'base64')
+        : null;
+
+    // 5. Pre-process: normalise signature image tag to function-call form
+    // docx-templates v4 IMAGE command requires: {{IMAGE signatureImage()}}
     let processedTemplate = templateBuffer;
     try {
         const tZip = new PizZip(templateBuffer);
         const docXml = tZip.file('word/document.xml');
         if (docXml) {
             let xml = docXml.asText();
-            // Replace {{signatureImage}} with {{IMAGE signatureImage}} if IMAGE keyword is missing
-            xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage}}');
-            // Also handle split runs: {{signatureImage might be split across runs
-            xml = xml.replace(/\{\{signatureImage/g, '{{IMAGE signatureImage');
+            // Normalise all variants to canonical function-call form
+            xml = xml.replace(/\{\{IMAGE signatureImage\(\)\}\}/g, '{{IMAGE signatureImage()}}');
+            xml = xml.replace(/\{\{IMAGE signatureImage\}\}/g, '{{IMAGE signatureImage()}}');
+            xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage()}}');
+            // Handle split runs (tag split across XML <w:r> elements)
+            xml = xml.replace(/\{\{IMAGE signatureImage(?!\()/g, '{{IMAGE signatureImage(');
+            xml = xml.replace(/\{\{signatureImage(?!\()/g, '{{IMAGE signatureImage(');
             tZip.file('word/document.xml', xml);
             processedTemplate = tZip.generate({ type: 'nodebuffer' });
-            console.log('[IRL PDF] Pre-processed template: ensured IMAGE command for signature');
+            console.log('[IRL PDF] Pre-processed template: signature tag normalised to function-call form');
         }
     } catch (ppErr) {
         console.warn('[IRL PDF] Template pre-processing skipped:', ppErr.message);
     }
+
+    // Remove signatureImage from data (provided via additionalJsContext as a function)
+    const { signatureImage: _sigImg, ...templateDataWithoutSig } = templateVars;
 
     // 6. Fill DOCX template using createReport (same engine as LOA & Cover Letter)
     console.log('[IRL PDF] Filling DOCX template with createReport...');
@@ -1019,7 +1022,16 @@ async function generateIrlMultipleLenderPdf({
     try {
         docxBuffer = await createReport({
             template: processedTemplate,
-            data: templateVars,
+            data: templateDataWithoutSig,
+            additionalJsContext: {
+                // docx-templates v4: IMAGE expression must be callable; data must be a Buffer
+                signatureImage: () => signatureBuffer ? {
+                    width: 5,     // cm
+                    height: 2.5,  // cm
+                    data: signatureBuffer,
+                    extension: '.png',
+                } : null,
+            },
             cmdDelimiter: ['{{', '}}'],
         });
         console.log('[IRL PDF] DOCX template filled successfully via createReport');
@@ -8666,28 +8678,49 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                             } : null,
                         };
 
-                        // Pre-process: ensure {{signatureImage}} uses IMAGE command
+                        // Pre-process: normalise signature image tag to function-call form
+                        // docx-templates v4 IMAGE command requires: {{IMAGE signatureImage()}}
                         let processedTemplate = templateBuffer;
                         try {
                             const tZip = new PizZip(templateBuffer);
                             const docXml = tZip.file('word/document.xml');
                             if (docXml) {
                                 let xml = docXml.asText();
-                                xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage}}');
-                                xml = xml.replace(/\{\{signatureImage/g, '{{IMAGE signatureImage');
+                                // Replace all variants (with or without IMAGE keyword, with or without parens)
+                                // to the canonical function-call form {{IMAGE signatureImage()}}
+                                xml = xml.replace(/\{\{IMAGE signatureImage\(\)\}\}/g, '{{IMAGE signatureImage()}}'); // already correct — no-op
+                                xml = xml.replace(/\{\{IMAGE signatureImage\}\}/g, '{{IMAGE signatureImage()}}');
+                                xml = xml.replace(/\{\{signatureImage\}\}/g, '{{IMAGE signatureImage()}}');
+                                // Handle split runs (tag split across XML <w:r> elements)
+                                xml = xml.replace(/\{\{IMAGE signatureImage(?!\()/g, '{{IMAGE signatureImage(');
+                                xml = xml.replace(/\{\{signatureImage(?!\()/g, '{{IMAGE signatureImage(');
                                 tZip.file('word/document.xml', xml);
                                 processedTemplate = tZip.generate({ type: 'nodebuffer' });
+                                console.log('[Background Questionnaire] Template pre-processed: signature tag normalised');
                             }
                         } catch (ppErr) {
                             console.warn('[Background Questionnaire] Template pre-processing skipped:', ppErr.message);
                         }
+
+                        // Remove signatureImage from data (will be provided via additionalJsContext as a function)
+                        const { signatureImage: _sigImg, ...templateDataWithoutSig } = templateVars;
 
                         // Fill template with createReport
                         let docxBuffer;
                         try {
                             docxBuffer = await createReport({
                                 template: processedTemplate,
-                                data: templateVars,
+                                data: templateDataWithoutSig,
+                                additionalJsContext: {
+                                    // docx-templates v4: IMAGE expression must be callable
+                                    // data must be a Buffer (not base64 string)
+                                    signatureImage: () => signatureBuffer ? {
+                                        width: 5,     // cm
+                                        height: 2.5,  // cm
+                                        data: signatureBuffer,
+                                        extension: '.png',
+                                    } : null,
+                                },
                                 cmdDelimiter: ['{{', '}}'],
                             });
                             console.log('[Background Questionnaire] DOCX template filled via createReport');
