@@ -177,6 +177,8 @@ export interface Contact {
     submittedAt: string;
   };
   questionnaireSubmitted?: boolean;
+  q1Submitted?: boolean;
+  q2Submitted?: boolean;
   signatureQuestionnaireUrl?: string;
 }
 

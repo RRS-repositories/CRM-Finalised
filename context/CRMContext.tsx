@@ -671,6 +671,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           bettingCompanies: c.betting_companies || '',
           questionnaireData: c.questionnaire_data || undefined,
           questionnaireSubmitted: c.questionnaire_submitted || false,
+          q1Submitted: c.q1_submitted || false,
+          q2Submitted: c.q2_submitted || false,
           signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
         }));
 
@@ -781,6 +783,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           bettingCompanies: c.betting_companies || '',
           questionnaireData: c.questionnaire_data || undefined,
           questionnaireSubmitted: c.questionnaire_submitted || false,
+          q1Submitted: c.q1_submitted || false,
+          q2Submitted: c.q2_submitted || false,
           signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
           clientId: c.client_id
         }));
@@ -1032,6 +1036,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               bettingCompanies: c.betting_companies || '',
               questionnaireData: c.questionnaire_data || undefined,
               questionnaireSubmitted: c.questionnaire_submitted || false,
+          q1Submitted: c.q1_submitted || false,
+          q2Submitted: c.q2_submitted || false,
               signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
               clientId: c.client_id
             }));

@@ -8430,51 +8430,72 @@ app.get(['/questionnaire2', '/questionnaire/2'], (req, res) => {
     res.sendFile(path.join(__dirname, 'questionnaire2.html'));
 });
 
-// Dynamic Questionnaire Routes - inject contact data into HTML template
-// /questionnaire/1/:contactId → questionnaire1 (Gambling Questionnaire: IRL first, gambling second)
-// /questionnaire/2/:contactId → questionnaire2 (IRL Questionnaire: gambling first, IRL second)
-async function serveQuestionnaire(req, res, templateFile) {
-    const { contactId } = req.params;
+// Generate questionnaire token for a contact
+// POST /api/generate-questionnaire-token  { contactId, type: 1|2 }
+app.post('/api/generate-questionnaire-token', async (req, res) => {
+    const { contactId, type } = req.body;
+    if (!contactId || ![1, 2].includes(Number(type))) {
+        return res.status(400).json({ success: false, message: 'contactId and type (1 or 2) required' });
+    }
     try {
-        const contactRes = await pool.query(
-            'SELECT id, first_name, last_name, full_name, client_id, questionnaire_submitted FROM contacts WHERE id = $1',
-            [contactId]
+        // Upsert: delete old unused token for this contact+type, create fresh one
+        await pool.query(
+            'DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = $2 AND submitted = false',
+            [contactId, type]
         );
+        const tokenRes = await pool.query(
+            `INSERT INTO questionnaire_tokens (contact_id, questionnaire_type)
+             VALUES ($1, $2) RETURNING token`,
+            [contactId, type]
+        );
+        const token = tokenRes.rows[0].token;
+        const label = Number(type) === 1 ? 'Gambling Questionnaire' : 'IRL Questionnaire';
+        res.json({ success: true, token, label, url: `/questionnaire/token/${token}` });
+    } catch (error) {
+        console.error('Generate questionnaire token error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
 
-        if (contactRes.rows.length === 0) {
-            return res.status(404).send(`<!DOCTYPE html><html><head><title>Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#EF4444;}</style></head><body><h1>Contact Not Found</h1><p>This questionnaire link is not valid. Please contact Rowan Rose Solicitors for assistance.</p></body></html>`);
+// Serve questionnaire via secure token
+// GET /questionnaire/token/:token
+app.get('/questionnaire/token/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const tokenRes = await pool.query(
+            `SELECT qt.*, c.id as cid, c.first_name, c.last_name, c.full_name, c.client_id, c.q1_submitted, c.q2_submitted
+             FROM questionnaire_tokens qt
+             JOIN contacts c ON c.id = qt.contact_id
+             WHERE qt.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).send(`<!DOCTYPE html><html><head><title>Invalid Link</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#EF4444;}</style></head><body><h1>Invalid Link</h1><p>This questionnaire link is not valid. Please contact Rowan Rose Solicitors.</p></body></html>`);
         }
-
-        const contact = contactRes.rows[0];
-
-        if (contact.questionnaire_submitted) {
+        const row = tokenRes.rows[0];
+        const qType = row.questionnaire_type;
+        const alreadySubmitted = qType === 1 ? row.q1_submitted : row.q2_submitted;
+        if (row.submitted || alreadySubmitted) {
             return res.status(400).send(`<!DOCTYPE html><html><head><title>Already Submitted</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#F59E0B;}</style></head><body><h1>Already Submitted</h1><p>This questionnaire has already been submitted. Thank you.</p></body></html>`);
         }
-
-        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`.trim();
-        const clientRef = contact.client_id || `RR-${contact.id}`;
+        const templateFile = qType === 1 ? 'questionnaire1.html' : 'questionnaire2.html';
+        const contactName = row.full_name || `${row.first_name} ${row.last_name}`.trim();
+        const clientRef = row.client_id || `RR-${row.cid}`;
         const today = new Date().toLocaleDateString('en-GB');
 
         let html = fs.readFileSync(path.join(__dirname, templateFile), 'utf8');
-
         html = html.replace(/\$\{contactName\}/g, contactName);
         html = html.replace(/\$\{clientRef\}/g, clientRef);
-        html = html.replace(/\$\{contact\.id\}/g, contact.id);
         html = html.replace(/\$\{new Date\(\)\.toLocaleDateString\('en-GB'\)\}/g, today);
+        // inject token and questionnaire type into payload (must be before ${contact.id} is replaced)
+        html = html.replace("contactId: '${contact.id}'", `contactId: '${token}', questionnaireType: ${qType}`);
+        html = html.replace(/\$\{contact\.id\}/g, token);
 
         res.send(html);
     } catch (error) {
-        console.error('Error serving questionnaire:', error);
+        console.error('Error serving questionnaire token:', error);
         res.status(500).send('Server error');
     }
-}
-
-app.get('/questionnaire/1/:contactId', (req, res) => {
-    serveQuestionnaire(req, res, 'questionnaire1.html');
-});
-
-app.get('/questionnaire/2/:contactId', (req, res) => {
-    serveQuestionnaire(req, res, 'questionnaire2.html');
 });
 
 app.get('/iddocument/:id', (req, res) => {
@@ -8483,32 +8504,40 @@ app.get('/iddocument/:id', (req, res) => {
 
 // Submit Combined Questionnaire
 app.post('/api/submit-questionnaire', async (req, res) => {
-    const { contactId, questions, isGambler, previousBettingCompanies, estimatedGamblingLosses, additionalInformation, signatureData } = req.body;
+    const { contactId: token, questionnaireType, questions, isGambler, previousBettingCompanies, estimatedGamblingLosses, additionalInformation, signatureData } = req.body;
 
-    if (!contactId || !questions || !signatureData) {
+    if (!token || !questions || !signatureData) {
         return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     try {
-        // Verify contact exists and hasn't already submitted
-        const contactRes = await pool.query(
-            'SELECT id, first_name, last_name, questionnaire_submitted FROM contacts WHERE id = $1',
-            [contactId]
+        // Look up contact via token
+        const tokenRes = await pool.query(
+            `SELECT qt.*, c.id as cid, c.first_name, c.last_name, c.q1_submitted, c.q2_submitted
+             FROM questionnaire_tokens qt
+             JOIN contacts c ON c.id = qt.contact_id
+             WHERE qt.token = $1`,
+            [token]
         );
 
-        if (contactRes.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Contact not found' });
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or expired questionnaire link' });
         }
 
-        const contact = contactRes.rows[0];
+        const row = tokenRes.rows[0];
+        const contactId = row.cid;
+        const qType = questionnaireType || row.questionnaire_type;
+        const alreadySubmitted = qType === 1 ? row.q1_submitted : row.q2_submitted;
+        const contact = { id: contactId, first_name: row.first_name, last_name: row.last_name };
 
-        if (contact.questionnaire_submitted) {
+        if (row.submitted || alreadySubmitted) {
             return res.status(400).json({ success: false, message: 'Questionnaire has already been submitted.', alreadySubmitted: true });
         }
 
         // Build JSONB data
         const questionnaireData = {
             questions,
+            questionnaireType: qType,
             isGambler: isGambler || false,
             previousBettingCompanies: previousBettingCompanies || '',
             estimatedGamblingLosses: estimatedGamblingLosses || '',
@@ -8516,11 +8545,15 @@ app.post('/api/submit-questionnaire', async (req, res) => {
             submittedAt: new Date().toISOString()
         };
 
+        const qTypeCol = qType === 1 ? 'q1_submitted' : 'q2_submitted';
+        const qLabel = qType === 1 ? 'GAMBLING' : 'IRL';
+
         // --- UPDATE DB IMMEDIATELY ---
         await pool.query(
-            'UPDATE contacts SET questionnaire_data = $1, questionnaire_submitted = true WHERE id = $2',
+            `UPDATE contacts SET questionnaire_data = $1, questionnaire_submitted = true, ${qTypeCol} = true WHERE id = $2`,
             [JSON.stringify(questionnaireData), contactId]
         );
+        await pool.query('UPDATE questionnaire_tokens SET submitted = true WHERE token = $1', [token]);
 
         // --- IMMEDIATE RESPONSE ---
         res.json({ success: true, message: 'Questionnaire submitted successfully' });
@@ -8554,7 +8587,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                 await pool.query(
                     `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
                      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [contactId, 'Signature_Questionnaire.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Questionnaire']]
+                    [contactId, `Signature_${qLabel}_Questionnaire.png`, 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Questionnaire']]
                 );
 
                 // 4. Log action
@@ -8564,22 +8597,24 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                     [
                         contactId,
                         String(contactId),
-                        `Client submitted combined questionnaire`,
-                        JSON.stringify({ isGambler: isGambler || false, questionsAnswered: Object.values(questions).filter(v => v === true).length })
+                        `Client submitted ${qLabel} questionnaire`,
+                        JSON.stringify({ questionnaireType: qType, isGambler: isGambler || false, questionsAnswered: Object.values(questions).filter(v => v === true).length })
                     ]
                 );
 
-                // 5. Generate Questionnaire PDF from combined_questionnaire template
+                // 5. Generate Questionnaire PDF from template
+                const templateSearchName = qType === 1 ? 'gambling_questionnaire' : 'irl_questionnaire';
                 try {
-                    console.log('[Background Questionnaire] Generating PDF from combined_questionnaire template...');
+                    console.log(`[Background Questionnaire] Generating PDF from ${templateSearchName} template...`);
 
                     // Find template in oo_templates
                     const templateRes = await pool.query(
-                        `SELECT s3_key FROM oo_templates WHERE name ILIKE '%combined_questionnaire%' AND is_active = TRUE ORDER BY updated_at DESC LIMIT 1`
+                        `SELECT s3_key FROM oo_templates WHERE name ILIKE $1 AND is_active = TRUE ORDER BY updated_at DESC LIMIT 1`,
+                        [`%${templateSearchName}%`]
                     );
 
                     if (templateRes.rows.length === 0) {
-                        console.warn('[Background Questionnaire] combined_questionnaire template not found in oo_templates, skipping PDF generation');
+                        console.warn(`[Background Questionnaire] ${templateSearchName} template not found in oo_templates, skipping PDF generation`);
                     } else {
                         const templateS3Key = templateRes.rows[0].s3_key;
                         console.log(`[Background Questionnaire] Using template: ${templateS3Key}`);
@@ -8598,7 +8633,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                         const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
                         const templateVars = {
-                            // All 75 question checkboxes: q1...q75
+                            // All 83 question checkboxes: q1...q83
                             ...Object.fromEntries(
                                 Array.from({ length: 75 }, (_, i) => {
                                     const key = `q${i + 1}`;
@@ -8675,7 +8710,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                         // Convert DOCX to PDF via OnlyOffice
                         let pdfBuffer;
                         try {
-                            pdfBuffer = await convertDocxToPdf(docxBuffer, `Questionnaire_${contactId}.docx`);
+                            pdfBuffer = await convertDocxToPdf(docxBuffer, `${qLabel}_Questionnaire_${contactId}.docx`);
                             console.log('[Background Questionnaire] OnlyOffice conversion successful');
                         } catch (ooErr) {
                             console.warn('[Background Questionnaire] OnlyOffice failed, trying fallback:', ooErr.message);
@@ -8689,7 +8724,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
 
                         // Upload PDF to S3
                         const sanitizedFolder = folderPath.replace(/\s+/g, '_');
-                        const pdfFileName = `Combined_Questionnaire_${contactId}.pdf`;
+                        const pdfFileName = `${qLabel}_Questionnaire_${contactId}.pdf`;
                         const pdfS3Key = `${sanitizedFolder}Documents/Other/${pdfFileName}`;
 
                         await s3Client.send(new PutObjectCommand({

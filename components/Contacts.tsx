@@ -319,6 +319,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                      }
                      return [];
                   })(),
+                  questionnaireSubmitted: c.questionnaire_submitted || false,
+                  q1Submitted: c.q1_submitted || false,
+                  q2Submitted: c.q2_submitted || false,
                   documentChecklist: c.document_checklist ? (
                      typeof c.document_checklist === 'string'
                         ? JSON.parse(c.document_checklist)
@@ -389,6 +392,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [loaLink, setLoaLink] = useState<string | null>(null);
    const [generatingLoaLink, setGeneratingLoaLink] = useState(false);
    const [showLoaLinkModal, setShowLoaLinkModal] = useState(false);
+   const [gamblingQLink, setGamblingQLink] = useState<string | null>(null);
+   const [irlQLink, setIrlQLink] = useState<string | null>(null);
+   const [generatingGamblingQ, setGeneratingGamblingQ] = useState(false);
+   const [generatingIrlQ, setGeneratingIrlQ] = useState(false);
+   const [copiedGamblingQ, setCopiedGamblingQ] = useState(false);
+   const [copiedIrlQ, setCopiedIrlQ] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -2833,34 +2842,109 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                      </div>
                   </div>
 
-                  {/* Questionnaire Link & Status */}
-                  <div className="mt-4 flex items-center gap-3 flex-wrap">
-                     {/* <button
-                        onClick={() => {
-                           const link = `${window.location.origin}/questionnaire/${contact.id}`;
-                           navigator.clipboard.writeText(link);
-                           const btn = document.getElementById('copyQuestionnaireBtn');
-                           if (btn) {
-                              btn.textContent = 'Copied!';
-                              btn.classList.add('bg-green-600');
-                              btn.classList.remove('bg-navy-700', 'hover:bg-navy-800');
-                              setTimeout(() => {
-                                 btn.textContent = 'Copy Questionnaire Link';
-                                 btn.classList.remove('bg-green-600');
-                                 btn.classList.add('bg-navy-700', 'hover:bg-navy-800');
-                              }, 2000);
-                           }
-                        }}
-                        id="copyQuestionnaireBtn"
-                        className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium transition-colors"
-                     >
-                        Copy Questionnaire Link
-                     </button> */}
-                     {contact.questionnaireSubmitted && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
-                           <span className="text-green-600">&#10003;</span> Questionnaire Submitted
-                        </span>
+                  {/* Questionnaire Links */}
+                  <div className="mt-4 space-y-3">
+                     {/* Generate Buttons Row */}
+                     <div className="flex items-center gap-3 flex-wrap">
+                        {/* Gambling Questionnaire */}
+                        <button
+                           onClick={async () => {
+                              setGeneratingGamblingQ(true);
+                              try {
+                                 const res = await fetch('/api/generate-questionnaire-token', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ contactId: contact.id, type: 1 })
+                                 });
+                                 const data = await res.json();
+                                 if (data.success) setGamblingQLink(`${window.location.origin}${data.url}`);
+                              } finally {
+                                 setGeneratingGamblingQ(false);
+                              }
+                           }}
+                           disabled={generatingGamblingQ}
+                           className="px-3 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                        >
+                           {generatingGamblingQ ? '...' : '🎲 Generate Gambling Q Link'}
+                        </button>
+
+                        {/* IRL Questionnaire */}
+                        <button
+                           onClick={async () => {
+                              setGeneratingIrlQ(true);
+                              try {
+                                 const res = await fetch('/api/generate-questionnaire-token', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ contactId: contact.id, type: 2 })
+                                 });
+                                 const data = await res.json();
+                                 if (data.success) setIrlQLink(`${window.location.origin}${data.url}`);
+                              } finally {
+                                 setGeneratingIrlQ(false);
+                              }
+                           }}
+                           disabled={generatingIrlQ}
+                           className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                        >
+                           {generatingIrlQ ? '...' : '📄 Generate IRL Q Link'}
+                        </button>
+                     </div>
+
+                     {/* Gambling Q Link row */}
+                     {gamblingQLink && (
+                        <div className="flex items-center gap-2 p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                           <span className="text-orange-700 text-xs font-medium whitespace-nowrap">Gambling Q:</span>
+                           <span className="text-xs text-slate-600 truncate flex-1">{gamblingQLink}</span>
+                           <button
+                              onClick={() => {
+                                 navigator.clipboard.writeText(gamblingQLink);
+                                 setCopiedGamblingQ(true);
+                                 setTimeout(() => setCopiedGamblingQ(false), 2000);
+                              }}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedGamblingQ ? 'bg-green-600 text-white' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
+                           >
+                              {copiedGamblingQ ? '✓ Copied' : 'Copy'}
+                           </button>
+                        </div>
                      )}
+
+                     {/* IRL Q Link row */}
+                     {irlQLink && (
+                        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                           <span className="text-blue-700 text-xs font-medium whitespace-nowrap">IRL Q:</span>
+                           <span className="text-xs text-slate-600 truncate flex-1">{irlQLink}</span>
+                           <button
+                              onClick={() => {
+                                 navigator.clipboard.writeText(irlQLink);
+                                 setCopiedIrlQ(true);
+                                 setTimeout(() => setCopiedIrlQ(false), 2000);
+                              }}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIrlQ ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                           >
+                              {copiedIrlQ ? '✓ Copied' : 'Copy'}
+                           </button>
+                        </div>
+                     )}
+
+                     {/* Submission status */}
+                     <div className="flex items-center gap-2 flex-wrap">
+                        {contact.q1Submitted && (
+                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                              ✓ Gambling Q Submitted
+                           </span>
+                        )}
+                        {contact.q2Submitted && (
+                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                              ✓ IRL Q Submitted
+                           </span>
+                        )}
+                        {!contact.q1Submitted && !contact.q2Submitted && contact.questionnaireSubmitted && (
+                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                              ✓ Questionnaire Submitted
+                           </span>
+                        )}
+                     </div>
                   </div>
                </>
             )}

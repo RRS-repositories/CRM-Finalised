@@ -230,8 +230,29 @@ async function initDb() {
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS questionnaire_submitted BOOLEAN DEFAULT false;
     `);
     await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS q1_submitted BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS q2_submitted BOOLEAN DEFAULT false;
+    `);
+    await pool.query(`
       ALTER TABLE contacts ADD COLUMN IF NOT EXISTS signature_questionnaire_url TEXT;
     `);
+
+    // Questionnaire tokens table (secure token-based links)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS questionnaire_tokens (
+        id SERIAL PRIMARY KEY,
+        token UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        questionnaire_type INTEGER NOT NULL,
+        submitted BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '90 days'
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_questionnaire_tokens_token ON questionnaire_tokens(token);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_questionnaire_tokens_contact ON questionnaire_tokens(contact_id);`);
 
     // Add extended claim fields to cases table
     console.log('Adding extended claim fields to cases...');
