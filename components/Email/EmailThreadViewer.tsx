@@ -4,7 +4,7 @@ import {
   Paperclip, Download, FileText, Image as ImageIcon, Mail, Loader2,
   ChevronDown, ChevronUp, ArrowLeft, Eye, MailOpen, Printer, Flag, ExternalLink
 } from 'lucide-react';
-import { Email } from '../../types';
+import { Email, EmailAccount } from '../../types';
 import {
   getAttachmentUrl,
   getAttachmentDownloadUrl,
@@ -47,6 +47,7 @@ interface EmailThreadViewerProps {
   loading?: boolean;
   activeFolderName?: string;
   accountId?: string | null;
+  accounts?: EmailAccount[];
   onBackToSingle?: () => void;
   onReply?: (email: Email) => void;
   onReplyAll?: (email: Email) => void;
@@ -196,11 +197,13 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
   loading,
   activeFolderName,
   accountId,
+  accounts,
   onBackToSingle,
   onReply,
   onReplyAll,
   onForward,
 }) => {
+  const accountEmails = new Set((accounts || []).map(a => a.email.toLowerCase()));
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Preview modal state
@@ -629,13 +632,16 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {threadEmails.map((email, index) => {
           const isExpanded = expandedIds.has(email.id);
+          const isOutgoing = accountEmails.has(email.from.email.toLowerCase());
 
           return (
             <div
               key={email.id}
               className={`border rounded-lg transition-all ${
                 isExpanded
-                  ? 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-sm'
+                  ? isOutgoing
+                    ? 'border-blue-200 dark:border-blue-700/50 bg-blue-50/40 dark:bg-blue-900/10 shadow-sm'
+                    : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-sm'
                   : 'border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-700/50'
               }`}
             >
@@ -644,22 +650,29 @@ const EmailThreadViewer: React.FC<EmailThreadViewerProps> = ({
                 onClick={() => toggleExpand(email.id)}
                 className="flex items-center gap-3 px-4 py-3 cursor-pointer"
               >
-                <div className="w-8 h-8 rounded-full bg-navy-700 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                  isOutgoing
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-navy-700 text-white'
+                }`}>
                   {(email.from.name || email.from.email).charAt(0).toUpperCase()}
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={`text-sm truncate ${!email.isRead ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
-                      {email.from.name || email.from.email}
+                      {isOutgoing ? 'You' : (email.from.name || email.from.email)}
                     </span>
-                    {!email.isRead && (
+                    {isOutgoing && (
+                      <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Sent</span>
+                    )}
+                    {!email.isRead && !isOutgoing && (
                       <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
                     )}
                   </div>
                   {!isExpanded && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                      {email.bodyText.replace(/\n/g, ' ').substring(0, 120)}
+                      {isOutgoing ? `To: ${email.to.map(t => t.name || t.email).join(', ')} — ` : ''}{email.bodyText.replace(/\n/g, ' ').substring(0, 100)}
                     </p>
                   )}
                 </div>

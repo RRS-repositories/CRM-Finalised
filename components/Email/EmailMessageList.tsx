@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Search, Star, Paperclip, RefreshCw, Filter, Mail, MessageSquare, Trash2, MailOpen, MailX, CheckSquare, Square, Loader2, GripVertical } from 'lucide-react';
-import { Email, EmailFolder } from '../../types';
+import { Search, Star, Paperclip, RefreshCw, Filter, Mail, MessageSquare, Trash2, MailOpen, MailX, CheckSquare, Square, Loader2, GripVertical, X, SearchX } from 'lucide-react';
+import { Email, EmailFolder, EmailAccount } from '../../types';
+
+type FilterType = 'all' | 'unread' | 'flagged' | 'attachments';
 
 interface ThreadGroup {
   threadId: string;
@@ -20,6 +22,7 @@ interface EmailMessageListProps {
   onThreadClick: (threadId: string, latestEmailId: string, accountId: string) => void;
   onRefresh?: () => Promise<void>;
   loading?: boolean;
+  accounts?: EmailAccount[];
   // Bulk selection
   selectedEmailIds: Set<string>;
   onToggleSelectEmail: (emailId: string) => void;
@@ -34,6 +37,10 @@ interface EmailMessageListProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   totalCount: number | null;
+  // Cross-folder search
+  onSearchAllFolders?: (query: string) => void;
+  searchAllResults?: Email[] | null;
+  searchAllLoading?: boolean;
 }
 
 const EmailMessageList: React.FC<EmailMessageListProps> = ({
@@ -45,6 +52,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
   onThreadClick,
   onRefresh,
   loading,
+  accounts,
   selectedEmailIds,
   onToggleSelectEmail,
   onSelectAll,
@@ -57,9 +65,16 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
   loadingMore,
   onLoadMore,
   totalCount,
+  onSearchAllFolders,
+  searchAllResults,
+  searchAllLoading,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [searchAllMode, setSearchAllMode] = useState(false);
+  const filterMenuRef = useRef<HTMLDivElement>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [draggedEmailIds, setDraggedEmailIds] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -105,19 +120,81 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
 
   // Filter threads by search query
   const filteredThreads = useMemo(() => {
-    if (!searchQuery) return threadGroups;
-    const query = searchQuery.toLowerCase();
-    return threadGroups.filter(thread => {
-      const email = thread.latestEmail;
-      return (
-        email.subject.toLowerCase().includes(query) ||
-        email.from.name?.toLowerCase().includes(query) ||
-        email.from.email.toLowerCase().includes(query) ||
-        email.bodyText.toLowerCase().includes(query) ||
-        thread.participants.some(p => p.toLowerCase().includes(query))
-      );
-    });
-  }, [threadGroups, searchQuery]);
+    let result = threadGroups;
+
+    // Apply text search (local folder only)
+    if (searchQuery && !searchAllMode) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(thread => {
+        const email = thread.latestEmail;
+        return (
+          email.subject.toLowerCase().includes(query) ||
+          email.from.name?.toLowerCase().includes(query) ||
+          email.from.email.toLowerCase().includes(query) ||
+          email.bodyText.toLowerCase().includes(query) ||
+          thread.participants.some(p => p.toLowerCase().includes(query)) ||
+          email.to.some(t => t.name?.toLowerCase().includes(query) || t.email.toLowerCase().includes(query))
+        );
+      });
+    }
+
+    // Apply active filter
+    if (activeFilter === 'unread') result = result.filter(t => t.hasUnread);
+    else if (activeFilter === 'flagged') result = result.filter(t => t.latestEmail.isStarred);
+    else if (activeFilter === 'attachments') result = result.filter(t => t.latestEmail.hasAttachments);
+
+    return result;
+  }, [threadGroups, searchQuery, searchAllMode, activeFilter]);
+
+  // Build thread groups from cross-folder search results
+  const searchAllThreadGroups = useMemo(() => {
+    if (!searchAllResults) return [];
+    const groups = new Map<string, Email[]>();
+    for (const email of searchAllResults) {
+      const key = email.threadId || email.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(email);
+    }
+    const result: ThreadGroup[] = [];
+    for (const [threadId, threadEmails] of groups) {
+      threadEmails.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      const latestEmail = threadEmails[0];
+      const participantSet = new Set<string>();
+      for (const e of threadEmails) participantSet.add(e.from.name || e.from.email);
+      result.push({
+        threadId,
+        latestEmail,
+        count: threadEmails.length,
+        hasUnread: threadEmails.some(e => !e.isRead),
+        participants: Array.from(participantSet),
+        allEmailIds: threadEmails.map(e => e.id),
+      });
+    }
+    result.sort((a, b) => new Date(b.latestEmail.receivedAt).getTime() - new Date(a.latestEmail.receivedAt).getTime());
+    return result;
+  }, [searchAllResults]);
+
+  const displayThreads = (searchAllMode && searchQuery.length >= 2) ? searchAllThreadGroups : filteredThreads;
+
+  // Close filter menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
+        setShowFilterMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Trigger cross-folder search when in searchAll mode
+  useEffect(() => {
+    if (!searchAllMode || !onSearchAllFolders) return;
+    const timeout = setTimeout(() => {
+      if (searchQuery.trim().length >= 2) onSearchAllFolders(searchQuery.trim());
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [searchQuery, searchAllMode, onSearchAllFolders]);
 
   // Infinite scroll - Intersection Observer
   useEffect(() => {
@@ -174,14 +251,14 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
   };
 
   // Check if all visible threads are selected
-  const allSelected = filteredThreads.length > 0 && filteredThreads.every(t => isThreadSelected(t));
+  const allSelected = displayThreads.length > 0 && displayThreads.every(t => isThreadSelected(t));
 
   // Handle select all toggle
   const handleSelectAllToggle = () => {
     if (allSelected) {
       onDeselectAll();
     } else {
-      const allIds = filteredThreads.flatMap(t => t.allEmailIds);
+      const allIds = displayThreads.flatMap(t => t.allEmailIds);
       onSelectAll(allIds);
     }
   };
@@ -222,25 +299,54 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-navy-900 dark:text-white">
-            {selectedFolder?.displayName || 'Inbox'}
+          <h2 className="font-semibold text-navy-900 dark:text-white truncate">
+            {searchAllMode && searchQuery ? `Results: "${searchQuery}"` : (selectedFolder?.displayName || 'Inbox')}
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={handleRefresh}
-              className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ${
-                isRefreshing ? 'animate-spin' : ''
-              }`}
+              className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
               title="Refresh"
             >
               <RefreshCw size={16} />
             </button>
-            <button
-              className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
-              title="Filter"
-            >
-              <Filter size={16} />
-            </button>
+
+            {/* Filter dropdown */}
+            <div className="relative" ref={filterMenuRef}>
+              <button
+                onClick={() => setShowFilterMenu(v => !v)}
+                className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
+                  activeFilter !== 'all'
+                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}
+                title="Filter"
+              >
+                <Filter size={16} />
+              </button>
+
+              {showFilterMenu && (
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg z-50 py-1">
+                  {(['all', 'unread', 'flagged', 'attachments'] as FilterType[]).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => { setActiveFilter(f); setShowFilterMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                        activeFilter === f
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {f === 'all' && <Mail size={14} />}
+                      {f === 'unread' && <MailOpen size={14} />}
+                      {f === 'flagged' && <Star size={14} />}
+                      {f === 'attachments' && <Paperclip size={14} />}
+                      <span className="capitalize">{f === 'all' ? 'All messages' : f === 'unread' ? 'Unread' : f === 'flagged' ? 'Flagged' : 'Has Attachments'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -249,12 +355,48 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Search emails..."
+            placeholder={searchAllMode ? 'Search all folders...' : 'Search this folder...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white placeholder:text-gray-400"
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+
+        {/* Search scope toggle */}
+        {onSearchAllFolders && (
+          <div className="flex items-center justify-between mt-2">
+            <button
+              onClick={() => {
+                setSearchAllMode(v => !v);
+                if (searchAllMode) setSearchQuery('');
+              }}
+              className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
+                searchAllMode
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <SearchX size={13} />
+              <span>{searchAllMode ? 'Searching all folders' : 'Search all folders'}</span>
+            </button>
+            {activeFilter !== 'all' && (
+              <button
+                onClick={() => setActiveFilter('all')}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Clear filter
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -301,7 +443,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
       )}
 
       {/* Select All Row (when no selection active) */}
-      {!hasSelection && filteredThreads.length > 0 && !loading && (
+      {!hasSelection && displayThreads.length > 0 && !loading && (
         <div className="px-4 py-1.5 border-b border-gray-100 dark:border-slate-700 flex items-center gap-2 bg-gray-50 dark:bg-slate-800">
           <button
             onClick={handleSelectAllToggle}
@@ -321,16 +463,21 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
             <RefreshCw size={32} className="mb-4 animate-spin opacity-40" />
             <p className="text-sm">Loading emails...</p>
           </div>
-        ) : filteredThreads.length === 0 ? (
+        ) : searchAllMode && searchAllLoading ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6">
+            <Loader2 size={32} className="mb-4 animate-spin opacity-40" />
+            <p className="text-sm">Searching all folders...</p>
+          </div>
+        ) : displayThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6">
             <Mail size={48} className="mb-4 opacity-30" />
             <p className="text-sm">
-              {searchQuery ? 'No emails match your search' : 'No emails in this folder'}
+              {searchQuery ? 'No emails match your search' : activeFilter !== 'all' ? `No ${activeFilter} emails` : 'No emails in this folder'}
             </p>
           </div>
         ) : (
           <>
-            {filteredThreads.map(thread => {
+            {displayThreads.map(thread => {
               const email = thread.latestEmail;
               const isSelected = selectedThreadId === thread.threadId || selectedEmailId === email.id;
               const isThread = thread.count > 1;
@@ -486,9 +633,10 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
       {/* Footer - Count */}
       <div className="p-3 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
         <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
-          {filteredThreads.length} conversation{filteredThreads.length !== 1 ? 's' : ''}
-          {totalCount !== null && ` of ${totalCount}`}
+          {displayThreads.length} conversation{displayThreads.length !== 1 ? 's' : ''}
+          {!searchAllMode && totalCount !== null && ` of ${totalCount}`}
           {searchQuery && ` matching "${searchQuery}"`}
+          {activeFilter !== 'all' && ` · ${activeFilter} filter`}
         </div>
       </div>
     </div>

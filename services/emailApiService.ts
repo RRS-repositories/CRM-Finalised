@@ -121,6 +121,23 @@ export async function sendEmail(accountId: string, payload: {
   }
 }
 
+export async function searchAllEmails(accountId: string, query: string, limit = 50): Promise<{ emails: import('../types').Email[]; hasMore: boolean }> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  if (!res.ok) throw new Error('Search failed');
+  const data = await res.json();
+  return { emails: data.emails || [], hasMore: data.hasMore ?? false };
+}
+
+export async function sendDraftEmail(accountId: string, messageId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/send`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to send draft');
+  }
+}
+
 export async function replyToEmail(accountId: string, messageId: string, comment: string, to?: string[], cc?: string[]): Promise<void> {
   const res = await fetch(`${API_BASE}/accounts/${accountId}/messages/${encodeURIComponent(messageId)}/reply`, {
     method: 'POST',

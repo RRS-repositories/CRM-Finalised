@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { EmailAccount, EmailFolder, Email } from '../../types';
-import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread, createFolder, renameFolder, deleteFolder as apideleteFolder } from '../../services/emailApiService';
+import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread, createFolder, renameFolder, deleteFolder as apideleteFolder, searchAllEmails } from '../../services/emailApiService';
 import EmailAccountsSidebar from './EmailAccountsSidebar';
 import EmailMessageList from './EmailMessageList';
 import EmailViewer from './EmailViewer';
@@ -48,6 +48,10 @@ const EmailConversations: React.FC = () => {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeMode, setComposeMode] = useState<ComposeMode>('new');
   const [composeOriginalEmail, setComposeOriginalEmail] = useState<Email | null>(null);
+
+  // Cross-folder search state
+  const [searchAllResults, setSearchAllResults] = useState<Email[] | null>(null);
+  const [searchAllLoading, setSearchAllLoading] = useState(false);
 
   // Get selected folder object
   const selectedFolder = folders.find(f => f.id === selectedFolderId);
@@ -207,6 +211,21 @@ const EmailConversations: React.FC = () => {
     setViewMode('thread');
     setSelectedAccountId(accountId);
     loadThreadMessages(accountId, threadId);
+  };
+
+  // Handle cross-folder search
+  const handleSearchAllFolders = async (query: string) => {
+    if (!selectedAccountId || !query) return;
+    setSearchAllLoading(true);
+    try {
+      const result = await searchAllEmails(selectedAccountId, query);
+      setSearchAllResults(result.emails);
+    } catch (err) {
+      console.error('Search all folders failed:', err);
+      setSearchAllResults([]);
+    } finally {
+      setSearchAllLoading(false);
+    }
   };
 
   // Handle refresh
@@ -407,7 +426,22 @@ const EmailConversations: React.FC = () => {
     setComposeOpen(true);
   };
 
-  const handleComposeSent = () => {
+  const handleEditDraft = (email: Email) => {
+    setComposeMode('draft');
+    setComposeOriginalEmail(email);
+    setComposeOpen(true);
+  };
+
+  const handleComposeSent = async () => {
+    // If we just sent a draft via the compose modal, delete the original draft
+    if (composeMode === 'draft' && composeOriginalEmail) {
+      try {
+        await deleteEmail(composeOriginalEmail.accountId, composeOriginalEmail.id);
+      } catch (err) {
+        console.error('Failed to delete draft after sending:', err);
+      }
+      handleDelete(composeOriginalEmail.id);
+    }
     if (selectedAccountId && activeFolderName) {
       loadEmailsForFolder(selectedAccountId, activeFolderName);
     }
@@ -506,6 +540,7 @@ const EmailConversations: React.FC = () => {
         onThreadClick={handleThreadClick}
         onRefresh={handleRefresh}
         loading={loadingEmails}
+        accounts={accounts}
         selectedEmailIds={selectedEmailIds}
         onToggleSelectEmail={handleToggleSelectEmail}
         onSelectAll={handleSelectAll}
@@ -518,6 +553,9 @@ const EmailConversations: React.FC = () => {
         loadingMore={loadingMore}
         onLoadMore={loadMoreEmails}
         totalCount={totalCount}
+        onSearchAllFolders={handleSearchAllFolders}
+        searchAllResults={searchAllResults}
+        searchAllLoading={searchAllLoading}
       />
 
       {viewMode === 'thread' ? (
@@ -531,6 +569,7 @@ const EmailConversations: React.FC = () => {
           loading={loadingThread}
           activeFolderName={activeFolderName}
           accountId={selectedAccountId}
+          accounts={accounts}
           onReply={handleReply}
           onReplyAll={handleReplyAll}
           onForward={handleForward}
@@ -549,6 +588,7 @@ const EmailConversations: React.FC = () => {
           onReply={handleReply}
           onReplyAll={handleReplyAll}
           onForward={handleForward}
+          onEditDraft={handleEditDraft}
         />
       )}
 

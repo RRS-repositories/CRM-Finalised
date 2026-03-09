@@ -10010,44 +10010,44 @@ app.get('/api/email/accounts/:accountId/folders', async (req, res) => {
             `/users/${config.email}/mailFolders?$top=100&$select=id,displayName,unreadItemCount,totalItemCount,parentFolderId,childFolderCount`
         );
 
-        const folders = [];
+        const topLevelFolders = (data.value || []).map(folder => ({
+            id: `${accountId}-${folder.id}`,
+            accountId,
+            name: folder.id,
+            displayName: folder.displayName,
+            unreadCount: folder.unreadItemCount || 0,
+            totalCount: folder.totalItemCount || 0,
+            hasChildren: folder.childFolderCount > 0,
+            parentId: null,
+            _graphId: folder.id,
+            _childFolderCount: folder.childFolderCount || 0,
+        }));
 
-        // Process top-level folders (these are the ones directly returned by mailFolders endpoint)
-        for (const folder of (data.value || [])) {
-            const folderData = {
-                id: `${accountId}-${folder.id}`,
-                accountId,
-                name: folder.id, // Use Graph folder ID as the name for API calls
-                displayName: folder.displayName,
-                unreadCount: folder.unreadItemCount || 0,
-                totalCount: folder.totalItemCount || 0,
-                hasChildren: folder.childFolderCount > 0,
-                parentId: null, // Top-level folders have no parent in our UI
-            };
-            folders.push(folderData);
+        // Fetch all child folders in parallel
+        const foldersWithChildren = topLevelFolders.filter(f => f._childFolderCount > 0);
+        const childResults = await Promise.allSettled(
+            foldersWithChildren.map(parent =>
+                graphRequest(`/users/${config.email}/mailFolders/${parent._graphId}/childFolders?$top=50&$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount`)
+                    .then(childData => ({ parent, children: childData.value || [] }))
+            )
+        );
 
-            // Fetch child folders if any
-            if (folder.childFolderCount > 0) {
-                try {
-                    const childData = await graphRequest(
-                        `/users/${config.email}/mailFolders/${folder.id}/childFolders?$top=50&$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount`
-                    );
-                    for (const child of (childData.value || [])) {
-                        folders.push({
-                            id: `${accountId}-${child.id}`,
-                            accountId,
-                            name: child.id,
-                            displayName: child.displayName,
-                            unreadCount: child.unreadItemCount || 0,
-                            totalCount: child.totalItemCount || 0,
-                            hasChildren: child.childFolderCount > 0,
-                            parentId: folder.id, // Child folders reference their parent's Graph ID
-                            parentDisplayName: folder.displayName,
-                        });
-                    }
-                } catch (childErr) {
-                    console.warn(`Failed to fetch child folders for ${folder.displayName}:`, childErr.message);
-                }
+        const folders = topLevelFolders.map(({ _graphId, _childFolderCount, ...f }) => f);
+        for (const result of childResults) {
+            if (result.status !== 'fulfilled') continue;
+            const { parent, children } = result.value;
+            for (const child of children) {
+                folders.push({
+                    id: `${accountId}-${child.id}`,
+                    accountId,
+                    name: child.id,
+                    displayName: child.displayName,
+                    unreadCount: child.unreadItemCount || 0,
+                    totalCount: child.totalItemCount || 0,
+                    hasChildren: child.childFolderCount > 0,
+                    parentId: parent._graphId || parent.name,
+                    parentDisplayName: parent.displayName,
+                });
             }
         }
 
@@ -10109,6 +10109,57 @@ app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (re
     } catch (err) {
         console.error(`Graph message fetch failed for ${config.email}/${folderName}:`, err.message);
         res.status(500).json({ success: false, error: 'Failed to fetch messages: ' + err.message });
+    }
+});
+
+// --- SEARCH EMAILS ACROSS ALL FOLDERS ---
+app.get('/api/email/accounts/:accountId/search', async (req, res) => {
+    const { accountId } = req.params;
+    const { q, limit = 50, skip = 0 } = req.query;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+    if (!q) return res.json({ success: true, emails: [], hasMore: false, totalCount: 0 });
+
+    try {
+        const data = await graphRequest(
+            `/users/${config.email}/messages` +
+            `?$search="${encodeURIComponent(q)}"` +
+            `&$top=${limit}&$skip=${skip}` +
+            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId`,
+            { headers: { 'ConsistencyLevel': 'eventual' } }
+        );
+
+        const emails = (data.value || []).map(msg => ({
+            id: msg.id,
+            accountId,
+            folderId: `${accountId}-search`,
+            from: {
+                email: msg.from?.emailAddress?.address || '',
+                name: msg.from?.emailAddress?.name || null,
+            },
+            to: (msg.toRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            cc: (msg.ccRecipients || []).map(r => ({
+                email: r.emailAddress?.address || '',
+                name: r.emailAddress?.name || null,
+            })),
+            subject: msg.subject || '(No Subject)',
+            bodyText: msg.bodyPreview || '',
+            receivedAt: msg.receivedDateTime || new Date().toISOString(),
+            isRead: msg.isRead || false,
+            isStarred: msg.flag?.flagStatus === 'flagged',
+            isDraft: msg.isDraft || false,
+            hasAttachments: msg.hasAttachments || false,
+            threadId: msg.conversationId || undefined,
+        }));
+
+        const hasMore = !!data['@odata.nextLink'];
+        res.json({ success: true, emails, hasMore, totalCount: emails.length });
+    } catch (err) {
+        console.error(`Graph search failed for ${config.email}:`, err.message);
+        res.status(500).json({ success: false, error: 'Search failed: ' + err.message });
     }
 });
 
@@ -10483,6 +10534,23 @@ app.post('/api/email/accounts/:accountId/send', async (req, res) => {
     } catch (err) {
         console.error('Graph sendMail failed:', err.message);
         res.status(500).json({ success: false, error: 'Failed to send email: ' + err.message });
+    }
+});
+
+// --- SEND DRAFT EMAIL ---
+app.post('/api/email/accounts/:accountId/messages/:messageId/send', async (req, res) => {
+    const { accountId, messageId } = req.params;
+    const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
+    if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    try {
+        await graphRequest(`/users/${config.email}/messages/${messageId}/send`, {
+            method: 'POST',
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Graph send draft failed:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to send draft: ' + err.message });
     }
 });
 

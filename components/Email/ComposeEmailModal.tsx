@@ -5,7 +5,7 @@ import {
 import { EmailAccount } from '../../types';
 import { sendEmail, replyToEmail, replyAllToEmail, forwardEmail } from '../../services/emailApiService';
 
-export type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward';
+export type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward' | 'draft';
 
 export interface ComposeEmailProps {
   mode: ComposeMode;
@@ -39,6 +39,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
     originalEmail?.accountId || defaultAccountId || accounts[0]?.id || ''
   );
   const [toField, setToField] = useState(() => {
+    if (mode === 'draft' && originalEmail) return originalEmail.to.map(t => t.email).join(', ');
     if (mode === 'reply' && originalEmail) return originalEmail.from.email;
     if (mode === 'replyAll' && originalEmail) {
       const all = [originalEmail.from.email, ...originalEmail.to.map(t => t.email)];
@@ -49,6 +50,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
     return '';
   });
   const [ccField, setCcField] = useState(() => {
+    if (mode === 'draft' && originalEmail?.cc) return originalEmail.cc.map(c => c.email).join(', ');
     if (mode === 'replyAll' && originalEmail?.cc) {
       return originalEmail.cc.map(c => c.email).join(', ');
     }
@@ -60,6 +62,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
   const [subject, setSubject] = useState(() => {
     if (!originalEmail) return '';
     const subj = originalEmail.subject || '';
+    if (mode === 'draft') return subj;
     if (mode === 'reply' || mode === 'replyAll') return subj.startsWith('RE:') ? subj : `RE: ${subj}`;
     if (mode === 'forward') return subj.startsWith('FW:') ? subj : `FW: ${subj}`;
     return subj;
@@ -76,6 +79,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
   };
 
   const [bodyHtml, setBodyHtml] = useState(() => {
+    if (mode === 'draft' && originalEmail) return originalEmail.bodyHtml || originalEmail.bodyText.replace(/\n/g, '<br/>') || '';
     if (mode !== 'new' && originalEmail) return buildQuotedBody();
     return '';
   });
@@ -102,7 +106,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
     try {
       const htmlContent = bodyRef.current?.innerHTML || bodyHtml;
 
-      if (mode === 'new') {
+      if (mode === 'new' || mode === 'draft') {
         await sendEmail(fromAccountId, {
           to: toAddresses,
           cc: parseEmails(ccField),
@@ -153,7 +157,7 @@ const ComposeEmailModal: React.FC<ComposeEmailProps> = ({
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const modeLabel = mode === 'new' ? 'New Email' : mode === 'reply' ? 'Reply' : mode === 'replyAll' ? 'Reply All' : 'Forward';
+  const modeLabel = mode === 'new' ? 'New Email' : mode === 'reply' ? 'Reply' : mode === 'replyAll' ? 'Reply All' : mode === 'forward' ? 'Forward' : 'Edit Draft';
 
   if (minimized) {
     return (

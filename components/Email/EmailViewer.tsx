@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import {
   Reply, ReplyAll, Forward, Trash2, Archive, Star, MoreVertical,
   Paperclip, Download, FileText, Image as ImageIcon, Mail, Loader2, Eye, MailOpen,
-  Printer, Flag, FolderInput, Copy, ExternalLink
+  Printer, Flag, Copy, ExternalLink, Send, FileEdit
 } from 'lucide-react';
 import { Email } from '../../types';
 import {
@@ -29,6 +29,7 @@ interface EmailViewerProps {
   onReply?: (email: Email) => void;
   onReplyAll?: (email: Email) => void;
   onForward?: (email: Email) => void;
+  onEditDraft?: (email: Email) => void;
 }
 
 // Isolated HTML email body renderer using iframe
@@ -198,6 +199,7 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
   onReply,
   onReplyAll,
   onForward,
+  onEditDraft,
 }) => {
   // Preview modal state
   const [previewAttachment, setPreviewAttachment] = useState<{
@@ -419,27 +421,39 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
       {/* Action Toolbar */}
       <div className="flex items-center px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0">
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => email && onReply?.(email)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            <Reply size={14} />
-            <span className="hidden sm:inline">Reply</span>
-          </button>
-          <button
-            onClick={() => email && onReplyAll?.(email)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            <ReplyAll size={14} />
-            <span className="hidden sm:inline">Reply All</span>
-          </button>
-          <button
-            onClick={() => email && onForward?.(email)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            <Forward size={14} />
-            <span className="hidden sm:inline">Forward</span>
-          </button>
+          {email.isDraft ? (
+            <button
+              onClick={() => email && onEditDraft?.(email)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            >
+              <Send size={14} />
+              <span>Send</span>
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => email && onReply?.(email)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <Reply size={14} />
+                <span className="hidden sm:inline">Reply</span>
+              </button>
+              <button
+                onClick={() => email && onReplyAll?.(email)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <ReplyAll size={14} />
+                <span className="hidden sm:inline">Reply All</span>
+              </button>
+              <button
+                onClick={() => email && onForward?.(email)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <Forward size={14} />
+                <span className="hidden sm:inline">Forward</span>
+              </button>
+            </>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -561,6 +575,15 @@ const EmailViewer: React.FC<EmailViewerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Draft Banner */}
+      {email.isDraft && (
+        <div className="flex items-center gap-2 px-6 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700">
+          <FileEdit size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <span className="text-sm text-amber-700 dark:text-amber-300 font-medium">Draft</span>
+          <span className="text-sm text-amber-600 dark:text-amber-400">— Click Send to edit and send this draft</span>
+        </div>
+      )}
 
       {/* Email Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">

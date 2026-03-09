@@ -48,6 +48,43 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
+  // Custom folder order per account (stored in localStorage as { [accountId]: string[] })
+  const [customFolderOrder, setCustomFolderOrder] = useState<Record<string, string[]>>(() => {
+    try { return JSON.parse(localStorage.getItem('emailFolderOrder') || '{}'); } catch { return {}; }
+  });
+
+  const saveFolderOrder = (order: Record<string, string[]>) => {
+    setCustomFolderOrder(order);
+    localStorage.setItem('emailFolderOrder', JSON.stringify(order));
+  };
+
+  const moveFolderInOrder = (accountId: string, folderId: string, direction: 'up' | 'down') => {
+    const accountFolders = folders.filter(f => f.accountId === accountId && !f.parentId);
+    const priorityOrder = ['inbox', 'sent items', 'drafts', 'deleted items', 'archive'];
+    const sorted = [...accountFolders].sort((a, b) => {
+      const order = customFolderOrder[accountId] || [];
+      const aIdx = order.indexOf(a.id);
+      const bIdx = order.indexOf(b.id);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      const aPri = priorityOrder.indexOf(a.displayName.toLowerCase());
+      const bPri = priorityOrder.indexOf(b.displayName.toLowerCase());
+      if (aPri !== -1 && bPri !== -1) return aPri - bPri;
+      if (aPri !== -1) return -1;
+      if (bPri !== -1) return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+    const currentIdx = sorted.findIndex(f => f.id === folderId);
+    if (currentIdx === -1) return;
+    const newIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+    if (newIdx < 0 || newIdx >= sorted.length) return;
+    const reordered = [...sorted];
+    [reordered[currentIdx], reordered[newIdx]] = [reordered[newIdx], reordered[currentIdx]];
+    const newOrder = { ...customFolderOrder, [accountId]: reordered.map(f => f.id) };
+    saveFolderOrder(newOrder);
+  };
+
   // Folder management state
   const [folderContextMenu, setFolderContextMenu] = useState<{ folderId: string; folderName: string; x: number; y: number; accountId: string; isSystem: boolean } | null>(null);
   const [showCreateFolder, setShowCreateFolder] = useState<{ accountId: string; parentFolderId?: string } | null>(null);
@@ -122,16 +159,21 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
   };
 
   const getAccountFolders = (accountId: string) => {
-    // Get folders for this account, sorted: main folders first, then by name
     const accountFolders = folders.filter(f => f.accountId === accountId);
-
-    // Separate top-level and child folders
     const topLevel = accountFolders.filter(f => !f.parentId);
     const children = accountFolders.filter(f => f.parentId);
 
-    // Sort top-level: Inbox first, then Sent Items, then Drafts, then others alphabetically
     const priorityOrder = ['inbox', 'sent items', 'drafts', 'deleted items', 'archive'];
+    const customOrder = customFolderOrder[accountId] || [];
+
     topLevel.sort((a, b) => {
+      // Custom order takes precedence
+      const aCustom = customOrder.indexOf(a.id);
+      const bCustom = customOrder.indexOf(b.id);
+      if (aCustom !== -1 && bCustom !== -1) return aCustom - bCustom;
+      if (aCustom !== -1) return -1;
+      if (bCustom !== -1) return 1;
+      // Fall back to priority order
       const aName = a.displayName.toLowerCase();
       const bName = b.displayName.toLowerCase();
       const aIdx = priorityOrder.indexOf(aName);
@@ -403,6 +445,30 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
           className="fixed bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-xl z-[100] py-1 w-48"
           style={{ left: folderContextMenu.x, top: folderContextMenu.y }}
         >
+          {/* Move Up / Move Down */}
+          <button
+            onClick={() => {
+              moveFolderInOrder(folderContextMenu.accountId, folderContextMenu.folderId, 'up');
+              setFolderContextMenu(null);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+          >
+            <ArrowUp size={14} />
+            <span>Move Up</span>
+          </button>
+          <button
+            onClick={() => {
+              moveFolderInOrder(folderContextMenu.accountId, folderContextMenu.folderId, 'down');
+              setFolderContextMenu(null);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+          >
+            <ArrowDown size={14} />
+            <span>Move Down</span>
+          </button>
+
+          <div className="border-t border-gray-200 dark:border-slate-600 my-1" />
+
           {/* Create subfolder */}
           <button
             onClick={() => {
