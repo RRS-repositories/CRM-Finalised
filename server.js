@@ -3687,6 +3687,7 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
                         name: baseName,
                         type: fileType,
                         category,
+                        lender: null,
                         url: obj.Key,  // store the S3 key; frontend uses secure-url endpoint to get signed URL
                         size: sizeKB,
                         tags,
@@ -3699,6 +3700,27 @@ app.get('/api/contacts/:id/documents', async (req, res) => {
 
         // Sort by date descending (newest first)
         documents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        // Merge lender + category from the documents DB table (written by PATCH /api/crm/documents/update)
+        try {
+            const dbDocs = await pool.query(
+                'SELECT name, lender, category FROM documents WHERE contact_id = $1 AND lender IS NOT NULL',
+                [parseInt(contactId)]
+            );
+            if (dbDocs.rows.length > 0) {
+                const dbMap = {};
+                for (const row of dbDocs.rows) dbMap[row.name] = row;
+                for (const doc of documents) {
+                    const match = dbMap[doc.name];
+                    if (match) {
+                        if (match.lender) doc.lender = match.lender;
+                        if (match.category) doc.category = match.category;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[Documents] DB lender merge skipped:', e.message);
+        }
 
         // Merge saved lender assignments from document_lender_map
         try {
