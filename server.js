@@ -4083,9 +4083,21 @@ app.patch('/api/crm/documents/update', async (req, res) => {
         const docId = docRes.rows[0].id;
         const contactId = docRes.rows[0].contact_id;
         const docUrl = docRes.rows[0].url;
-        // Use the document's stored URL as the map key — this is what the bulk GET endpoint joins on
-        // If caller passed an s3_key, prefer that (supports per-contact S3-based docs)
-        const mapKey = s3_key || docUrl;
+        // Extract the clean S3 key from the presigned URL (strip domain + query params)
+        // e.g. "https://s3.../bucket/First_Last_123/file.pdf?X-Amz..." → "First_Last_123/file.pdf"
+        let cleanS3Key = docUrl;
+        try {
+            const urlObj = new URL(docUrl);
+            // Remove the bucket name prefix (first path segment)
+            const pathParts = urlObj.pathname.split('/').filter(Boolean);
+            if (pathParts.length > 1) {
+                cleanS3Key = decodeURIComponent(pathParts.slice(1).join('/'));
+            }
+        } catch (_) {
+            // docUrl wasn't a valid URL — use as-is (already a clean key)
+        }
+        // Prefer caller-supplied s3_key, then extracted clean key
+        const mapKey = s3_key || cleanS3Key;
 
         // Update lender if provided
         if (lender !== undefined) {
@@ -4202,10 +4214,12 @@ app.get('/api/crm/documents', async (req, res) => {
         const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
         // Get total count
+        // Map tables store clean S3 keys; documents.url stores full presigned URLs
+        // Join using LIKE so the clean key matches within the full URL
         const countRes = await pool.query(`
             SELECT COUNT(*) FROM documents d
-            LEFT JOIN document_lender_map lm ON lm.s3_key = d.url
-            LEFT JOIN document_category_map cm ON cm.s3_key = d.url
+            LEFT JOIN document_lender_map lm ON d.url LIKE '%' || lm.s3_key || '%'
+            LEFT JOIN document_category_map cm ON d.url LIKE '%' || cm.s3_key || '%'
             ${whereClause}
         `, params);
         const total = parseInt(countRes.rows[0].count);
@@ -4218,8 +4232,8 @@ app.get('/api/crm/documents', async (req, res) => {
                    COALESCE(lm.lender, NULL) AS lender,
                    d.created_at
             FROM documents d
-            LEFT JOIN document_lender_map lm ON lm.s3_key = d.url
-            LEFT JOIN document_category_map cm ON cm.s3_key = d.url
+            LEFT JOIN document_lender_map lm ON d.url LIKE '%' || lm.s3_key || '%'
+            LEFT JOIN document_category_map cm ON d.url LIKE '%' || cm.s3_key || '%'
             ${whereClause}
             ORDER BY d.created_at DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
