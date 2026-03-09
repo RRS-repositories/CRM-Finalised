@@ -4046,24 +4046,44 @@ app.patch('/api/documents/category', async (req, res) => {
     }
 });
 
-// --- PATCH /api/crm/documents/update --- Update document lender and/or category by s3_key
+// --- PATCH /api/crm/documents/update --- Update document lender and/or category
+// Accepts: id (numeric, preferred), s3_key (clean S3 path or presigned URL), lender, category
 app.patch('/api/crm/documents/update', async (req, res) => {
-    const { s3_key, lender, category } = req.body;
+    const { id, s3_key, lender, category } = req.body;
 
-    if (!s3_key) {
-        return res.status(400).json({ error: 's3_key is required' });
+    if (!id && !s3_key) {
+        return res.status(400).json({ error: 'Either id or s3_key is required' });
     }
     if (lender === undefined && category === undefined) {
         return res.status(400).json({ error: 'At least one of lender or category must be provided' });
     }
 
     try {
-        // Look up document by url (s3_key) to get contact_id
-        const docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url = $1', [s3_key]);
-        if (docRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Document not found for given s3_key' });
+        // Look up document — prefer numeric id, then exact url match, then partial S3 key match
+        let docRes;
+        if (id) {
+            docRes = await pool.query('SELECT id, contact_id FROM documents WHERE id = $1', [id]);
         }
+        if (!docRes || docRes.rows.length === 0) {
+            // Try exact url match (works if caller passes the full presigned URL)
+            if (s3_key) {
+                docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url = $1', [s3_key]);
+            }
+        }
+        if (!docRes || docRes.rows.length === 0) {
+            // Try partial match — the url column contains presigned URLs that include the S3 key as a path
+            if (s3_key) {
+                const cleanKey = s3_key.replace(/^https?:\/\/[^/]+\//, '').split('?')[0];
+                docRes = await pool.query('SELECT id, contact_id FROM documents WHERE url LIKE $1 LIMIT 1', [`%${cleanKey}%`]);
+            }
+        }
+        if (!docRes || docRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Document not found. Pass numeric id or a valid s3_key.' });
+        }
+        const docId = docRes.rows[0].id;
         const contactId = docRes.rows[0].contact_id;
+        // Use the clean S3 key for the map tables — prefer the passed s3_key, fallback to doc id
+        const mapKey = s3_key || String(docId);
 
         // Update lender if provided
         if (lender !== undefined) {
@@ -4072,9 +4092,9 @@ app.patch('/api/crm/documents/update', async (req, res) => {
                     INSERT INTO document_lender_map (s3_key, contact_id, lender, updated_at)
                     VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (s3_key) DO UPDATE SET lender = EXCLUDED.lender, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [s3_key, contactId, lender.trim()]);
+                `, [mapKey, contactId, lender.trim()]);
             } else {
-                await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [s3_key]);
+                await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [mapKey]);
             }
         }
 
@@ -4085,9 +4105,9 @@ app.patch('/api/crm/documents/update', async (req, res) => {
                     INSERT INTO document_category_map (s3_key, contact_id, category, updated_at)
                     VALUES ($1, $2, $3, NOW())
                     ON CONFLICT (s3_key) DO UPDATE SET category = EXCLUDED.category, contact_id = EXCLUDED.contact_id, updated_at = NOW()
-                `, [s3_key, contactId, category.trim()]);
+                `, [mapKey, contactId, category.trim()]);
             } else {
-                await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [s3_key]);
+                await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [mapKey]);
             }
         }
 
