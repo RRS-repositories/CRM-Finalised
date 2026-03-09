@@ -52,6 +52,14 @@
         .section-header {
             background: linear-gradient(135deg, #0f172a, #1e293b);
         }
+
+        .section-header-irl {
+            background: linear-gradient(135deg, #1e3a5f, #2d5a8e);
+        }
+
+        .section-header-gambling {
+            background: linear-gradient(135deg, #7c2d12, #b45309);
+        }
     </style>
 </head>
 
@@ -180,22 +188,36 @@
 
                 <form id="questionnaireForm">
 
-                    <!-- ==================== GAMBLING SECTION ==================== -->
-                    <div id="gamblingSection">
+                    <!-- ==================== GAMBLING QUESTIONNAIRE ==================== -->
+                    <div class="mb-6">
+                        <div class="section-header-gambling text-white px-5 py-4 rounded-xl mb-6">
+                            <h2 class="text-xl font-bold tracking-wide uppercase"><i class="fas fa-dice mr-2"></i>Gambling Questionnaire</h2>
+                            <p class="text-orange-100 text-sm mt-1">If you are or have been a gambler, please tick the box below and complete the gambling questions.</p>
+                        </div>
+                    </div>
+
+                    <!-- IS GAMBLER TOGGLE -->
+                    <div class="mb-8 p-5 bg-amber-50 rounded-xl border-2 border-amber-300">
+                        <label class="flex items-center gap-4 cursor-pointer">
+                            <input type="checkbox" id="isGamblerToggle" name="isGamblerToggle">
+                            <span class="text-amber-900 font-bold text-lg uppercase">I am or have been a gambler</span>
+                        </label>
+                        <p class="text-amber-700 text-sm mt-2 ml-12">If you have ticked the box above, please complete the following gambling questions. If not, skip to the Irresponsible Lending section.</p>
+                    </div>
+
+                    <!-- ==================== GAMBLING SECTION (shown when isGambler checked) ==================== -->
+                    <div id="gamblingSection" style="display:none;">
+
                         <!-- Previous Betting Companies & Losses -->
                         <div class="mb-8 p-5 bg-amber-50 rounded-xl border border-amber-200">
                             <div class="mb-4">
-                                <label for="previousBettingCompanies"
-                                    class="block text-amber-900 font-semibold mb-2">Previous Betting Companies (please
-                                    list all)</label>
+                                <label for="previousBettingCompanies" class="block text-amber-900 font-semibold mb-2">Previous Betting Companies (please list all)</label>
                                 <textarea id="previousBettingCompanies" name="previousBettingCompanies" rows="3"
                                     class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900 resize-y"
                                     placeholder="e.g. Bet365, William Hill, Paddy Power..."></textarea>
                             </div>
                             <div>
-                                <label for="estimatedGamblingLosses"
-                                    class="block text-amber-900 font-semibold mb-2">Estimated Gambling Losses
-                                    (&pound;)</label>
+                                <label for="estimatedGamblingLosses" class="block text-amber-900 font-semibold mb-2">Estimated Gambling Losses (Last 10 Years) &pound;</label>
                                 <input type="text" id="estimatedGamblingLosses" name="estimatedGamblingLosses"
                                     class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900"
                                     placeholder="e.g. 5000">
@@ -205,706 +227,301 @@
                         <!-- SELF-EXCLUSION & PROBLEM GAMBLING -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-ban mr-2"></i>SELF-EXCLUSION & PROBLEM GAMBLING</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-ban mr-2"></i>SELF-EXCLUSION &amp; PROBLEM GAMBLING</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q41"><span class="text-slate-700">Did you ever self-exclude from any
-                                        gambling platform?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q42"><span class="text-slate-700">Were you able to create a new account or
-                                        use someone else's account after self-exclusion?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q43"><span class="text-slate-700">Did the gambling company fail to provide
-                                        support after signs of problem gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q44"><span class="text-slate-700">Were you contacted with promotions while
-                                        self-excluded?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q45"><span class="text-slate-700">Did you continue to receive marketing
-                                        materials after self-excluding?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q49"><span class="text-slate-700">Did you ever self-exclude from any gambling platform?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q50"><span class="text-slate-700">Have you ever been able to create a new account or use someone else's account after requesting self-exclusion?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q51"><span class="text-slate-700">Did the gambling company fail to provide support or advice after you displayed signs of problem gambling (e.g., betting excessively or beyond your means)?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q52"><span class="text-slate-700">Were you contacted by the gambling company and offered promotions, bonuses, or other incentives while you were self-excluded?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q53"><span class="text-slate-700">Did you continue to receive marketing materials (emails, text messages, etc.) after self-excluding?</span></label>
                             </div>
                         </div>
 
                         <!-- VIP STATUS & AFFORDABILITY -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-crown mr-2"></i>VIP
-                                    STATUS & AFFORDABILITY</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-crown mr-2"></i>VIP STATUS &amp; AFFORDABILITY</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q46"><span class="text-slate-700">Were you offered VIP status without the
-                                        gambling company asking for proof of source of funds?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q47"><span class="text-slate-700">Did the operator carry out affordability
-                                        checks on your account?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q48"><span class="text-slate-700">Were you given access to VIP events
-                                        without verifying affordability?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q54"><span class="text-slate-700">Were you offered VIP status or personal account management without the gambling company asking for proof of your source of funds?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q55"><span class="text-slate-700">Did the operator carry out affordability checks on your account?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q56"><span class="text-slate-700">Were you given access to VIP events or rewards without the gambling company verifying your affordability?</span></label>
                             </div>
                         </div>
 
                         <!-- TERMS & CONDITIONS -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-file-contract mr-2"></i>TERMS & CONDITIONS</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-file-contract mr-2"></i>TERMS &amp; CONDITIONS</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q49"><span class="text-slate-700">Did the gambling company make changes to
-                                        T&amp;Cs without notifying you clearly?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q50"><span class="text-slate-700">Were the terms and conditions clearly
-                                        presented to you?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q51"><span class="text-slate-700">Do you believe the company unfairly
-                                        withheld your winnings?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q57"><span class="text-slate-700">Did the gambling company make any changes to their terms and conditions without notifying you clearly?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q58"><span class="text-slate-700">Were the terms and conditions clearly presented to you?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q59"><span class="text-slate-700">Do you believe the company unfairly withheld your winnings due to unclear or misleading terms and conditions?</span></label>
                             </div>
                         </div>
 
-                        <!-- IDENTITY & SOURCE OF FUNDS -->
+                        <!-- IDENTITY & SOURCE OF FUNDS (KYC) -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-id-card mr-2"></i>IDENTITY & SOURCE OF FUNDS</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-id-card mr-2"></i>IDENTITY &amp; SOURCE OF FUNDS (KYC)</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q52"><span class="text-slate-700">Were you asked to verify your identity
-                                        when opening your account?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q53"><span class="text-slate-700">Were you asked about your source of
-                                        funds?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q54"><span class="text-slate-700">Have you used borrowed money/overdrafts
-                                        to gamble, and the company failed to intervene?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q60"><span class="text-slate-700">Were you asked to verify your identity when opening your account?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q61"><span class="text-slate-700">Were you asked about your source of funds?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q62"><span class="text-slate-700">Have you used borrowed money, third-party funds, or overdrafts to gamble, and the gambling company failed to intervene or question this?</span></label>
                             </div>
                         </div>
 
                         <!-- DEPOSITS & WITHDRAWALS -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-money-bill-transfer mr-2"></i>DEPOSITS & WITHDRAWALS</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-money-bill-transfer mr-2"></i>DEPOSITS &amp; WITHDRAWALS</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q55"><span class="text-slate-700">Have you had issues withdrawing
-                                        winnings, such as delays or refusals?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q56"><span class="text-slate-700">Did you experience delays or issues when
-                                        trying to withdraw funds?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q57"><span class="text-slate-700">Did you reverse withdrawals to continue
-                                        gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q63"><span class="text-slate-700">Have you had issues withdrawing your winnings, such as delays or refusals without proper explanation?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q64"><span class="text-slate-700">Did you experience delays or issues when trying to withdraw funds?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q65"><span class="text-slate-700">Did you reverse withdrawals to continue gambling?</span></label>
                             </div>
                         </div>
 
                         <!-- GAMBLING LOSSES & INTERVENTION -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-chart-line mr-2"></i>GAMBLING LOSSES & INTERVENTION</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-chart-line mr-2"></i>GAMBLING LOSSES &amp; INTERVENTION</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q58"><span class="text-slate-700">Did you chase your losses by gambling
-                                        more?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q59"><span class="text-slate-700">Did anyone (family, friends) intervene
-                                        or express concern about your gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q60"><span class="text-slate-700">Have you ever tried to seek compensation
-                                        for gambling losses and been told the company was not at fault?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q66"><span class="text-slate-700">Did you chase your losses by gambling more?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q67"><span class="text-slate-700">Did anyone (family, friends) intervene or express concern about your gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q68"><span class="text-slate-700">Have you ever tried to seek compensation or legal redress for gambling losses and been told that the gambling company was not at fault?</span></label>
                             </div>
                         </div>
 
                         <!-- BONUSES & PROMOTIONS -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES
-                                    & PROMOTIONS</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES &amp; PROMOTIONS</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q61"><span class="text-slate-700">Have you been misled about the terms of
-                                        bonus bets?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q62"><span class="text-slate-700">Did these offers encourage you to gamble
-                                        more than you intended?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q69"><span class="text-slate-700">Have you been misled about the terms of bonus bets (e.g., requirements that were not clear at the time)?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q70"><span class="text-slate-700">Did the gambling company use promotions or bonuses to encourage you to gamble more than you intended?</span></label>
                             </div>
                         </div>
 
                         <!-- TECHNICAL ISSUES -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-laptop-code mr-2"></i>TECHNICAL ISSUES</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-laptop-code mr-2"></i>TECHNICAL ISSUES</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q63"><span class="text-slate-700">Did you experience any technical issues
-                                        (glitches, errors) while gambling?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q64"><span class="text-slate-700">Did technical issues result in financial
-                                        loss?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q71"><span class="text-slate-700">Did you experience any technical issues (glitches, errors) while gambling?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q72"><span class="text-slate-700">Did technical issues result in financial loss?</span></label>
                             </div>
                         </div>
 
                         <!-- COMPLAINTS & DISPUTES -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-gavel mr-2"></i>COMPLAINTS & DISPUTES</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gavel mr-2"></i>COMPLAINTS &amp; DISPUTES</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q65"><span class="text-slate-700">Have you previously made a complaint to
-                                        the gambling operator?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q66"><span class="text-slate-700">Was your complaint resolved to your
-                                        satisfaction?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q67"><span class="text-slate-700">Were you ever asked to sign an NDA or
-                                        gagging clause?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q73"><span class="text-slate-700">Have you previously made a complaint to the gambling operator?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q74"><span class="text-slate-700">Was your complaint resolved to your satisfaction?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q75"><span class="text-slate-700">Were you ever asked to sign a non-disclosure agreement (NDA) or gagging clause by the gambling company to prevent you from reporting your case to a regulator?</span></label>
                             </div>
                         </div>
 
                         <!-- REGULATORY COMPLIANCE -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q68"><span class="text-slate-700">Do you believe the operator failed to
-                                        comply with gambling regulations?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q69"><span class="text-slate-700">Did the company fail to protect you as a
-                                        vulnerable customer?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q70"><span class="text-slate-700">Do you believe the company acted
-                                        irresponsibly by not following social responsibility obligations?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q76"><span class="text-slate-700">Do you feel that the gambling company failed to comply with regulations set by the Gambling Commission in your dealings with them?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q77"><span class="text-slate-700">Did the company fail to protect you as a vulnerable customer at any point during your gambling activities?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q78"><span class="text-slate-700">Do you believe the company acted irresponsibly by not following its social responsibility obligations?</span></label>
                             </div>
                         </div>
 
                         <!-- BANK RESPONSIBILITY -->
                         <div class="mb-8">
                             <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3>
+                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3>
                             </div>
                             <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q71"><span class="text-slate-700">Did your bank allow gambling
-                                        transactions despite signs of financial difficulty?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q72"><span class="text-slate-700">I was never contacted by my bank about
-                                        my gambling transactions and was not offered any support.</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q73"><span class="text-slate-700">Did your bank offer support or signpost
-                                        you to gambling support services?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q74"><span class="text-slate-700">I informed my bank about my gambling
-                                        addiction or financial difficulties.</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q75"><span class="text-slate-700">I was never offered any support or
-                                        services by the bank?</span></label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ==================== IRL TOGGLE ==================== -->
-                    <div class="mb-8 p-5 bg-blue-50 rounded-xl border-2 border-blue-300">
-                        <label class="flex items-center gap-4 cursor-pointer">
-                            <input type="checkbox" id="irlToggle" name="irlToggle">
-                            <span class="text-blue-900 font-bold text-lg">I have used finance for gambling</span>
-                        </label>
-                        <p class="text-blue-700 text-sm mt-2 ml-12">Tick this box if the irresponsible lending section
-                            below applies to you.</p>
-                    </div>
-
-                    <!-- ==================== IRL SECTION (hidden by default) ==================== -->
-                    <div id="irlSection" style="display:none;">
-                        <!-- INCOME & FINANCIAL BACKGROUND -->
-                        <div class="mb-8">
-                            <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-sterling-sign mr-2"></i>INCOME & FINANCIAL BACKGROUND</h3>
-                            </div>
-                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q1"><span class="text-slate-700">Were you employed at the time you took
-                                        out the loan / credit?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q2"><span class="text-slate-700">Were you self-employed at the time you
-                                        took out the loan / credit?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q3"><span class="text-slate-700">Have you had or do you have a poor credit
-                                        history?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q4"><span class="text-slate-700">Was your income less than &pound;20,000
-                                        per annum at the time?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q5"><span class="text-slate-700">Have you previously had a CCJ implemented
-                                        against you?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing
-                                        on time?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q7"><span class="text-slate-700">Have you had or do you have an
-                                        insufficient credit history?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q8"><span class="text-slate-700">Do you have a lack of financial
-                                        literacy?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q9"><span class="text-slate-700">Were you of a young age when taking the
-                                        credit?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q10"><span class="text-slate-700">Did you or do you have any legal issues
-                                        at the time?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q11"><span class="text-slate-700">Were you of an older age (70+) when
-                                        taking any sort of credit?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q12"><span class="text-slate-700">Have you or do you have a history of
-                                        defaulting on loans?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q13"><span class="text-slate-700">Were you ever homeless or without stable
-                                        housing?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q14"><span class="text-slate-700">Were you relying on credit to get
-                                        through the month?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q15"><span class="text-slate-700">Did you miss any
-                                        repayments?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q16"><span class="text-slate-700">Have you had any recent major life
-                                        events in the last 10 years?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q79"><span class="text-slate-700">Did your bank allow gambling transactions despite signs of financial difficulty?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q80"><span class="text-slate-700">I was never contacted by my bank about my gambling transactions and was not offered any support (such as warnings or gambling blocks)?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q81"><span class="text-slate-700">Did your bank offer support or signpost you to gambling support services?</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q82"><span class="text-slate-700">I informed my bank about my gambling addiction or financial difficulties.</span></label>
+                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q83"><span class="text-slate-700">I was never offered any support or services (such as gambling blocks, financial counselling, or debt management tools) by the bank?</span></label>
                             </div>
                         </div>
 
-                        <!-- CURRENT & PREVIOUS HEALTH CONDITIONS -->
-                        <div class="mb-8">
-                            <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i
-                                        class="fas fa-heart-pulse mr-2"></i>CURRENT & PREVIOUS HEALTH CONDITIONS</h3>
+                    </div>
+                    <!-- END GAMBLING SECTION -->
+
+                    <!-- ==================== IRRESPONSIBLE LENDING QUESTIONNAIRE ==================== -->
+                    <div class="mb-6 mt-10">
+                        <div class="section-header-irl text-white px-5 py-4 rounded-xl mb-6">
+                            <h2 class="text-xl font-bold tracking-wide uppercase"><i class="fas fa-file-invoice-dollar mr-2"></i>Irresponsible Lending Questionnaire</h2>
+                            <p class="text-blue-100 text-sm mt-1">Please answer each question honestly. Tick the box for each question that applies to you.</p>
+                        </div>
+                    </div>
+
+                    <!-- INCOME & FINANCIAL BACKGROUND -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
+                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-sterling-sign mr-2"></i>INCOME &amp; FINANCIAL BACKGROUND</h3>
+                        </div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q1"><span class="text-slate-700">Were you employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q2"><span class="text-slate-700">Were you self-employed at the time you took out the loan / credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q3"><span class="text-slate-700">Have you had or do you have a poor credit history?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q4"><span class="text-slate-700">Was your income less than &pound;20,000 per annum at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q5"><span class="text-slate-700">Have you previously had a CCJ implemented against you?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q6"><span class="text-slate-700">Did you struggle to repay the borrowing on time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q7"><span class="text-slate-700">Have you had or do you have an insufficient credit history?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q8"><span class="text-slate-700">Do you have a lack of financial literacy?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q9"><span class="text-slate-700">Were you of a young age when taking the credit (loans/credit cards/overdraft/catalogue)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q10"><span class="text-slate-700">Did you or do you have any legal issues at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q11"><span class="text-slate-700">Were you of an older age (70+) when taking any sort of credit?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q12"><span class="text-slate-700">Have you or do you have a history of defaulting on loans?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q13"><span class="text-slate-700">Were you ever homeless or without stable housing, which may have affected your ability to meet financial obligations?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q14"><span class="text-slate-700">Were you relying on credit to get through the month?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q15"><span class="text-slate-700">Did you miss any repayments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q16"><span class="text-slate-700">Have you had any recent major life events in the last 10 years (e.g. divorce, job loss, medical emergency)?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- CURRENT & PREVIOUS HEALTH CONDITIONS -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
+                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-heart-pulse mr-2"></i>CURRENT &amp; PREVIOUS HEALTH CONDITIONS</h3>
+                        </div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q17"><span class="text-slate-700">Did you suffer a traumatic brain injury (TBI) in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q18"><span class="text-slate-700">Did you suffer any head injuries in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q19"><span class="text-slate-700">Do you have any vision impairments that may impact your ability to read and comprehend financial documents?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q20"><span class="text-slate-700">Do you have any hearing loss requiring alternative communication methods for financial information?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q21"><span class="text-slate-700">Do you have any neurological injuries or disorders?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q22"><span class="text-slate-700">Do you have any musculoskeletal injuries?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q23"><span class="text-slate-700">At the time, did you suffer from Post-Traumatic Stress Disorder (PTSD) affecting your financial decision-making?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q24"><span class="text-slate-700">Do you have any speech and language disorders that may impact the understanding of terms and conditions?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q25"><span class="text-slate-700">Do you have any of the following learning difficulties: Dyslexia, ADHD, Dyscalculia, Dysgraphia, Other?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q26"><span class="text-slate-700">Did you inform the lender about your health condition?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q27"><span class="text-slate-700">Did the lender offer any support or adjustments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q28"><span class="text-slate-700">Were you receiving any form of care or support at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q29"><span class="text-slate-700">Are you suffering from any memory impairments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q30"><span class="text-slate-700">Are you affected by Autism Spectrum Disorder (ASD)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q31"><span class="text-slate-700">Are you affected by intellectual disabilities?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- PERSONAL & LIFESTYLE -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
+                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-user mr-2"></i>PERSONAL &amp; LIFESTYLE</h3>
+                        </div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q32"><span class="text-slate-700">Were you a single parent at the time?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q33"><span class="text-slate-700">At any point whilst having the credit, would you have considered yourself a gambler?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q34"><span class="text-slate-700">At any point of using the credit, would you consider yourself an alcoholic?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q35"><span class="text-slate-700">Have you become depressed about keeping up with your monthly payments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q36"><span class="text-slate-700">Have you ever sought medical support, such as visiting a doctor, regarding the impact of debt on your mental health?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q37"><span class="text-slate-700">Have you ever contacted your lender(s) to inform them that you were experiencing difficulties in making your payments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q38"><span class="text-slate-700">Have you ever felt that the finance should not have been provided to you in the first place?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q39"><span class="text-slate-700">Did you ever have to borrow more money in order to cover existing debts or payments?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q40"><span class="text-slate-700">Have you ever had to rely on overdrafts, payday loans, or credit cards just to manage everyday living costs?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q41"><span class="text-slate-700">Have you had or do you have excessive debt?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q42"><span class="text-slate-700">Do you have more than one dependent (such as children or others who rely on your income)?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q43"><span class="text-slate-700">Did you or do you have an active Debt Management Plan, IVA or Bankruptcy?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q44"><span class="text-slate-700">Are you or were you unemployed at any time in the last 10 years?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q45"><span class="text-slate-700">In the last 10 years, have you suffered from anxiety that affected your ability to concentrate on reading?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q46"><span class="text-slate-700">In the last 10 years, have you suffered from stress that affected your ability to concentrate on reading?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q47"><span class="text-slate-700">Did you suffer from any disabilities?</span></label>
+                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox" name="q48"><span class="text-slate-700">Were you unemployed at the time or at any point?</span></label>
+                        </div>
+                    </div>
+
+                    <!-- ADDITIONAL INFORMATION -->
+                    <div class="mb-8">
+                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
+                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-comment-dots mr-2"></i>ADDITIONAL INFORMATION</h3>
+                        </div>
+                        <div class="border border-t-0 border-slate-200 rounded-b-xl p-5">
+                            <p class="text-slate-500 text-sm mb-3">Is there any other important information you would like to inform us about to add to your claim? Please provide details below.</p>
+                            <textarea id="additionalInformation" name="additionalInformation" rows="5"
+                                class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white text-gray-900 resize-y"
+                                placeholder="Type any additional details here..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- DECLARATION & SIGNATURE -->
+                    <div class="mt-10 p-6 bg-slate-50 rounded-xl border-2 border-slate-300">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-3">Declaration</h3>
+                        <div class="text-center p-4 bg-white rounded-lg border border-slate-200 mb-4">
+                            <p class="text-slate-700 text-sm leading-relaxed">I confirm that the information provided in this form is true and accurate to the best of my knowledge. I authorise Rowan Rose Solicitors to act on my behalf in relation to the claims identified above.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label for="printName" class="block text-slate-600 text-sm font-medium mb-1">Print Name</label>
+                                <input type="text" id="printName" name="printName" value="${contactName}"
+                                    class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900"
+                                    readonly>
                             </div>
-                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q17"><span class="text-slate-700">Did you suffer a traumatic brain injury
-                                        (TBI) in the last 10 years?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q18"><span class="text-slate-700">Did you suffer any head injuries in the
-                                        last 10 years?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q19"><span class="text-slate-700">Do you have any vision impairments
-                                        affecting your financial decision-making?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q20"><span class="text-slate-700">Do you have any hearing loss or deafness
-                                        affecting your financial decision-making?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q21"><span class="text-slate-700">Do you have any neurological injuries or
-                                        disorders?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q22"><span class="text-slate-700">Do you have any musculoskeletal
-                                        injuries?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q23"><span class="text-slate-700">Did you suffer from PTSD affecting your
-                                        financial decision-making?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q24"><span class="text-slate-700">Do you have any speech and language
-                                        disorders affecting your financial decision-making?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q25"><span class="text-slate-700">Do you have any learning difficulties:
-                                        Dyslexia, ADHD, Dyscalculia, Dysgraphia?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q26"><span class="text-slate-700">Did you inform the lender about your
-                                        health condition?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q27"><span class="text-slate-700">Did the lender offer any support or
-                                        adjustments?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q28"><span class="text-slate-700">Were you receiving any form of care or
-                                        support at the time?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q29"><span class="text-slate-700">Are you suffering from any memory
-                                        impairments?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q30"><span class="text-slate-700">Are you affected by Autism Spectrum
-                                        Disorder (ASD)?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q31"><span class="text-slate-700">Are you affected by intellectual
-                                        disabilities?</span></label>
+                            <div>
+                                <label for="signDate" class="block text-slate-600 text-sm font-medium mb-1">Date</label>
+                                <input type="text" id="signDate" name="signDate"
+                                    value="${new Date().toLocaleDateString('en-GB')}"
+                                    class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900"
+                                    readonly>
                             </div>
                         </div>
 
-                        <!-- PERSONAL & LIFESTYLE -->
-                        <div class="mb-8">
-                            <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                                <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-user mr-2"></i>PERSONAL
-                                    & LIFESTYLE</h3>
-                            </div>
-                            <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q32"><span class="text-slate-700">Were you a single parent at the
-                                        time?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q33"><span class="text-slate-700">At any point whilst having the credit,
-                                        would you have considered yourself a gambler?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q34"><span class="text-slate-700">At any point of using the credit, would
-                                        you consider yourself an alcoholic?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q35"><span class="text-slate-700">Have you become depressed about keeping
-                                        up with your monthly payments?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q36"><span class="text-slate-700">Have you ever sought medical support
-                                        regarding the impact of debt on your mental health?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q37"><span class="text-slate-700">Have you ever contacted your lender(s)
-                                        to inform them of difficulties making payments?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q38"><span class="text-slate-700">Have you ever felt that the finance
-                                        should not have been provided to you?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q39"><span class="text-slate-700">Did you ever have to borrow more money
-                                        to cover existing debts?</span></label>
-                                <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                        name="q40"><span class="text-slate-700">Have you ever had to rely on overdrafts,
-                                        payday loans, or credit cards for everyday living?</span></label>
-                            </div>
+                        <h3 class="text-lg font-semibold text-slate-800 mb-1">Your Signature</h3>
+                        <p class="text-slate-500 text-sm mb-4">Sign below to confirm your declaration</p>
+                        <div class="relative bg-white border-2 border-slate-300 rounded-xl overflow-hidden">
+                            <canvas id="signatureCanvas" class="w-full cursor-crosshair"
+                                style="height:180px;touch-action:none;"></canvas>
+                            <div id="signaturePlaceholder"
+                                class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-300 text-2xl italic pointer-events-none">
+                                Sign here</div>
+                        </div>
+                        <div class="flex justify-between items-center mt-3">
+                            <span class="text-slate-400 text-sm">Draw with finger or mouse</span>
+                            <button type="button" onclick="clearSignature()"
+                                class="text-slate-500 hover:text-red-500 text-sm font-semibold uppercase">Clear</button>
                         </div>
                     </div>
 
-                    <!-- Previous Betting Companies & Losses -->
-                    <div class="mb-8 p-5 bg-amber-50 rounded-xl border border-amber-200">
-                        <div class="mb-4">
-                            <label for="previousBettingCompanies"
-                                class="block text-amber-900 font-semibold mb-2">Previous Betting Companies (please
-                                list all)</label>
-                            <textarea id="previousBettingCompanies" name="previousBettingCompanies" rows="3"
-                                class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900 resize-y"
-                                placeholder="e.g. Bet365, William Hill, Paddy Power..."></textarea>
-                        </div>
-                        <div>
-                            <label for="estimatedGamblingLosses"
-                                class="block text-amber-900 font-semibold mb-2">Estimated Gambling Losses
-                                (&pound;)</label>
-                            <input type="text" id="estimatedGamblingLosses" name="estimatedGamblingLosses"
-                                class="w-full px-4 py-3 border border-amber-300 rounded-lg text-sm bg-white text-gray-900"
-                                placeholder="e.g. 5000">
-                        </div>
-                    </div>
+                    <button type="submit" id="submitBtn"
+                        class="w-full mt-8 py-5 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl shadow-lg hover:shadow-xl transition-all uppercase tracking-wide">Submit
+                        Questionnaire</button>
+                </form>
 
-                    <!-- SELF-EXCLUSION & PROBLEM GAMBLING -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-ban mr-2"></i>SELF-EXCLUSION & PROBLEM GAMBLING</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q41"><span class="text-slate-700">Did you ever self-exclude from any
-                                    gambling platform?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q42"><span class="text-slate-700">Were you able to create a new account or
-                                    use someone else's account after self-exclusion?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q43"><span class="text-slate-700">Did the gambling company fail to provide
-                                    support after signs of problem gambling?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q44"><span class="text-slate-700">Were you contacted with promotions while
-                                    self-excluded?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q45"><span class="text-slate-700">Did you continue to receive marketing
-                                    materials after self-excluding?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- VIP STATUS & AFFORDABILITY -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-crown mr-2"></i>VIP
-                                STATUS & AFFORDABILITY</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q46"><span class="text-slate-700">Were you offered VIP status without the
-                                    gambling company asking for proof of source of funds?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q47"><span class="text-slate-700">Did the operator carry out affordability
-                                    checks on your account?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q48"><span class="text-slate-700">Were you given access to VIP events
-                                    without verifying affordability?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- TERMS & CONDITIONS -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-file-contract mr-2"></i>TERMS & CONDITIONS</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q49"><span class="text-slate-700">Did the gambling company make changes to
-                                    T&amp;Cs without notifying you clearly?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q50"><span class="text-slate-700">Were the terms and conditions clearly
-                                    presented to you?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q51"><span class="text-slate-700">Do you believe the company unfairly
-                                    withheld your winnings?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- IDENTITY & SOURCE OF FUNDS -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-id-card mr-2"></i>IDENTITY
-                                & SOURCE OF FUNDS</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q52"><span class="text-slate-700">Were you asked to verify your identity
-                                    when opening your account?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q53"><span class="text-slate-700">Were you asked about your source of
-                                    funds?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q54"><span class="text-slate-700">Have you used borrowed money/overdrafts
-                                    to gamble, and the company failed to intervene?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- DEPOSITS & WITHDRAWALS -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-money-bill-transfer mr-2"></i>DEPOSITS & WITHDRAWALS</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q55"><span class="text-slate-700">Have you had issues withdrawing
-                                    winnings, such as delays or refusals?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q56"><span class="text-slate-700">Did you experience delays or issues when
-                                    trying to withdraw funds?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q57"><span class="text-slate-700">Did you reverse withdrawals to continue
-                                    gambling?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- GAMBLING LOSSES & INTERVENTION -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-chart-line mr-2"></i>GAMBLING LOSSES & INTERVENTION</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q58"><span class="text-slate-700">Did you chase your losses by gambling
-                                    more?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q59"><span class="text-slate-700">Did anyone (family, friends) intervene
-                                    or express concern about your gambling?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q60"><span class="text-slate-700">Have you ever tried to seek compensation
-                                    for gambling losses and been told the company was not at fault?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- BONUSES & PROMOTIONS -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gift mr-2"></i>BONUSES
-                                & PROMOTIONS</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q61"><span class="text-slate-700">Have you been misled about the terms of
-                                    bonus bets?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q62"><span class="text-slate-700">Did these offers encourage you to gamble
-                                    more than you intended?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- TECHNICAL ISSUES -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-laptop-code mr-2"></i>TECHNICAL ISSUES</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q63"><span class="text-slate-700">Did you experience any technical issues
-                                    (glitches, errors) while gambling?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q64"><span class="text-slate-700">Did technical issues result in financial
-                                    loss?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- COMPLAINTS & DISPUTES -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-gavel mr-2"></i>COMPLAINTS
-                                & DISPUTES</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q65"><span class="text-slate-700">Have you previously made a complaint to
-                                    the gambling operator?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q66"><span class="text-slate-700">Was your complaint resolved to your
-                                    satisfaction?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q67"><span class="text-slate-700">Were you ever asked to sign an NDA or
-                                    gagging clause?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- REGULATORY COMPLIANCE -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-clipboard-check mr-2"></i>REGULATORY COMPLIANCE</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q68"><span class="text-slate-700">Do you believe the operator failed to
-                                    comply with gambling regulations?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q69"><span class="text-slate-700">Did the company fail to protect you as a
-                                    vulnerable customer?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q70"><span class="text-slate-700">Do you believe the company acted
-                                    irresponsibly by not following social responsibility obligations?</span></label>
-                        </div>
-                    </div>
-
-                    <!-- BANK RESPONSIBILITY -->
-                    <div class="mb-8">
-                        <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                            <h3 class="text-lg font-semibold tracking-wide"><i
-                                    class="fas fa-building-columns mr-2"></i>BANK RESPONSIBILITY</h3>
-                        </div>
-                        <div class="border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q71"><span class="text-slate-700">Did your bank allow gambling
-                                    transactions despite signs of financial difficulty?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q72"><span class="text-slate-700">I was never contacted by my bank about
-                                    my gambling transactions and was not offered any support.</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q73"><span class="text-slate-700">Did your bank offer support or signpost
-                                    you to gambling support services?</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q74"><span class="text-slate-700">I informed my bank about my gambling
-                                    addiction or financial difficulties.</span></label>
-                            <label class="q-row flex items-center gap-4 p-4 cursor-pointer"><input type="checkbox"
-                                    name="q75"><span class="text-slate-700">I was never offered any support or
-                                    services by the bank?</span></label>
-                        </div>
-                    </div>
-
-            </div>
-            <!-- END GAMBLING SECTION -->
-
-            <!-- ADDITIONAL INFORMATION -->
-            <div class="mb-8">
-                <div class="section-header text-white px-5 py-3 rounded-t-xl">
-                    <h3 class="text-lg font-semibold tracking-wide"><i class="fas fa-comment-dots mr-2"></i>ADDITIONAL
-                        INFORMATION</h3>
-                </div>
-                <div class="border border-t-0 border-slate-200 rounded-b-xl p-5">
-                    <p class="text-slate-500 text-sm mb-3">Please provide any additional information that may be
-                        relevant to your claim.</p>
-                    <textarea id="additionalInformation" name="additionalInformation" rows="5"
-                        class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white text-gray-900 resize-y"
-                        placeholder="Type any additional details here..."></textarea>
-                </div>
-            </div>
-
-            <!-- DECLARATION & SIGNATURE -->
-            <div class="mt-10 p-6 bg-slate-50 rounded-xl border-2 border-slate-300">
-                <h3 class="text-lg font-semibold text-slate-800 mb-3">Declaration</h3>
-                <div class="text-center p-4 bg-white rounded-lg border border-slate-200 mb-4">
-                    <p class="text-slate-700 text-sm leading-relaxed">I, <span
-                            class="font-bold text-brand-orange">${contactName}</span>, confirm that the
-                        information provided in this questionnaire is true and accurate to the best of my
-                        knowledge. I authorise Rowan Rose Solicitors to use this information in connection with
-                        my claim.</p>
+                <div id="loading" style="display:none;" class="text-center py-16">
+                    <div style="width:48px;height:48px;border:5px solid #e2e8f0;border-top-color:#F18F01;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+                    <p class="text-slate-500 text-lg">Submitting your questionnaire...</p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label for="printName" class="block text-slate-600 text-sm font-medium mb-1">Print
-                            Name</label>
-                        <input type="text" id="printName" name="printName" value="${contactName}"
-                            class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900"
-                            readonly>
-                    </div>
-                    <div>
-                        <label for="signDate" class="block text-slate-600 text-sm font-medium mb-1">Date</label>
-                        <input type="text" id="signDate" name="signDate"
-                            value="${new Date().toLocaleDateString('en-GB')}"
-                            class="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-slate-100 text-gray-900"
-                            readonly>
-                    </div>
+                <div id="success" class="hidden text-center py-16">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><i
+                            class="fas fa-check text-3xl text-green-600"></i></div>
+                    <h2 class="text-2xl font-bold text-green-700 mb-2">Questionnaire Submitted Successfully!</h2>
+                    <p class="text-slate-600">Thank you. We will review your information and be in touch shortly.</p>
                 </div>
-
-                <h3 class="text-lg font-semibold text-slate-800 mb-1">Your Signature</h3>
-                <p class="text-slate-500 text-sm mb-4">Sign below to confirm your declaration</p>
-                <div class="relative bg-white border-2 border-slate-300 rounded-xl overflow-hidden">
-                    <canvas id="signatureCanvas" class="w-full cursor-crosshair"
-                        style="height:180px;touch-action:none;"></canvas>
-                    <div id="signaturePlaceholder"
-                        class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-300 text-2xl italic pointer-events-none">
-                        Sign here</div>
-                </div>
-                <div class="flex justify-between items-center mt-3">
-                    <span class="text-slate-400 text-sm">Draw with finger or mouse</span>
-                    <button type="button" onclick="clearSignature()"
-                        class="text-slate-500 hover:text-red-500 text-sm font-semibold uppercase">Clear</button>
-                </div>
-            </div>
-
-            <button type="submit" id="submitBtn"
-                class="w-full mt-8 py-5 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl shadow-lg hover:shadow-xl transition-all uppercase tracking-wide">Submit
-                Questionnaire</button>
-            </form>
-
-            <div id="loading" class="hidden text-center py-16">
-                <div class="w-12 h-12 border-4 border-slate-200 border-t-brand-orange rounded-full mx-auto"
-                    style="animation:spin 1s linear infinite;"></div>
-                <p class="mt-4 text-slate-600">Submitting your questionnaire...</p>
-            </div>
-
-            <div id="success" class="hidden text-center py-16">
-                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><i
-                        class="fas fa-check text-3xl text-green-600"></i></div>
-                <h2 class="text-2xl font-bold text-green-700 mb-2">Questionnaire Submitted Successfully!</h2>
-                <p class="text-slate-600">Thank you. We will review your information and be in touch shortly.</p>
             </div>
         </div>
     </div>
-    </div>
 
     <script>
-        // Toggle IRL section
-        const irlToggle = document.getElementById('irlToggle');
-        const irlSection = document.getElementById('irlSection');
-        irlToggle.addEventListener('change', function () {
-            irlSection.style.display = this.checked ? 'block' : 'none';
+        // Toggle gambling section
+        const isGamblerToggle = document.getElementById('isGamblerToggle');
+        const gamblingSection = document.getElementById('gamblingSection');
+        isGamblerToggle.addEventListener('change', function () {
+            gamblingSection.style.display = this.checked ? 'block' : 'none';
         });
 
         // Checked row styling
@@ -953,18 +570,17 @@
 
             if (!hasSignature) { alert('Please provide your signature.'); return; }
 
-            // Collect all question answers
+            // Collect all question answers q1-q83
             const questions = {};
-            for (let i = 1; i <= 75; i++) {
+            for (let i = 1; i <= 83; i++) {
                 const cb = document.querySelector('input[name="q' + i + '"]');
                 questions['q' + i] = cb ? cb.checked : false;
             }
 
             const payload = {
-                contactId: '${contactId}',
+                contactId: '${contact.id}',
                 questions: questions,
-                isGambler: true, // In this variation, gambling is the main section
-                isIRL: irlToggle.checked,
+                isGambler: isGamblerToggle.checked,
                 previousBettingCompanies: document.getElementById('previousBettingCompanies') ? document.getElementById('previousBettingCompanies').value.trim() : '',
                 estimatedGamblingLosses: document.getElementById('estimatedGamblingLosses') ? document.getElementById('estimatedGamblingLosses').value.trim() : '',
                 additionalInformation: document.getElementById('additionalInformation').value.trim(),
@@ -983,7 +599,7 @@
                 const result = await response.json();
                 document.getElementById('loading').style.display = 'none';
                 if (result.success) {
-                    document.getElementById('success').style.display = 'block';
+                    document.getElementById('success').classList.remove('hidden');
                 } else {
                     document.getElementById('errorMessage').textContent = result.message || 'Error submitting questionnaire.';
                     document.getElementById('errorMessage').classList.remove('hidden');
