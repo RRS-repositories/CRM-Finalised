@@ -203,7 +203,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
       state_county: addr.county,
       postal_code: postalCode,
       address_line_1: addr.street,
-      address_line_2: [addr.city, addr.county].filter(Boolean).join(', ')
+      address_line_2: ''
     }));
     setErrors(prev => {
       const newErrors = { ...prev };
