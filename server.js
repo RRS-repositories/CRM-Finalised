@@ -1120,6 +1120,13 @@ const openai = new OpenAI({
 
 // Store chat sessions in memory (in production, use Redis or similar)
 const chatSessions = new Map();
+// Purge chat sessions older than 2 hours every 30 minutes
+setInterval(() => {
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    for (const [key, session] of chatSessions) {
+        if (session.lastAccessed && session.lastAccessed < cutoff) chatSessions.delete(key);
+    }
+}, 30 * 60 * 1000);
 
 // ============================================================================
 // ONLYOFFICE INTEGRATION - In-Memory Storage (Phase 1)
@@ -1794,14 +1801,18 @@ async function generateLenderLOA(lenderName, clientData, signatureBuffer) {
         headless: 'new',
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' }
-    });
-    await browser.close();
+    let pdfBuffer;
+    try {
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' }
+        });
+    } finally {
+        await browser.close();
+    }
 
     return pdfBuffer;
 }
@@ -1955,14 +1966,18 @@ async function generatePreviousAddressPDF(clientData, addresses, logoBase64) {
         headless: 'new',
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '0', bottom: '0', left: '0', right: '0' } // PDF CSS handles margins
-    });
-    await browser.close();
+    let pdfBuffer;
+    try {
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '0', bottom: '0', left: '0', right: '0' } // PDF CSS handles margins
+        });
+    } finally {
+        await browser.close();
+    }
 
     return pdfBuffer;
 }
@@ -2919,23 +2934,24 @@ app.post('/api/submit-page1', async (req, res) => {
                     headless: true,
                     args: ['--no-sandbox', '--disable-setuid-sandbox']
                 });
-
-                const page = await browser.newPage();
-                await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-                const pdfBuffer = await page.pdf({
-                    format: 'A4',
-                    margin: {
-                        top: '10mm',
-                        right: '10mm',
-                        bottom: '10mm',
-                        left: '10mm'
-                    },
-                    printBackground: true,
-                    preferCSSPageSize: false
-                });
-
-                await browser.close();
+                let pdfBuffer;
+                try {
+                    const page = await browser.newPage();
+                    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    pdfBuffer = await page.pdf({
+                        format: 'A4',
+                        margin: {
+                            top: '10mm',
+                            right: '10mm',
+                            bottom: '10mm',
+                            left: '10mm'
+                        },
+                        printBackground: true,
+                        preferCSSPageSize: false
+                    });
+                } finally {
+                    await browser.close();
+                }
 
                 const tcKey = `${folderPath}Terms-and-Conditions/Terms.pdf`;
                 await s3Client.send(new PutObjectCommand({
@@ -5838,6 +5854,7 @@ app.post('/api/ai/chat', async (req, res) => {
             });
         }
         const session = chatSessions.get(sessionId);
+        session.lastAccessed = Date.now();
 
         // Update context if provided
         if (context) {
