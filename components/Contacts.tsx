@@ -1627,9 +1627,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             county: addr.county,
             postalCode: addr.postalCode
          } : a
-            ));
-         }
-      });
+      ));
    };
 
    // Open claim file view
