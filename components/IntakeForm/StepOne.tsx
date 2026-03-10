@@ -172,16 +172,36 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     }
   };
 
-  const handleSelectAddress = (suggestion: any) => {
+  const handleSelectAddress = async (suggestion: any) => {
     setAddressQuery(suggestion.formatted);
     setShowSuggestions(false);
     const addr = extractGeoapifyAddress(suggestion);
+    let postalCode = addr.postalCode;
+    // Fallback: reverse geocode to get postcode for area-level results
+    if (!postalCode && suggestion.lat && suggestion.lon) {
+      try {
+        const res = await fetch(
+          `https://api.geoapify.com/v1/geocode/reverse?lat=${suggestion.lat}&lon=${suggestion.lon}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_API_KEY}`
+        );
+        const data = await res.json();
+        const top = data.results?.[0];
+        if (top) {
+          postalCode = top.postcode || top.postal_code || '';
+          if (!postalCode) {
+            const m = (top.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+            if (m) postalCode = m[0].trim();
+          }
+        }
+      } catch (e) {
+        console.error('Reverse geocode postcode fallback error:', e);
+      }
+    }
     setFormData(prev => ({
       ...prev,
       street_address: addr.street,
       city: addr.city,
       state_county: addr.county,
-      postal_code: addr.postalCode,
+      postal_code: postalCode,
       address_line_1: addr.street,
       address_line_2: [addr.city, addr.county].filter(Boolean).join(', ')
     }));

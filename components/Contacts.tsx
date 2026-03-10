@@ -1615,17 +1615,37 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
-   const handleSelectPrevAddr = (addrId: string, suggestion: any) => {
+   const handleSelectPrevAddr = async (addrId: string, suggestion: any) => {
       setPrevAddrQuery(prev => ({ ...prev, [addrId]: suggestion.formatted }));
       setShowPrevAddrSuggestions(prev => ({ ...prev, [addrId]: false }));
       const addr = extractGeoapifyAddress(suggestion);
+      let postalCode = addr.postalCode;
+      // Fallback: reverse geocode to get postcode for area-level results
+      if (!postalCode && suggestion.lat && suggestion.lon) {
+         try {
+            const res = await fetch(
+               `https://api.geoapify.com/v1/geocode/reverse?lat=${suggestion.lat}&lon=${suggestion.lon}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_API_KEY}`
+            );
+            const data = await res.json();
+            const top = data.results?.[0];
+            if (top) {
+               postalCode = top.postcode || top.postal_code || '';
+               if (!postalCode) {
+                  const m = (top.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+                  if (m) postalCode = m[0].trim();
+               }
+            }
+         } catch (e) {
+            console.error('Reverse geocode postcode fallback error:', e);
+         }
+      }
       setPreviousAddresses(prev => prev.map(a =>
          a.id === addrId ? {
             ...a,
             line1: addr.street,
             city: addr.city,
             county: addr.county,
-            postalCode: addr.postalCode
+            postalCode: postalCode
          } : a
       ));
    };
