@@ -144,7 +144,7 @@ async function createMattermostUser(email, password, fullName) {
 }
 
 // --- MIDDLEWARE ---
-app.use(compression());
+// compression() removed — Nginx handles gzip at the proxy level
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
