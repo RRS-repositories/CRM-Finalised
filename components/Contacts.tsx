@@ -1591,8 +1591,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
       const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
       return {
-         street: streetParts || result.address_line1 || '',
-         city: result.city || result.town || result.village || result.county || '',
+         street: streetParts || result.street || result.address_line1 || '',
+         city: result.suburb || result.neighbourhood || result.quarter || result.city || result.town || result.village || result.county || '',
          county: result.county || result.state || '',
          postalCode: postcode,
       };
