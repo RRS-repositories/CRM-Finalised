@@ -655,8 +655,6 @@ const upload = multer({
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 
-// --- LAMBDA PDF GENERATOR ---
-const PDF_GENERATOR_API_URL = process.env.PDF_GENERATOR_API_URL || 'https://n778tx67zi.execute-api.eu-north-1.amazonaws.com/prod/generate-pdf';
 
 /**
  * Generate LOA or Cover Letter PDF using OnlyOffice (local EC2)
