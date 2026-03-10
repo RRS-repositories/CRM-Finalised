@@ -819,7 +819,7 @@ export const FINANCE_TYPES = [
   'Credit Card',
   'Catalogue Credit',
   'Guarantor Loan',
-  'High-Cost Short-Term Credit (Payday)',
+  'HCCC (High Cost Consumer Credit)',
   'Home Collected Credit',
   'Instalment Loan',
   'Line of Credit / Running Account',

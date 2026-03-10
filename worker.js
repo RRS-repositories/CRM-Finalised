@@ -506,6 +506,17 @@ async function fetchPdfFromS3(s3Key) {
     }
 }
 
+// --- HELPER FUNCTION: EXTRACT S3 KEY FROM PRESIGNED/SIGNED S3 URL ---
+function extractS3KeyFromUrl(url) {
+    try {
+        const parsed = new URL(url);
+        // pathname is like /bucket-path/to/file.pdf — remove leading slash and decode
+        return decodeURIComponent(parsed.pathname.slice(1));
+    } catch {
+        return null;
+    }
+}
+
 // Known lender aliases - ONLY these get flexible matching (to avoid false positives like BARCLAYS vs BARCLAYS CREDIT CARD)
 const LENDER_ALIASES = {
     'ZABLE': ['ZABLE', 'ZABLE CREDIT', 'ZABLE_CREDIT'],
@@ -817,11 +828,70 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         }
     }
 
+    // CRM DB FALLBACK: If still missing after S3+AI, check documents table for lender+category matched docs
+    if (!documents.loa || !documents.coverLetter) {
+        console.log(`[Worker] Checking CRM documents table for lender/category-matched documents (LOA: ${!!documents.loa}, Cover Letter: ${!!documents.coverLetter})...`);
+
+        if (!documents.loa) {
+            try {
+                const loaDbResult = await pool.query(
+                    `SELECT url, name FROM documents
+                     WHERE contact_id = $1
+                       AND LOWER(lender) = LOWER($2)
+                       AND category ILIKE ANY(ARRAY['LOA', 'Letter of Authority', 'LOA Form'])
+                     ORDER BY created_at DESC
+                     LIMIT 1`,
+                    [contactId, lenderName]
+                );
+                if (loaDbResult.rows.length > 0) {
+                    const doc = loaDbResult.rows[0];
+                    const s3Key = extractS3KeyFromUrl(doc.url);
+                    if (s3Key) {
+                        const buf = await fetchPdfFromS3(s3Key);
+                        if (buf) {
+                            documents.loa = buf;
+                            console.log(`[Worker] ✅ CRM DB fallback: found LOA "${doc.name}" matched to lender "${lenderName}"`);
+                        }
+                    }
+                }
+            } catch (dbErr) {
+                console.warn('[Worker] CRM DB fallback for LOA failed:', dbErr.message);
+            }
+        }
+
+        if (!documents.coverLetter) {
+            try {
+                const clDbResult = await pool.query(
+                    `SELECT url, name FROM documents
+                     WHERE contact_id = $1
+                       AND LOWER(lender) = LOWER($2)
+                       AND category ILIKE 'Cover Letter'
+                     ORDER BY created_at DESC
+                     LIMIT 1`,
+                    [contactId, lenderName]
+                );
+                if (clDbResult.rows.length > 0) {
+                    const doc = clDbResult.rows[0];
+                    const s3Key = extractS3KeyFromUrl(doc.url);
+                    if (s3Key) {
+                        const buf = await fetchPdfFromS3(s3Key);
+                        if (buf) {
+                            documents.coverLetter = buf;
+                            console.log(`[Worker] ✅ CRM DB fallback: found Cover Letter "${doc.name}" matched to lender "${lenderName}"`);
+                        }
+                    }
+                }
+            } catch (dbErr) {
+                console.warn('[Worker] CRM DB fallback for Cover Letter failed:', dbErr.message);
+            }
+        }
+    }
+
     if (!documents.loa) {
-        console.log(`[Worker] ❌ LOA not found (even with AI)`);
+        console.log(`[Worker] ❌ LOA not found (S3, AI, or CRM documents table)`);
     }
     if (!documents.coverLetter) {
-        console.log(`[Worker] ❌ Cover Letter not found (even with AI)`);
+        console.log(`[Worker] ❌ Cover Letter not found (S3, AI, or CRM documents table)`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
@@ -957,7 +1027,41 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
             }
         }
 
-        console.log(`[Worker] Total ID Documents found: ${documents.idDocuments.length}`);
+        console.log(`[Worker] Total ID Documents found from S3: ${documents.idDocuments.length}`);
+
+        // CRM DB FALLBACK: If no ID docs found in S3, check documents table for lender+category matched docs
+        if (documents.idDocuments.length === 0) {
+            try {
+                const idDbResult = await pool.query(
+                    `SELECT url, name FROM documents
+                     WHERE contact_id = $1
+                       AND LOWER(lender) = LOWER($2)
+                       AND category ILIKE 'ID Document'
+                     ORDER BY created_at DESC`,
+                    [contactId, lenderName]
+                );
+                for (const doc of idDbResult.rows) {
+                    const s3Key = extractS3KeyFromUrl(doc.url);
+                    if (s3Key) {
+                        const buf = await fetchPdfFromS3(s3Key);
+                        if (buf) {
+                            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(doc.name);
+                            documents.idDocuments.push({
+                                filename: doc.name,
+                                content: buf,
+                                contentType: isImage ? 'image/jpeg' : 'application/pdf'
+                            });
+                            console.log(`[Worker] ✅ CRM DB fallback: found ID Document "${doc.name}" matched to lender "${lenderName}"`);
+                        }
+                    }
+                }
+                if (documents.idDocuments.length > 0) {
+                    console.log(`[Worker] Total ID Documents after CRM DB fallback: ${documents.idDocuments.length}`);
+                }
+            } catch (dbErr) {
+                console.warn('[Worker] CRM DB fallback for ID documents failed:', dbErr.message);
+            }
+        }
     } catch (err) {
         console.warn('[Worker] Could not fetch ID documents:', err.message);
     }
