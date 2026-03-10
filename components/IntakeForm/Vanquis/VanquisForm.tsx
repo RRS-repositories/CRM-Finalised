@@ -158,7 +158,7 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
     return {
       street: streetParts || result.street || result.address_line1 || '',
-      city: result.suburb || result.neighbourhood || result.quarter || result.city || result.town || result.village || result.county || '',
+      city: result.city || result.town || result.village || result.county || '',
       county: result.county || result.state || '',
       postalCode: postcode,
     };
