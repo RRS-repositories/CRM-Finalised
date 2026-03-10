@@ -460,35 +460,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const updateContactExtendedRef = useRef(updateContactExtended);
    useEffect(() => { updateContactExtendedRef.current = updateContactExtended; }, [updateContactExtended]);
 
-   // Google Maps services refs
-   const autocompleteServiceRef = useRef<any>(null);
-   const placesServiceRef = useRef<any>(null);
+   // Geoapify address lookup
+   const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-   // Initialize Google Maps services
-   useEffect(() => {
-      const initGoogleMaps = () => {
-         if (window.google && window.google.maps && window.google.maps.places) {
-            autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
-            // Create a dummy div for PlacesService
-            const dummyDiv = document.createElement('div');
-            placesServiceRef.current = new window.google.maps.places.PlacesService(dummyDiv);
-         }
-      };
-
-      if (window.google) {
-         initGoogleMaps();
-      } else {
-         // Wait for Google Maps to load
-         const checkGoogle = setInterval(() => {
-            if (window.google) {
-               initGoogleMaps();
-               clearInterval(checkGoogle);
-            }
-         }, 100);
-         return () => clearInterval(checkGoogle);
-      }
-   }, []);
 
    // Edit modes for each section
    const [editingPersonalInfo, setEditingPersonalInfo] = useState(false);
@@ -1598,34 +1572,42 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       ));
    };
 
-   // Previous address lookup functions
+   // Previous address lookup functions (Geoapify)
+   const fetchGeoapifySuggestions = async (query: string): Promise<any[]> => {
+      try {
+         const res = await fetch(
+            `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_API_KEY}`
+         );
+         const data = await res.json();
+         return (data.results || []).slice(0, 5);
+      } catch (e) {
+         console.error('Geoapify autocomplete error:', e);
+         return [];
+      }
+   };
+
+   const extractGeoapifyAddress = (result: any) => {
+      const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
+      const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+      const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
+      return {
+         street: streetParts || result.address_line1 || '',
+         city: result.city || result.town || result.village || result.county || '',
+         county: result.county || result.state || '',
+         postalCode: postcode,
+      };
+   };
+
    const handlePrevAddrSearch = (addrId: string, query: string) => {
       setPrevAddrQuery(prev => ({ ...prev, [addrId]: query }));
       setShowPrevAddrSuggestions(prev => ({ ...prev, [addrId]: true }));
-
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
       if (query.length > 2) {
          setPrevAddrLoading(prev => ({ ...prev, [addrId]: true }));
-         searchTimeoutRef.current = setTimeout(() => {
-            if (!autocompleteServiceRef.current) {
-               setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
-               return;
-            }
-
-            const request = {
-               input: query,
-               componentRestrictions: { country: 'gb' }
-            };
-
-            autocompleteServiceRef.current.getPlacePredictions(request, (predictions: any[], status: any) => {
-               setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
-               if (status === window.google?.maps?.places?.PlacesServiceStatus?.OK && predictions) {
-                  setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: predictions.slice(0, 4) }));
-               } else {
-                  setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: [] }));
-               }
-            });
+         searchTimeoutRef.current = setTimeout(async () => {
+            const suggestions = await fetchGeoapifySuggestions(query);
+            setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: suggestions }));
+            setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
          }, 300);
       } else {
          setPrevAddrSuggestions(prev => ({ ...prev, [addrId]: [] }));
@@ -1634,54 +1616,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    };
 
    const handleSelectPrevAddr = (addrId: string, suggestion: any) => {
-      setPrevAddrQuery(prev => ({ ...prev, [addrId]: suggestion.description }));
+      setPrevAddrQuery(prev => ({ ...prev, [addrId]: suggestion.formatted }));
       setShowPrevAddrSuggestions(prev => ({ ...prev, [addrId]: false }));
-      setPrevAddrLoading(prev => ({ ...prev, [addrId]: true }));
-
-      if (!placesServiceRef.current) {
-         setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
-         return;
-      }
-
-      const request = {
-         placeId: suggestion.place_id,
-         fields: ['address_components']
-      };
-
-      placesServiceRef.current.getDetails(request, (place: any, status: any) => {
-         setPrevAddrLoading(prev => ({ ...prev, [addrId]: false }));
-         if (status === window.google?.maps?.places?.PlacesServiceStatus?.OK && place) {
-            let streetNumber = '';
-            let route = '';
-            let postalTown = '';
-            let locality = '';
-            let subpremise = '';
-            let county = '';
-            let postalCode = '';
-
-            place.address_components.forEach((component: any) => {
-               const types = component.types;
-               if (types.includes('subpremise')) subpremise = component.long_name;
-               if (types.includes('street_number')) streetNumber = component.long_name;
-               if (types.includes('route')) route = component.long_name;
-               if (types.includes('postal_town')) postalTown = component.long_name;
-               if (types.includes('locality')) locality = component.long_name;
-               if (types.includes('administrative_area_level_2')) county = component.long_name;
-               if (types.includes('administrative_area_level_1') && !county) county = component.long_name;
-               if (types.includes('postal_code')) postalCode = component.long_name;
-            });
-
-            const fullStreet = [subpremise, streetNumber, route].filter(Boolean).join(' ');
-            const city = postalTown || locality;
-
-            setPreviousAddresses(prev => prev.map(addr =>
-               addr.id === addrId ? {
-                  ...addr,
-                  line1: fullStreet,
-                  city: city,
-                  county: county,
-                  postalCode: postalCode
-               } : addr
+      const addr = extractGeoapifyAddress(suggestion);
+      setPreviousAddresses(prev => prev.map(a =>
+         a.id === addrId ? {
+            ...a,
+            line1: addr.street,
+            city: addr.city,
+            county: addr.county,
+            postalCode: addr.postalCode
+         } : a
             ));
          }
       });
@@ -2520,7 +2465,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                             onClick={() => handleSelectPrevAddr(addr.id, suggestion)}
                                                             className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-slate-700 border-b border-gray-100 dark:border-slate-700 last:border-b-0"
                                                          >
-                                                            {suggestion.description}
+                                                            {suggestion.formatted}
                                                          </button>
                                                       ))}
                                                    </div>
