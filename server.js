@@ -4257,6 +4257,49 @@ app.get('/api/crm/documents', async (req, res) => {
     }
 });
 
+// --- DELETE /api/crm/documents/:id --- Delete a document by numeric ID (auth required)
+app.delete('/api/crm/documents/:id', crmApiKeyAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+        return res.status(400).json({ error: 'Document id must be a numeric value' });
+    }
+
+    try {
+        const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+        const bucketName = process.env.S3_BUCKET_NAME;
+
+        // Fetch document record first
+        const { rows } = await pool.query('SELECT id, name, url, contact_id FROM documents WHERE id = $1', [id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        const doc = rows[0];
+
+        // Extract S3 key from the presigned URL and delete from S3
+        if (doc.url) {
+            try {
+                const urlObj = new URL(doc.url);
+                let s3Key = decodeURIComponent(urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname);
+                if (s3Key.startsWith(bucketName + '/')) s3Key = s3Key.substring(bucketName.length + 1);
+                await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: s3Key }));
+                console.log(`[DELETE /api/crm/documents/${id}] S3 object deleted: ${s3Key}`);
+            } catch (s3Err) {
+                // Non-fatal — log and continue to delete DB record regardless
+                console.warn(`[DELETE /api/crm/documents/${id}] S3 delete skipped: ${s3Err.message}`);
+            }
+        }
+
+        // Delete from DB
+        await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+        console.log(`[DELETE /api/crm/documents/${id}] DB record deleted (contact_id: ${doc.contact_id}, name: ${doc.name})`);
+
+        res.json({ success: true, message: 'Document deleted', id, name: doc.name });
+    } catch (err) {
+        console.error(`[DELETE /api/crm/documents/${id}]`, err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- DOCUMENT SEND (mark as Sent + generate tracking token) ---
 app.post('/api/documents/:id/send', async (req, res) => {
     const { id } = req.params;
