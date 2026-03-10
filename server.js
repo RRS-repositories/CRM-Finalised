@@ -8,7 +8,18 @@ import multer from 'multer';
 import pkg from 'pg';
 const { Pool } = pkg;
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { getSignedUrl as _getSignedUrl } from '@aws-sdk/s3-request-presigner';
+// Wrap getSignedUrl: GET requests automatically route through CloudFront if configured
+async function getSignedUrl(client, command, options) {
+    const url = await _getSignedUrl(client, command, options);
+    const cfDomain = process.env.CLOUDFRONT_DOMAIN;
+    if (!cfDomain || !(command instanceof GetObjectCommand)) return url;
+    const bucket = process.env.S3_BUCKET_NAME;
+    const region = process.env.AWS_REGION;
+    return url
+        .replace(`https://${bucket}.s3.${region}.amazonaws.com`, `https://${cfDomain}`)
+        .replace(`https://s3.${region}.amazonaws.com/${bucket}`, `https://${cfDomain}`);
+}
 import PDFDocument from 'pdfkit';
 import nodemailer from 'nodemailer';
 import * as msal from '@azure/msal-node';
