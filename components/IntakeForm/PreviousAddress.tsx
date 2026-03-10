@@ -48,11 +48,20 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
     };
 
     const extractGeoapifyAddress = (result: any) => {
-        const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
         const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
         const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
+        let street1: string;
+        let street2: string;
+        if (result.name && result.street && result.name !== result.street) {
+            street1 = result.name;
+            street2 = [result.housenumber, result.street].filter(Boolean).join(' ');
+        } else {
+            street1 = [result.housenumber, result.street].filter(Boolean).join(' ') || result.street || result.address_line1 || '';
+            street2 = '';
+        }
         return {
-            street: streetParts || result.street || result.address_line1 || '',
+            street: street1,
+            street2: street2,
             city: result.city || result.town || result.village || result.county || '',
             county: result.county || result.state || '',
             postalCode: postcode,
@@ -104,7 +113,7 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
         newAddresses[index] = {
             ...newAddresses[index],
             address_line_1: addr.street,
-            address_line_2: '',
+            address_line_2: addr.street2 || '',
             city: addr.city,
             county: addr.county,
             postal_code: postalCode,
