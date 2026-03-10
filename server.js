@@ -4030,6 +4030,19 @@ app.patch('/api/documents/lender', async (req, res) => {
             await pool.query('DELETE FROM document_lender_map WHERE s3_key = $1', [s3_key]);
         }
 
+        // Dual-write: also update documents.lender directly so DSAR worker can find it
+        try {
+            const fileName = s3_key.split('/').pop();
+            const lenderVal = lender.trim() || null;
+            await pool.query(
+                `UPDATE documents SET lender = $1, updated_at = NOW()
+                 WHERE contact_id = $2 AND (url LIKE $3 OR name = $4)`,
+                [lenderVal, contact_id, `%${s3_key}%`, fileName]
+            );
+        } catch (dualErr) {
+            console.warn('[PATCH /api/documents/lender] dual-write skipped:', dualErr.message);
+        }
+
         res.json({ success: true, lender: lender.trim() });
     } catch (err) {
         console.error('[PATCH /api/documents/lender]', err);
@@ -4066,6 +4079,19 @@ app.patch('/api/documents/category', async (req, res) => {
             `, [s3_key, contact_id, category.trim()]);
         } else {
             await pool.query('DELETE FROM document_category_map WHERE s3_key = $1', [s3_key]);
+        }
+
+        // Dual-write: also update documents.category directly so DSAR worker can find it
+        try {
+            const fileName = s3_key.split('/').pop();
+            const catVal = category.trim() || null;
+            await pool.query(
+                `UPDATE documents SET category = $1, updated_at = NOW()
+                 WHERE contact_id = $2 AND (url LIKE $3 OR name = $4)`,
+                [catVal, contact_id, `%${s3_key}%`, fileName]
+            );
+        } catch (dualErr) {
+            console.warn('[PATCH /api/documents/category] dual-write skipped:', dualErr.message);
         }
 
         res.json({ success: true, category: category.trim() });

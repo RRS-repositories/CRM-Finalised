@@ -506,14 +506,23 @@ async function fetchPdfFromS3(s3Key) {
     }
 }
 
-// --- HELPER FUNCTION: EXTRACT S3 KEY FROM PRESIGNED/SIGNED S3 URL ---
+// --- HELPER FUNCTION: EXTRACT S3 KEY FROM PRESIGNED/SIGNED S3 URL OR PLAIN S3 PATH ---
 function extractS3KeyFromUrl(url) {
+    if (!url) return null;
     try {
-        const parsed = new URL(url);
-        // pathname is like /bucket-path/to/file.pdf — remove leading slash and decode
-        return decodeURIComponent(parsed.pathname.slice(1));
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            const parsed = new URL(url);
+            // pathname is like /path/to/file.pdf — strip leading slash and decode
+            let key = decodeURIComponent(parsed.pathname.slice(1));
+            // Strip bucket name prefix if present (e.g. bucket-name/path/to/file.pdf)
+            const bucket = process.env.S3_BUCKET_NAME || '';
+            if (bucket && key.startsWith(bucket + '/')) key = key.slice(bucket.length + 1);
+            return key || null;
+        }
+        // Already a raw S3 key path — use as-is
+        return url;
     } catch {
-        return null;
+        return url; // last resort: treat as raw key
     }
 }
 
@@ -828,12 +837,63 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         }
     }
 
-    // CRM DB FALLBACK: If still missing after S3+AI, check documents table for lender+category matched docs
+    // CRM DB FALLBACK: If still missing after S3+AI, check documents table AND map tables
     if (!documents.loa || !documents.coverLetter) {
-        console.log(`[Worker] Checking CRM documents table for lender/category-matched documents (LOA: ${!!documents.loa}, Cover Letter: ${!!documents.coverLetter})...`);
+        console.log(`[Worker] ⏳ CRM DB fallback — searching for contactId=${contactId} lender="${lenderName}" (LOA: ${!!documents.loa}, CoverLetter: ${!!documents.coverLetter})`);
+
+        // Helper: fetch buffer from a doc record (handles presigned URL or plain S3 key in url column)
+        async function fetchDocBuffer(doc) {
+            const s3Key = extractS3KeyFromUrl(doc.url);
+            console.log(`[Worker]   → url="${doc.url}" → s3Key="${s3Key}"`);
+            if (!s3Key) return null;
+            const buf = await fetchPdfFromS3(s3Key);
+            if (!buf) console.log(`[Worker]   → S3 fetch returned null for key "${s3Key}"`);
+            return buf;
+        }
+
+        // Helper: search map tables (document_lender_map + document_category_map) for matching S3 key,
+        // then find that file in the documents table by name match or direct S3 fetch
+        async function findViaMapTables(contactId, lenderName, categoryPatterns) {
+            try {
+                const categoryConditions = categoryPatterns.map((_, i) => `dcm.category ILIKE $${i + 3}`).join(' OR ');
+                const params = [contactId, lenderName, ...categoryPatterns];
+                const mapResult = await pool.query(
+                    `SELECT dlm.s3_key, dcm.category
+                     FROM document_lender_map dlm
+                     JOIN document_category_map dcm ON dcm.s3_key = dlm.s3_key
+                     WHERE dlm.contact_id = $1
+                       AND LOWER(dlm.lender) = LOWER($2)
+                       AND (${categoryConditions})
+                     ORDER BY dlm.updated_at DESC
+                     LIMIT 1`,
+                    params
+                );
+                if (mapResult.rows.length === 0) {
+                    console.log(`[Worker]   → map tables: no match for lender="${lenderName}" categories=${JSON.stringify(categoryPatterns)}`);
+                    return null;
+                }
+                const { s3_key } = mapResult.rows[0];
+                console.log(`[Worker]   → map tables: found s3_key="${s3_key}"`);
+                // Try fetching directly from S3 using the key
+                const buf = await fetchPdfFromS3(s3_key);
+                if (buf) return buf;
+                // Fallback: find in documents table by name
+                const fileName = s3_key.split('/').pop();
+                const docRow = await pool.query(
+                    'SELECT url, name FROM documents WHERE contact_id = $1 AND name = $2 LIMIT 1',
+                    [contactId, fileName]
+                );
+                if (docRow.rows.length > 0) return await fetchDocBuffer(docRow.rows[0]);
+                return null;
+            } catch (mapErr) {
+                console.warn('[Worker]   → map table lookup failed:', mapErr.message);
+                return null;
+            }
+        }
 
         if (!documents.loa) {
             try {
+                // 1st: query documents.lender + documents.category directly
                 const loaDbResult = await pool.query(
                     `SELECT url, name FROM documents
                      WHERE contact_id = $1
@@ -843,15 +903,20 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                      LIMIT 1`,
                     [contactId, lenderName]
                 );
+                console.log(`[Worker]   LOA documents.lender query → ${loaDbResult.rows.length} row(s) for lender="${lenderName}"`);
                 if (loaDbResult.rows.length > 0) {
-                    const doc = loaDbResult.rows[0];
-                    const s3Key = extractS3KeyFromUrl(doc.url);
-                    if (s3Key) {
-                        const buf = await fetchPdfFromS3(s3Key);
-                        if (buf) {
-                            documents.loa = buf;
-                            console.log(`[Worker] ✅ CRM DB fallback: found LOA "${doc.name}" matched to lender "${lenderName}"`);
-                        }
+                    const buf = await fetchDocBuffer(loaDbResult.rows[0]);
+                    if (buf) {
+                        documents.loa = buf;
+                        console.log(`[Worker] ✅ CRM DB fallback: found LOA "${loaDbResult.rows[0].name}" via documents table`);
+                    }
+                }
+                // 2nd: try map tables if still missing
+                if (!documents.loa) {
+                    const buf = await findViaMapTables(contactId, lenderName, ['LOA', 'Letter of Authority', 'LOA Form']);
+                    if (buf) {
+                        documents.loa = buf;
+                        console.log(`[Worker] ✅ CRM DB fallback: found LOA via map tables for lender "${lenderName}"`);
                     }
                 }
             } catch (dbErr) {
@@ -861,6 +926,7 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         if (!documents.coverLetter) {
             try {
+                // 1st: query documents.lender + documents.category directly
                 const clDbResult = await pool.query(
                     `SELECT url, name FROM documents
                      WHERE contact_id = $1
@@ -870,15 +936,20 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                      LIMIT 1`,
                     [contactId, lenderName]
                 );
+                console.log(`[Worker]   Cover Letter documents.lender query → ${clDbResult.rows.length} row(s) for lender="${lenderName}"`);
                 if (clDbResult.rows.length > 0) {
-                    const doc = clDbResult.rows[0];
-                    const s3Key = extractS3KeyFromUrl(doc.url);
-                    if (s3Key) {
-                        const buf = await fetchPdfFromS3(s3Key);
-                        if (buf) {
-                            documents.coverLetter = buf;
-                            console.log(`[Worker] ✅ CRM DB fallback: found Cover Letter "${doc.name}" matched to lender "${lenderName}"`);
-                        }
+                    const buf = await fetchDocBuffer(clDbResult.rows[0]);
+                    if (buf) {
+                        documents.coverLetter = buf;
+                        console.log(`[Worker] ✅ CRM DB fallback: found Cover Letter "${clDbResult.rows[0].name}" via documents table`);
+                    }
+                }
+                // 2nd: try map tables if still missing
+                if (!documents.coverLetter) {
+                    const buf = await findViaMapTables(contactId, lenderName, ['Cover Letter']);
+                    if (buf) {
+                        documents.coverLetter = buf;
+                        console.log(`[Worker] ✅ CRM DB fallback: found Cover Letter via map tables for lender "${lenderName}"`);
                     }
                 }
             } catch (dbErr) {
@@ -888,10 +959,10 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
     }
 
     if (!documents.loa) {
-        console.log(`[Worker] ❌ LOA not found (S3, AI, or CRM documents table)`);
+        console.log(`[Worker] ❌ LOA not found after all fallbacks (S3, AI, documents table, map tables) — contactId=${contactId} lender="${lenderName}"`);
     }
     if (!documents.coverLetter) {
-        console.log(`[Worker] ❌ Cover Letter not found (S3, AI, or CRM documents table)`);
+        console.log(`[Worker] ❌ Cover Letter not found after all fallbacks (S3, AI, documents table, map tables) — contactId=${contactId} lender="${lenderName}"`);
     }
 
     // 3. Previous Address PDF - check documents table first, then generate from contact data
@@ -1029,9 +1100,11 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
 
         console.log(`[Worker] Total ID Documents found from S3: ${documents.idDocuments.length}`);
 
-        // CRM DB FALLBACK: If no ID docs found in S3, check documents table for lender+category matched docs
+        // CRM DB FALLBACK: If no ID docs found in S3, check documents table + map tables
         if (documents.idDocuments.length === 0) {
+            console.log(`[Worker] ⏳ ID Doc DB fallback — contactId=${contactId} lender="${lenderName}"`);
             try {
+                // 1st: documents.lender + documents.category
                 const idDbResult = await pool.query(
                     `SELECT url, name FROM documents
                      WHERE contact_id = $1
@@ -1040,19 +1113,42 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
                      ORDER BY created_at DESC`,
                     [contactId, lenderName]
                 );
+                console.log(`[Worker]   ID Doc documents.lender query → ${idDbResult.rows.length} row(s)`);
                 for (const doc of idDbResult.rows) {
                     const s3Key = extractS3KeyFromUrl(doc.url);
+                    console.log(`[Worker]   → url="${doc.url}" → s3Key="${s3Key}"`);
                     if (s3Key) {
                         const buf = await fetchPdfFromS3(s3Key);
                         if (buf) {
                             const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(doc.name);
-                            documents.idDocuments.push({
-                                filename: doc.name,
-                                content: buf,
-                                contentType: isImage ? 'image/jpeg' : 'application/pdf'
-                            });
-                            console.log(`[Worker] ✅ CRM DB fallback: found ID Document "${doc.name}" matched to lender "${lenderName}"`);
+                            documents.idDocuments.push({ filename: doc.name, content: buf, contentType: isImage ? 'image/jpeg' : 'application/pdf' });
+                            console.log(`[Worker] ✅ CRM DB fallback: found ID Document "${doc.name}" via documents table`);
                         }
+                    }
+                }
+                // 2nd: map tables fallback
+                if (documents.idDocuments.length === 0) {
+                    try {
+                        const idMapResult = await pool.query(
+                            `SELECT dlm.s3_key FROM document_lender_map dlm
+                             JOIN document_category_map dcm ON dcm.s3_key = dlm.s3_key
+                             WHERE dlm.contact_id = $1
+                               AND LOWER(dlm.lender) = LOWER($2)
+                               AND dcm.category ILIKE 'ID Document'`,
+                            [contactId, lenderName]
+                        );
+                        console.log(`[Worker]   ID Doc map tables query → ${idMapResult.rows.length} row(s)`);
+                        for (const row of idMapResult.rows) {
+                            const buf = await fetchPdfFromS3(row.s3_key);
+                            if (buf) {
+                                const fileName = row.s3_key.split('/').pop();
+                                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                                documents.idDocuments.push({ filename: fileName, content: buf, contentType: isImage ? 'image/jpeg' : 'application/pdf' });
+                                console.log(`[Worker] ✅ CRM DB fallback: found ID Document "${fileName}" via map tables`);
+                            }
+                        }
+                    } catch (mapErr) {
+                        console.warn('[Worker]   ID Doc map table lookup failed:', mapErr.message);
                     }
                 }
                 if (documents.idDocuments.length > 0) {
