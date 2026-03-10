@@ -1,6 +1,8 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { submitPreviousAddress } from '../../services/intakeApi';
+
+const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
 
 interface Address {
     address_line_1: string;
@@ -13,13 +15,6 @@ interface Address {
 interface PreviousAddressProps {
     clientId: string | number;
     onNext: () => void;
-}
-
-declare global {
-    interface Window {
-        google: any;
-        initGoogleMaps?: () => void;
-    }
 }
 
 const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) => {
@@ -36,65 +31,44 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
     const [showSuggestions, setShowSuggestions] = useState<{ [key: number]: boolean }>({});
     const [loadingAddress, setLoadingAddress] = useState<{ [key: number]: boolean }>({});
 
-    // Refs for Google Services
-    const autocompleteService = useRef<any>(null);
-    const placesService = useRef<any>(null);
     const searchTimeoutRefs = useRef<{ [key: number]: any }>({});
 
-    // Initialize Google Maps Services
-    useEffect(() => {
-        let attempts = 0;
-        const intervalId = setInterval(() => {
-            attempts++;
-            if (window.google && window.google.maps && window.google.maps.places) {
-                if (!autocompleteService.current) {
-                    try {
-                        autocompleteService.current = new window.google.maps.places.AutocompleteService();
-                        placesService.current = new window.google.maps.places.PlacesService(document.createElement('div'));
-                        console.log("Google Maps Services Initialized Successfully (PreviousAddress)");
-                    } catch (e) {
-                        console.error("Error initializing Google Maps services:", e);
-                    }
-                }
-                clearInterval(intervalId);
-            } else if (attempts > 20) {
-                console.warn("Google Maps script not loaded after 10 seconds.");
-                clearInterval(intervalId);
-            }
-        }, 500);
+    // --- ADDRESS LOOKUP LOGIC (Geoapify) ---
+    const fetchGeoapifySuggestions = async (query: string): Promise<any[]> => {
+        try {
+            const res = await fetch(
+                `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_API_KEY}`
+            );
+            const data = await res.json();
+            return (data.results || []).slice(0, 5);
+        } catch (e) {
+            console.error('Geoapify autocomplete error:', e);
+            return [];
+        }
+    };
 
-        return () => clearInterval(intervalId);
-    }, []);
+    const extractGeoapifyAddress = (result: any) => {
+        const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
+        const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+        const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
+        return {
+            street: streetParts || result.address_line1 || '',
+            city: result.city || result.town || result.village || result.county || '',
+            county: result.county || result.state || '',
+            postalCode: postcode,
+        };
+    };
 
-    // Handle address search (like StepOne)
     const handleAddressSearch = (index: number, query: string) => {
         setAddressQueries(prev => ({ ...prev, [index]: query }));
         setShowSuggestions(prev => ({ ...prev, [index]: true }));
-
         if (searchTimeoutRefs.current[index]) clearTimeout(searchTimeoutRefs.current[index]);
-
         if (query.length > 2) {
             setLoadingAddress(prev => ({ ...prev, [index]: true }));
-            searchTimeoutRefs.current[index] = setTimeout(() => {
-                if (!autocompleteService.current) {
-                    console.warn("Autocomplete service not initialized yet.");
-                    setLoadingAddress(prev => ({ ...prev, [index]: false }));
-                    return;
-                }
-
-                const request = {
-                    input: query,
-                    componentRestrictions: { country: 'gb' },
-                };
-
-                autocompleteService.current.getPlacePredictions(request, (predictions: any[], status: any) => {
-                    setLoadingAddress(prev => ({ ...prev, [index]: false }));
-                    if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
-                        setAddressSuggestions(prev => ({ ...prev, [index]: predictions.slice(0, 4) }));
-                    } else {
-                        setAddressSuggestions(prev => ({ ...prev, [index]: [] }));
-                    }
-                });
+            searchTimeoutRefs.current[index] = setTimeout(async () => {
+                const suggestions = await fetchGeoapifySuggestions(query);
+                setAddressSuggestions(prev => ({ ...prev, [index]: suggestions }));
+                setLoadingAddress(prev => ({ ...prev, [index]: false }));
             }, 300);
         } else {
             setAddressSuggestions(prev => ({ ...prev, [index]: [] }));
@@ -102,60 +76,20 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
         }
     };
 
-    // Handle address selection (like StepOne)
     const handleSelectAddress = (index: number, suggestion: any) => {
-        setAddressQueries(prev => ({ ...prev, [index]: suggestion.description }));
+        setAddressQueries(prev => ({ ...prev, [index]: suggestion.formatted }));
         setShowSuggestions(prev => ({ ...prev, [index]: false }));
-        setLoadingAddress(prev => ({ ...prev, [index]: true }));
-
-        if (!placesService.current) {
-            setLoadingAddress(prev => ({ ...prev, [index]: false }));
-            return;
-        }
-
-        const request = {
-            placeId: suggestion.place_id,
-            fields: ['address_components']
+        const addr = extractGeoapifyAddress(suggestion);
+        const newAddresses = [...addresses];
+        newAddresses[index] = {
+            ...newAddresses[index],
+            address_line_1: addr.street,
+            address_line_2: '',
+            city: addr.city,
+            county: addr.county,
+            postal_code: addr.postalCode,
         };
-
-        placesService.current.getDetails(request, (place: any, status: any) => {
-            setLoadingAddress(prev => ({ ...prev, [index]: false }));
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
-                let streetNumber = '';
-                let route = '';
-                let postalTown = '';
-                let locality = '';
-                let subpremise = '';
-                let county = '';
-                let postalCode = '';
-
-                place.address_components.forEach((component: any) => {
-                    const types = component.types;
-                    if (types.includes('subpremise')) subpremise = component.long_name;
-                    if (types.includes('street_number')) streetNumber = component.long_name;
-                    if (types.includes('route')) route = component.long_name;
-                    if (types.includes('postal_town')) postalTown = component.long_name;
-                    if (types.includes('locality')) locality = component.long_name;
-                    if (types.includes('administrative_area_level_2')) county = component.long_name;
-                    if (types.includes('administrative_area_level_1') && !county) county = component.long_name;
-                    if (types.includes('postal_code')) postalCode = component.long_name;
-                });
-
-                const fullStreet = [subpremise, streetNumber, route].filter(Boolean).join(' ');
-                const city = postalTown || locality;
-
-                const newAddresses = [...addresses];
-                newAddresses[index] = {
-                    ...newAddresses[index],
-                    address_line_1: fullStreet,
-                    address_line_2: '',
-                    city: city,
-                    county: county,
-                    postal_code: postalCode
-                };
-                setAddresses(newAddresses);
-            }
-        });
+        setAddresses(newAddresses);
     };
 
     const handleAddressChange = (index: number, field: keyof Address, value: string) => {
@@ -287,19 +221,16 @@ const PreviousAddress: React.FC<PreviousAddressProps> = ({ clientId, onNext }) =
 
                                     {showSuggestions[index] && addressSuggestions[index]?.length > 0 && (
                                         <ul className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[100]">
-                                            {addressSuggestions[index].map((item: any) => (
+                                            {addressSuggestions[index].map((item: any, idx: number) => (
                                                 <li
-                                                    key={item.place_id}
+                                                    key={item.place_id || idx}
                                                     onMouseDown={() => handleSelectAddress(index, item)}
                                                     className="px-4 py-3 hover:bg-navy-50 cursor-pointer text-sm text-slate-700 border-b border-slate-100 last:border-0 transition-colors flex items-center gap-2"
                                                 >
                                                     <i className="fas fa-map-marker-alt text-slate-400 text-xs"></i>
-                                                    {item.description}
+                                                    {item.formatted}
                                                 </li>
                                             ))}
-                                            <li className="px-4 py-2 bg-slate-50 text-xs text-right text-slate-400 sticky bottom-0 border-t">
-                                                Powered by Google
-                                            </li>
                                         </ul>
                                     )}
                                 </div>

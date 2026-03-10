@@ -1,15 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { ClientFormData, Page1Response } from '../../../types';
 import { submitPage1 } from '../../../services/intakeApi';
 import SignaturePad from './SignaturePad';
 import ErrorPage from './ErrorPage';
 
-// Add global declaration for Google Maps to avoid TypeScript errors
-declare global {
-  interface Window {
-    google: any;
-  }
-}
+const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
 
 // --- COMPONENTS ---
 // InputField is defined OUTSIDE the StepOne component to prevent focus loss.
@@ -83,42 +78,12 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     { code: '+55', countryCode: 'BR', name: 'Brazil' },
   ];
 
-  // Address Lookup State (Google Maps)
+  // Address Lookup State (Geoapify)
   const [addressQuery, setAddressQuery] = useState('');
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingAddress, setLoadingAddress] = useState(false);
-
-  // Refs for Google Services
-  const autocompleteService = useRef<any>(null);
-  const placesService = useRef<any>(null);
   const searchTimeoutRef = useRef<any>(null);
-
-  // Initialize Google Maps Services
-  useEffect(() => {
-    // Robust initialization: Check every 500ms until loaded or timeout (max 10s)
-    let attempts = 0;
-    const intervalId = setInterval(() => {
-      attempts++;
-      if (window.google && window.google.maps && window.google.maps.places) {
-        if (!autocompleteService.current) {
-          try {
-            autocompleteService.current = new window.google.maps.places.AutocompleteService();
-            placesService.current = new window.google.maps.places.PlacesService(document.createElement('div'));
-            console.log("Google Maps Services Initialized Successfully");
-          } catch (e) {
-            console.error("Error initializing Google Maps services:", e);
-          }
-        }
-        clearInterval(intervalId);
-      } else if (attempts > 20) {
-        console.warn("Google Maps script not loaded after 10 seconds.");
-        clearInterval(intervalId);
-      }
-    }, 500);
-
-    return () => clearInterval(intervalId);
-  }, []);
 
   const isFormFilled = () => {
     return formData.first_name && formData.last_name && formData.street_address && formData.city && formData.postal_code && formData.phone;
@@ -173,40 +138,43 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
     }
   };
 
-  // --- ADDRESS LOOKUP LOGIC (Google Maps) ---
+  // --- ADDRESS LOOKUP LOGIC (Geoapify) ---
+  const fetchGeoapifySuggestions = async (query: string): Promise<any[]> => {
+    try {
+      const res = await fetch(
+        `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_API_KEY}`
+      );
+      const data = await res.json();
+      return (data.results || []).slice(0, 5);
+    } catch (e) {
+      console.error('Geoapify autocomplete error:', e);
+      return [];
+    }
+  };
+
+  const extractGeoapifyAddress = (result: any) => {
+    const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
+    const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+    const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
+    return {
+      street: streetParts || result.address_line1 || '',
+      city: result.city || result.town || result.village || result.county || '',
+      county: result.county || result.state || '',
+      postalCode: postcode,
+    };
+  };
+
   const handleAddressSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setAddressQuery(query);
     setShowSuggestions(true);
-
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
     if (query.length > 2) {
       setLoadingAddress(true);
-      searchTimeoutRef.current = setTimeout(() => {
-        if (!autocompleteService.current) {
-          console.warn("Autocomplete service not initialized yet.");
-          setLoadingAddress(false);
-          return;
-        }
-
-        const request = {
-          input: query,
-          componentRestrictions: { country: 'gb' }, // Limit to UK
-          // Removed 'types' restriction to allow broader results (e.g. "London") to appear,
-          // preventing the "No suggestions" issue when typing generic terms.
-        };
-
-        autocompleteService.current.getPlacePredictions(request, (predictions: any[], status: any) => {
-          setLoadingAddress(false);
-          if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
-            // Limit to 4 suggestions
-            setAddressSuggestions(predictions.slice(0, 4));
-          } else {
-            console.log("Google Maps Autocomplete status:", status);
-            setAddressSuggestions([]);
-          }
-        });
+      searchTimeoutRef.current = setTimeout(async () => {
+        const suggestions = await fetchGeoapifySuggestions(query);
+        setAddressSuggestions(suggestions);
+        setLoadingAddress(false);
       }, 300);
     } else {
       setAddressSuggestions([]);
@@ -215,72 +183,25 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
   };
 
   const handleSelectAddress = (suggestion: any) => {
-    setAddressQuery(suggestion.description);
+    setAddressQuery(suggestion.formatted);
     setShowSuggestions(false);
-    setLoadingAddress(true);
-
-    if (!placesService.current) {
-      setLoadingAddress(false);
-      return;
-    }
-
-    const request = {
-      placeId: suggestion.place_id,
-      fields: ['address_components'] // We only need address components
-    };
-
-    placesService.current.getDetails(request, (place: any, status: any) => {
-      setLoadingAddress(false);
-      if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
-
-        // Extract components
-        let streetNumber = '';
-        let route = '';
-        let postalTown = '';
-        let locality = '';
-        let subpremise = ''; // Flat number
-        let county = '';
-        let postalCode = '';
-
-        place.address_components.forEach((component: any) => {
-          const types = component.types;
-          if (types.includes('subpremise')) subpremise = component.long_name;
-          if (types.includes('street_number')) streetNumber = component.long_name;
-          if (types.includes('route')) route = component.long_name;
-          if (types.includes('postal_town')) postalTown = component.long_name;
-          if (types.includes('locality')) locality = component.long_name;
-          if (types.includes('administrative_area_level_2')) county = component.long_name; // UK County often here
-          if (types.includes('administrative_area_level_1') && !county) county = component.long_name; // Fallback
-          if (types.includes('postal_code')) postalCode = component.long_name;
-        });
-
-        // Construct Street Address: [Flat] [Number] [Street]
-        const fullStreet = [subpremise, streetNumber, route].filter(Boolean).join(' ');
-        const city = postalTown || locality;
-
-        setFormData(prev => ({
-          ...prev,
-          street_address: fullStreet,
-          city: city,
-          state_county: county,
-          postal_code: postalCode,
-          // Internal mappings for PDF and Backend
-          address_line_1: fullStreet,
-          address_line_2: [city, county].filter(Boolean).join(', ')
-        }));
-
-        // Clear errors for filled fields
-        setErrors(prev => {
-          const newErrors = { ...prev };
-          delete newErrors.street_address;
-          delete newErrors.city;
-          delete newErrors.state_county;
-          delete newErrors.postal_code;
-          return newErrors;
-        });
-      } else {
-        setError("Could not retrieve details for this address. Please try again or fill manually.");
-      }
+    const addr = extractGeoapifyAddress(suggestion);
+    setFormData(prev => ({
+      ...prev,
+      street_address: addr.street,
+      city: addr.city,
+      state_county: addr.county,
+      postal_code: addr.postalCode,
+      address_line_1: addr.street,
+      address_line_2: [addr.city, addr.county].filter(Boolean).join(', ')
+    }));
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors.street_address;
+      delete newErrors.city;
+      delete newErrors.state_county;
+      delete newErrors.postal_code;
+      return newErrors;
     });
   };
 
@@ -547,20 +468,16 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
 
             {showSuggestions && addressSuggestions.length > 0 && (
               <ul className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[100]">
-                {addressSuggestions.map((item: any) => (
+                {addressSuggestions.map((item: any, idx: number) => (
                   <li
-                    key={item.place_id}
+                    key={item.place_id || idx}
                     onMouseDown={() => handleSelectAddress(item)}
                     className="px-4 py-3 hover:bg-navy-50 cursor-pointer text-sm text-slate-700 border-b border-slate-100 last:border-0 transition-colors flex items-center gap-2"
                   >
                     <i className="fas fa-map-marker-alt text-slate-400 text-xs"></i>
-                    {/* Google returns 'description' or structured_formatting.main_text */}
-                    {item.description}
+                    {item.formatted}
                   </li>
                 ))}
-                <li className="px-4 py-2 bg-slate-50 text-xs text-right text-slate-400 sticky bottom-0 border-t">
-                  Powered by Google
-                </li>
               </ul>
             )}
           </div>
