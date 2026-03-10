@@ -153,11 +153,13 @@ const StepOne: React.FC<StepOneProps> = ({ onSuccess, formData, setFormData }) =
   };
 
   const extractGeoapifyAddress = (result: any) => {
-    const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
     const ukPostcodeMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
     const postcode = result.postcode || result.postal_code || (ukPostcodeMatch ? ukPostcodeMatch[0].trim() : '');
+    const streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
+    const namePart = result.name && result.name !== result.street ? result.name : '';
+    const street = [namePart, streetParts].filter(Boolean).join(', ') || result.address_line1 || '';
     return {
-      street: streetParts || result.street || result.address_line1 || '',
+      street,
       city: result.city || result.town || result.village || result.county || '',
       county: result.county || result.state || '',
       postalCode: postcode,
