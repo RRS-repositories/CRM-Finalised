@@ -141,7 +141,8 @@
       "Bash(find \"c:\\\\Users\\\\Admin\\\\Documents\\\\FAC\\\\AWS2\\\\CRM-Finalised/components\" -type f -name \"*.tsx\" -exec wc -l {} +)",
       "Read(//c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/**)",
       "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/components/Email -name \"*.tsx\" -exec wc -l {} +)",
-      "Bash(grep '\"\"compression\"\"' package.json)"
+      "Bash(grep '\"\"compression\"\"' package.json)",
+      "Bash(wc -l migrations/*.sql)"
     ]
   }
 }

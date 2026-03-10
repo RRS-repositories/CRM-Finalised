@@ -3,7 +3,6 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import compression from 'compression';
 import multer from 'multer';
 import pkg from 'pg';
 const { Pool } = pkg;
@@ -136,6 +135,7 @@ async function createMattermostUser(email, password, fullName) {
 // compression() removed — Nginx handles gzip at the proxy level
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
 
 // --- AWS & DB CLIENTS ---
@@ -300,6 +300,17 @@ crmEvents.init(pool);
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_active_at') THEN
                         ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP;
                     END IF;
+
+                    -- Offline periods table for time wastage tracking
+                    CREATE TABLE IF NOT EXISTS offline_periods (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                        offline_start TIMESTAMP NOT NULL,
+                        online_at TIMESTAMP NOT NULL,
+                        duration_minutes NUMERIC(10,2) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_offline_periods_user_date ON offline_periods (user_id, offline_start);
 
                     -- Normalize lender names: merge all 118 variants into "118 Money"
                     UPDATE cases SET lender = '118 Money' WHERE lender ILIKE '118%' AND lender != '118 Money';
@@ -474,6 +485,61 @@ crmEvents.init(pool);
                     CREATE INDEX IF NOT EXISTS idx_cases_contact_id ON cases(contact_id);
                     CREATE INDEX IF NOT EXISTS idx_cases_created_at ON cases(created_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_cases_lender ON cases(lender);
+
+                    -- Nova Integration: communications Twilio/messaging fields
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='type') THEN
+                        ALTER TABLE communications ADD COLUMN type VARCHAR(20);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='from') THEN
+                        ALTER TABLE communications ADD COLUMN "from" VARCHAR(100);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='to') THEN
+                        ALTER TABLE communications ADD COLUMN "to" VARCHAR(100);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='media_url') THEN
+                        ALTER TABLE communications ADD COLUMN media_url TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='media_type') THEN
+                        ALTER TABLE communications ADD COLUMN media_type VARCHAR(50);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='twilio_sid') THEN
+                        ALTER TABLE communications ADD COLUMN twilio_sid VARCHAR(50);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='status') THEN
+                        ALTER TABLE communications ADD COLUMN status VARCHAR(20) DEFAULT 'sent';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='template_name') THEN
+                        ALTER TABLE communications ADD COLUMN template_name VARCHAR(100);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='communications' AND column_name='sent_by') THEN
+                        ALTER TABLE communications ADD COLUMN sent_by VARCHAR(20) DEFAULT 'system';
+                    END IF;
+                    CREATE INDEX IF NOT EXISTS idx_communications_twilio_sid ON communications(twilio_sid) WHERE twilio_sid IS NOT NULL;
+
+                    -- Nova Integration: ID chase state columns on contacts
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_active') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_active BOOLEAN DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_stage') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_stage VARCHAR(30);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_started_at') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_started_at TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_last_action_at') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_last_action_at TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_last_client_at') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_last_client_at TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='id_chase_channel') THEN
+                        ALTER TABLE contacts ADD COLUMN id_chase_channel VARCHAR(20);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='bot_paused') THEN
+                        ALTER TABLE contacts ADD COLUMN bot_paused BOOLEAN DEFAULT false;
+                    END IF;
+                    CREATE INDEX IF NOT EXISTS idx_contacts_id_chase_active ON contacts(id_chase_active) WHERE id_chase_active = true;
+
                 END $$;
             `);
             console.log('✅ Cases table schema synchronized');
@@ -15085,7 +15151,7 @@ crmRouter.post('/email/send', async (req, res) => {
 // ── GET /contacts/:id/communications ── Get communications for a contact
 crmRouter.get('/contacts/:id/communications', async (req, res) => {
     const { id } = req.params;
-    const { channel, direction, limit: queryLimit, offset: queryOffset } = req.query;
+    const { channel, type, direction, limit: queryLimit, offset: queryOffset } = req.query;
 
     try {
         const limitVal = Math.min(parseInt(queryLimit) || 50, 200);
@@ -15093,11 +15159,15 @@ crmRouter.get('/contacts/:id/communications', async (req, res) => {
         const params = [id];
         let paramIdx = 2;
 
-        let query = `SELECT * FROM communications WHERE client_id = $1`;
+        let query = `SELECT id, client_id as contact_id, COALESCE(type, channel) as type, direction, content,
+                      "from", "to", media_url, media_type, twilio_sid, status, template_name, sent_by,
+                      timestamp as created_at
+                      FROM communications WHERE client_id = $1`;
 
-        if (channel) {
-            query += ` AND channel = $${paramIdx++}`;
-            params.push(channel);
+        if (channel || type) {
+            query += ` AND (channel = $${paramIdx} OR type = $${paramIdx})`;
+            params.push(type || channel);
+            paramIdx++;
         }
         if (direction) {
             query += ` AND direction = $${paramIdx++}`;
@@ -15125,26 +15195,37 @@ crmRouter.get('/contacts/:id/communications', async (req, res) => {
 
 // ── POST /communications ── Log communication
 crmRouter.post('/communications', async (req, res) => {
-    const { client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name } = req.body;
-    if (!client_id || !channel || !direction) {
-        return res.status(400).json({ error: 'client_id, channel, and direction are required' });
+    const {
+        client_id, contact_id, channel, type, direction, subject, content,
+        call_duration_seconds, call_notes, agent_id, agent_name,
+        from: fromAddr, to: toAddr, media_url, media_type,
+        twilio_sid, status, template_name, sent_by
+    } = req.body;
+    const contactId = client_id || contact_id;
+    const commType = type || channel;
+    if (!contactId || !commType || !direction) {
+        return res.status(400).json({ error: 'client_id/contact_id, channel/type, and direction are required' });
     }
 
     try {
         const { rows } = await pool.query(
-            `INSERT INTO communications (client_id, channel, direction, subject, content, call_duration_seconds, call_notes, agent_id, agent_name)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [client_id, channel, direction, subject || null, content || null,
-                call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null]
+            `INSERT INTO communications (client_id, channel, type, direction, subject, content,
+                call_duration_seconds, call_notes, agent_id, agent_name,
+                "from", "to", media_url, media_type, twilio_sid, status, template_name, sent_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+            [contactId, commType, commType, direction, subject || null, content || null,
+                call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null,
+                fromAddr || null, toAddr || null, media_url || null, media_type || null,
+                twilio_sid || null, status || 'sent', template_name || null, sent_by || 'system']
         );
         await pool.query(
             `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [client_id, 'agent', agent_id || 'openclaw', agent_name || 'OpenClaw',
-                `${direction}_${channel}`, 'communication',
-                `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message`]
+            [contactId, 'agent', agent_id || 'openclaw', agent_name || 'OpenClaw',
+                `${direction}_${commType}`, 'communication',
+                `${direction === 'outbound' ? 'Sent' : 'Received'} ${commType} message`]
         );
-        crmEvents.emit('communication.created', { contactId: parseInt(client_id), data: rows[0] });
+        crmEvents.emit('communication.created', { contactId: parseInt(contactId), data: rows[0] });
         res.json({ success: true, communication: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -15195,7 +15276,9 @@ crmRouter.post('/workflows/trigger', async (req, res) => {
 crmRouter.patch('/contacts/:id', async (req, res) => {
     const { id } = req.params;
     const allowedFields = ['first_name', 'last_name', 'email', 'phone', 'dob',
-        'address_line_1', 'address_line_2', 'city', 'state_county', 'postal_code'];
+        'address_line_1', 'address_line_2', 'city', 'state_county', 'postal_code',
+        'id_chase_active', 'id_chase_stage', 'id_chase_started_at',
+        'id_chase_last_action_at', 'id_chase_last_client_at', 'id_chase_channel', 'bot_paused'];
 
     try {
         const updates = [];
@@ -16948,6 +17031,207 @@ crmRouter.get('/templates/:id/merge-fields', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /contacts ── List/filter contacts (for Nova chase timer)
+crmRouter.get('/contacts', async (req, res) => {
+    const { id_chase_active, id_chase_stage, id_chase_channel, bot_paused,
+            limit: queryLimit, offset: queryOffset } = req.query;
+
+    try {
+        const limitVal = Math.min(parseInt(queryLimit) || 100, 500);
+        const offsetVal = parseInt(queryOffset) || 0;
+        const conditions = [];
+        const params = [];
+        let paramIdx = 1;
+
+        if (id_chase_active !== undefined) {
+            conditions.push(`id_chase_active = $${paramIdx++}`);
+            params.push(id_chase_active === 'true');
+        }
+        if (id_chase_stage) {
+            conditions.push(`id_chase_stage = $${paramIdx++}`);
+            params.push(id_chase_stage);
+        }
+        if (id_chase_channel) {
+            conditions.push(`id_chase_channel = $${paramIdx++}`);
+            params.push(id_chase_channel);
+        }
+        if (bot_paused !== undefined) {
+            conditions.push(`bot_paused = $${paramIdx++}`);
+            params.push(bot_paused === 'true');
+        }
+
+        const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+        const [contactsResult, countResult] = await Promise.all([
+            pool.query(
+                `SELECT * FROM contacts ${whereClause} ORDER BY updated_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+                [...params, limitVal, offsetVal]
+            ),
+            pool.query(
+                `SELECT COUNT(*) as total FROM contacts ${whereClause}`,
+                params
+            )
+        ]);
+
+        res.json({
+            contacts: contactsResult.rows,
+            total: parseInt(countResult.rows[0].total),
+            limit: limitVal,
+            offset: offsetVal
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /workflows/id-chase/trigger ── Proxy trigger to Windmill
+crmRouter.post('/workflows/id-chase/trigger', async (req, res) => {
+    const { contact_id } = req.body;
+    if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
+
+    try {
+        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/sw1_id_chase_trigger';
+        const response = await fetch(windmillUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer HT6hP5T8dDOIS2HF0pvDCtzoJHs05iUQ'
+            },
+            body: JSON.stringify({ contact_id })
+        });
+        const result = await response.text();
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [contact_id, 'agent', 'crm', 'CRM System', 'id_chase_triggered', 'workflow', 'ID chase workflow triggered']
+        );
+        res.json({ success: true, job_id: result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/nova/trigger-chase ── Internal endpoint for frontend to trigger Nova ID chase
+app.post('/api/nova/trigger-chase', async (req, res) => {
+    const { contact_id } = req.body;
+    if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
+
+    try {
+        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/sw1_id_chase_trigger';
+        const response = await fetch(windmillUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer HT6hP5T8dDOIS2HF0pvDCtzoJHs05iUQ'
+            },
+            body: JSON.stringify({ contact_id })
+        });
+        const result = await response.text();
+
+        // Update contact chase state
+        await pool.query(
+            `UPDATE contacts SET id_chase_active = true, id_chase_stage = 'initial_sent',
+             id_chase_started_at = NOW(), id_chase_last_action_at = NOW(), updated_at = NOW()
+             WHERE id = $1`,
+            [contact_id]
+        );
+
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [contact_id, 'agent', 'crm', 'CRM System', 'id_chase_triggered', 'workflow', 'ID chase workflow triggered via Nova']
+        );
+
+        res.json({ success: true, job_id: result });
+    } catch (err) {
+        console.error('[Nova Trigger] Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================================
+// Twilio Webhook Endpoints (NO API key auth — Twilio can't send one)
+// Mounted OUTSIDE crmRouter but still under /api/crm path via separate route
+// ============================================================================
+
+// ── POST /api/crm-webhooks/twilio/inbound ── Receive inbound Twilio messages
+app.post('/api/crm-webhooks/twilio/inbound', async (req, res) => {
+    try {
+        const { From, To, Body, MessageSid, NumMedia, MediaUrl0, MediaContentType0, SmsStatus } = req.body;
+
+        // Look up contact by phone number (strip whatsapp: prefix)
+        const phoneNumber = (From || '').replace('whatsapp:', '').trim();
+        let contactId = null;
+        if (phoneNumber) {
+            const contactRes = await pool.query(
+                `SELECT id FROM contacts WHERE phone LIKE $1 OR phone LIKE $2 LIMIT 1`,
+                [`%${phoneNumber.slice(-10)}%`, `%${phoneNumber}%`]
+            );
+            if (contactRes.rows.length > 0) contactId = contactRes.rows[0].id;
+        }
+
+        // Determine channel type
+        const isWhatsApp = (From || '').startsWith('whatsapp:') || (To || '').startsWith('whatsapp:');
+        const commType = isWhatsApp ? 'whatsapp' : 'sms';
+
+        // Log to communications table
+        if (contactId) {
+            await pool.query(
+                `INSERT INTO communications (client_id, channel, type, direction, content,
+                    "from", "to", media_url, media_type, twilio_sid, status, sent_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                [contactId, commType, commType, 'inbound', Body || null,
+                    From || null, To || null,
+                    parseInt(NumMedia) > 0 ? MediaUrl0 : null,
+                    parseInt(NumMedia) > 0 ? MediaContentType0 : null,
+                    MessageSid || null, SmsStatus || 'received', 'bot']
+            );
+
+            // Update chase last_client_at timestamp
+            await pool.query(
+                `UPDATE contacts SET id_chase_last_client_at = NOW(), updated_at = NOW()
+                 WHERE id = $1 AND id_chase_active = true`,
+                [contactId]
+            );
+        }
+
+        // Forward to Windmill for Nova processing
+        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run_wait_result/p/f/crm/sw1_id_chase_webhook';
+        fetch(windmillUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer HT6hP5T8dDOIS2HF0pvDCtzoJHs05iUQ'
+            },
+            body: JSON.stringify({
+                From, To, Body, MessageSid, NumMedia,
+                MediaUrl0: parseInt(NumMedia) > 0 ? MediaUrl0 : null,
+                MediaContentType0: parseInt(NumMedia) > 0 ? MediaContentType0 : null,
+                contact_id: contactId
+            })
+        }).catch(err => console.error('[Twilio Webhook] Windmill forward error:', err.message));
+
+        // Return empty TwiML response to Twilio
+        res.type('text/xml').send('<Response></Response>');
+    } catch (err) {
+        console.error('[Twilio Webhook] Inbound error:', err);
+        res.type('text/xml').send('<Response></Response>');
+    }
+});
+
+// ── POST /api/crm-webhooks/twilio/status ── Delivery status callbacks
+app.post('/api/crm-webhooks/twilio/status', async (req, res) => {
+    try {
+        const { MessageSid, MessageStatus } = req.body;
+        if (MessageSid && MessageStatus) {
+            await pool.query(
+                `UPDATE communications SET status = $1 WHERE twilio_sid = $2`,
+                [MessageStatus, MessageSid]
+            );
+        }
+        res.sendStatus(200);
+    } catch (err) {
+        console.error('[Twilio Status] Error:', err);
+        res.sendStatus(200);
+    }
+});
+
 // Mount the CRM API router BEFORE the Windmill catch-all proxy
 app.use('/api/crm', crmRouter);
 console.log('CRM External API mounted at /api/crm/* (secured with CRM_API_KEY)');
@@ -16979,6 +17263,27 @@ app.post('/api/heartbeat', async (req, res) => {
     try {
         const { userId } = req.body;
         if (!userId) return res.status(400).json({ error: 'userId required' });
+
+        // Check if user was offline (last_active_at > 3 minutes ago) — record the offline period
+        const { rows } = await pool.query(
+            `SELECT last_active_at, last_login FROM users WHERE id = $1`, [userId]
+        );
+        if (rows.length > 0) {
+            const lastActive = rows[0].last_active_at || rows[0].last_login;
+            if (lastActive) {
+                const gapMs = Date.now() - new Date(lastActive).getTime();
+                const gapMinutes = gapMs / 60000;
+                // If offline for more than 3 minutes, record the offline period
+                if (gapMinutes > 3) {
+                    await pool.query(
+                        `INSERT INTO offline_periods (user_id, offline_start, online_at, duration_minutes)
+                         VALUES ($1, $2, NOW(), $3)`,
+                        [userId, lastActive, Math.round(gapMinutes * 100) / 100]
+                    );
+                }
+            }
+        }
+
         await pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [userId]);
         res.json({ success: true });
     } catch (err) {
@@ -16987,7 +17292,93 @@ app.post('/api/heartbeat', async (req, res) => {
     }
 });
 
-// Get offline agents (offline > 10 minutes) - for Management notifications
+// ============================================
+// TIME WASTAGE TRACKING
+// ============================================
+// Calculate time wastage per user for current month (Mon-Fri only)
+// Working hours IST: 13:30-18:30 (shift 1) + 19:15-22:30 (shift 2)
+// Break: 18:30-19:15 IST (45 min dinner) — NOT counted as wastage
+app.get('/api/task-work/time-wastage', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            WITH monthly_offline AS (
+                SELECT
+                    op.user_id,
+                    op.offline_start,
+                    op.online_at,
+                    (op.offline_start AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
+                    -- Overlap with Shift 1: 13:30 - 18:30 IST
+                    GREATEST(0,
+                        EXTRACT(EPOCH FROM LEAST(
+                            op.online_at AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
+                        )) -
+                        EXTRACT(EPOCH FROM GREATEST(
+                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
+                        ))
+                    ) / 60.0 as shift1_offline,
+                    -- Overlap with Shift 2: 19:15 - 22:30 IST
+                    GREATEST(0,
+                        EXTRACT(EPOCH FROM LEAST(
+                            op.online_at AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
+                        )) -
+                        EXTRACT(EPOCH FROM GREATEST(
+                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
+                        ))
+                    ) / 60.0 as shift2_offline
+                FROM offline_periods op
+                WHERE op.offline_start >= date_trunc('month', NOW())
+                  AND EXTRACT(ISODOW FROM op.offline_start AT TIME ZONE 'Asia/Kolkata') <= 5
+            ),
+            daily_wastage AS (
+                SELECT
+                    user_id,
+                    offline_date,
+                    SUM(shift1_offline + shift2_offline) as wastage_minutes,
+                    SUM(shift1_offline) as shift1_total,
+                    SUM(shift2_offline) as shift2_total
+                FROM monthly_offline
+                GROUP BY user_id, offline_date
+            )
+            SELECT
+                u.id as user_id,
+                u.full_name as name,
+                COALESCE(
+                    (SELECT dw.wastage_minutes FROM daily_wastage dw
+                     WHERE dw.user_id = u.id AND dw.offline_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date),
+                    0
+                ) as today_wastage_minutes,
+                COALESCE(SUM(dw.wastage_minutes), 0) as month_wastage_minutes,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'date', dw.offline_date,
+                            'wastage_minutes', ROUND(dw.wastage_minutes::numeric, 0),
+                            'shift1_offline', ROUND(dw.shift1_total::numeric, 0),
+                            'shift2_offline', ROUND(dw.shift2_total::numeric, 0)
+                        ) ORDER BY dw.offline_date
+                    ) FILTER (WHERE dw.offline_date IS NOT NULL),
+                    '[]'::json
+                ) as daily_breakdown
+            FROM users u
+            LEFT JOIN daily_wastage dw ON dw.user_id = u.id
+            WHERE u.is_approved = true
+              AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
+            GROUP BY u.id, u.full_name
+            ORDER BY u.full_name
+        `);
+
+        res.json({ wastage: rows });
+    } catch (err) {
+        console.error('Error fetching time wastage:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get offline agents (inactive > 3 minutes) - for Management notifications across CRM
 app.get('/api/task-work/offline-agents', async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -16998,8 +17389,8 @@ app.get('/api/task-work/offline-agents', async (req, res) => {
             WHERE u.is_approved = true
               AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
               AND COALESCE(u.last_active_at, u.last_login) IS NOT NULL
-              AND COALESCE(u.last_active_at, u.last_login) < NOW() - INTERVAL '10 minutes'
-            ORDER BY COALESCE(u.last_active_at, u.last_login) ASC
+              AND COALESCE(u.last_active_at, u.last_login) < NOW() - INTERVAL '3 minutes'
+            ORDER BY minutes_offline DESC
         `);
         res.json({ offlineAgents: rows });
     } catch (err) {
@@ -17365,18 +17756,69 @@ app.get('/api/task-work/dashboard/status-actions', async (req, res) => {
     }
 });
 
-// Agent status: each agent with allocated/completed/flagged counts and online status (3 min threshold)
+// Agent status: each agent with allocated/completed/flagged counts, online status, and time wastage
+// Working hours IST: 13:30-18:30 (shift 1) + 19:15-22:30 (shift 2). Break 18:30-19:15 excluded.
 app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
     try {
         const { rows } = await pool.query(`
+            WITH monthly_offline AS (
+                SELECT
+                    op.user_id,
+                    (op.offline_start AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
+                    -- Overlap with Shift 1: 13:30 - 18:30 IST
+                    GREATEST(0,
+                        EXTRACT(EPOCH FROM LEAST(
+                            op.online_at AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
+                        )) -
+                        EXTRACT(EPOCH FROM GREATEST(
+                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
+                        ))
+                    ) / 60.0 as shift1_offline,
+                    -- Overlap with Shift 2: 19:15 - 22:30 IST
+                    GREATEST(0,
+                        EXTRACT(EPOCH FROM LEAST(
+                            op.online_at AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
+                        )) -
+                        EXTRACT(EPOCH FROM GREATEST(
+                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
+                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
+                        ))
+                    ) / 60.0 as shift2_offline
+                FROM offline_periods op
+                WHERE op.offline_start >= date_trunc('month', NOW())
+                  AND EXTRACT(ISODOW FROM op.offline_start AT TIME ZONE 'Asia/Kolkata') <= 5
+            ),
+            daily_wastage AS (
+                SELECT
+                    user_id,
+                    offline_date,
+                    SUM(shift1_offline + shift2_offline) as wastage_minutes
+                FROM monthly_offline
+                GROUP BY user_id, offline_date
+            ),
+            user_wastage AS (
+                SELECT
+                    user_id,
+                    COALESCE(SUM(CASE WHEN offline_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+                                      THEN wastage_minutes ELSE 0 END), 0) as today_wastage,
+                    COALESCE(SUM(wastage_minutes), 0) as month_wastage
+                FROM daily_wastage
+                GROUP BY user_id
+            )
             SELECT u.id, u.full_name as name, u.role,
                    (SELECT COUNT(*) FROM cases c2 WHERE c2.tw_assigned_to = u.id) as tasks_allocated,
                    (SELECT COUNT(*) FROM cases c3 WHERE c3.tw_assigned_to = u.id AND c3.tw_completed = true) as tasks_completed,
                    (SELECT COUNT(*) FROM cases c4 WHERE c4.tw_assigned_to = u.id AND c4.tw_red_flag = true) as tasks_flagged,
                    CASE WHEN COALESCE(u.last_active_at, u.last_login) >= NOW() - INTERVAL '3 minutes'
                         THEN true ELSE false END as is_online,
-                   COALESCE(u.last_active_at, u.last_login) as last_active_at
+                   COALESCE(u.last_active_at, u.last_login) as last_active_at,
+                   COALESCE(uw.today_wastage, 0) as today_wastage_minutes,
+                   COALESCE(uw.month_wastage, 0) as month_wastage_minutes
             FROM users u
+            LEFT JOIN user_wastage uw ON uw.user_id = u.id
             WHERE u.is_approved = true AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
             ORDER BY u.full_name
         `);

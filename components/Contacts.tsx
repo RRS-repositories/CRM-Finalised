@@ -11,7 +11,7 @@ import {
    Eye, File as GenericFileIcon, AlertTriangle, Edit, FileUp,
    User, Briefcase, Workflow, History, Send, XCircle,
    Pin, Building2, Hash, DollarSign, FileCheck, AlertCircle, RotateCcw,
-   Loader2, Lock
+   Loader2, Lock, CheckCheck, Image as ImageIcon, Pause, Play, Bot
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
@@ -610,6 +610,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          fetchCommunications(contact.id);
       } else if (activeTab === 'subworkflow') {
          fetchWorkflows(contact.id);
+         fetchCommunications(contact.id);
       } else if (activeTab === 'notes') {
          fetchNotes(contact.id);
       } else if (activeTab === 'timeline') {
@@ -4251,7 +4252,193 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             {/* ==================== COMMUNICATION TAB ==================== */}
             {activeTab === 'communication' && (
                <div className="space-y-4">
-                  <div className="flex justify-between items-center mb-4">
+                  {/* Chase State Banner */}
+                  {contact?.idChaseActive && (
+                     <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-3">
+                              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg">
+                                 <Bot size={20} className="text-emerald-600 dark:text-emerald-400" />
+                              </div>
+                              <div>
+                                 <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                                    ID Chase Active — {contact.idChaseChannel?.toUpperCase() || 'WhatsApp'}
+                                 </p>
+                                 <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                                    Stage: <span className="font-medium">{contact.idChaseStage?.replace(/_/g, ' ') || 'unknown'}</span>
+                                    {contact.idChaseStartedAt && <> · Started {formatTimeAgo(contact.idChaseStartedAt)}</>}
+                                    {contact.idChaseLastClientAt && <> · Last client reply {formatTimeAgo(contact.idChaseLastClientAt)}</>}
+                                 </p>
+                              </div>
+                           </div>
+                           <button
+                              onClick={async () => {
+                                 try {
+                                    await fetch(`${API_BASE_URL}/api/contacts/${contact.id}/extended`, {
+                                       method: 'PATCH',
+                                       headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify({ bot_paused: !contact.botPaused })
+                                    });
+                                    window.location.reload();
+                                 } catch (err) { console.error('Failed to toggle bot pause:', err); }
+                              }}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                 contact.botPaused
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200'
+                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200'
+                              }`}
+                           >
+                              {contact.botPaused ? <><Play size={14} /> Resume Bot</> : <><Pause size={14} /> Pause Bot</>}
+                           </button>
+                        </div>
+                        {contact.botPaused && (
+                           <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-1.5">
+                              <AlertCircle size={14} /> Bot is paused — human has taken over this conversation
+                           </div>
+                        )}
+                     </div>
+                  )}
+
+                  {/* Chase Chat Interface */}
+                  {(() => {
+                     const chaseMessages = communications
+                        .filter(c => c.channel === 'whatsapp' || c.channel === 'sms' || c.type === 'whatsapp' || c.type === 'sms')
+                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+                     const groupedByDate: Record<string, typeof chaseMessages> = {};
+                     chaseMessages.forEach(msg => {
+                        const dateKey = new Date(msg.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+                        groupedByDate[dateKey].push(msg);
+                     });
+
+                     return (
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden flex flex-col" style={{ height: '520px' }}>
+                           {/* Chat Header */}
+                           <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                 <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                                    <MessageIcon size={16} className="text-emerald-600 dark:text-emerald-400" />
+                                 </div>
+                                 <div>
+                                    <h3 className="font-bold text-navy-900 dark:text-white text-sm">Chase Messages</h3>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                       {chaseMessages.length} message{chaseMessages.length !== 1 ? 's' : ''} · WhatsApp & SMS
+                                    </p>
+                                 </div>
+                              </div>
+                              {contact?.phone && (
+                                 <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">{contact.phone}</span>
+                              )}
+                           </div>
+
+                           {/* Messages Area */}
+                           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(0,0,0,0.03) 1px, transparent 0)', backgroundSize: '20px 20px' }}
+                              ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+                           >
+                              {chaseMessages.length === 0 ? (
+                                 <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                                    <div className="text-center">
+                                       <MessageIcon size={40} className="mx-auto mb-2 opacity-20" />
+                                       <p className="text-sm">No chase messages yet</p>
+                                       <p className="text-xs mt-1">Messages will appear here when a chase workflow is triggered</p>
+                                    </div>
+                                 </div>
+                              ) : (
+                                 Object.entries(groupedByDate).map(([dateLabel, msgs]) => (
+                                    <div key={dateLabel}>
+                                       <div className="flex items-center justify-center my-3">
+                                          <span className="px-3 py-1 bg-gray-100 dark:bg-slate-700 rounded-full text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                             {dateLabel}
+                                          </span>
+                                       </div>
+                                       {msgs.map((msg) => {
+                                          const isOutbound = msg.direction === 'outbound';
+                                          const isImage = msg.mediaType?.startsWith('image/');
+                                          const isDocument = msg.mediaUrl && !isImage;
+                                          const time = new Date(msg.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                                          return (
+                                             <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'} mb-1.5`}>
+                                                <div className="max-w-[75%]">
+                                                   {isOutbound && msg.sentBy && (
+                                                      <p className={`text-[10px] mb-0.5 text-right ${
+                                                         msg.sentBy === 'bot' ? 'text-emerald-500' : msg.sentBy === 'human' ? 'text-blue-500' : 'text-gray-400'
+                                                      }`}>
+                                                         {msg.sentBy === 'bot' ? 'Bot' : msg.sentBy === 'human' ? 'Agent' : 'System'}
+                                                         {msg.templateName && <> · {msg.templateName.replace(/_/g, ' ')}</>}
+                                                      </p>
+                                                   )}
+                                                   <div className={`rounded-2xl px-3.5 py-2 shadow-sm ${
+                                                      isOutbound
+                                                         ? 'bg-emerald-500 dark:bg-emerald-600 text-white rounded-br-md'
+                                                         : 'bg-white dark:bg-slate-700 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-slate-600 rounded-bl-md'
+                                                   }`}>
+                                                      {isImage && msg.mediaUrl && (
+                                                         <div className="mb-2 rounded-lg overflow-hidden">
+                                                            <img src={msg.mediaUrl} alt="Attachment" className="max-w-full rounded-lg" style={{ maxHeight: '200px' }} />
+                                                         </div>
+                                                      )}
+                                                      {isDocument && (
+                                                         <a href={msg.mediaUrl!} target="_blank" rel="noopener noreferrer"
+                                                            className={`flex items-center gap-2 mb-2 px-3 py-2 rounded-lg text-xs ${
+                                                               isOutbound ? 'bg-emerald-600 dark:bg-emerald-700' : 'bg-gray-50 dark:bg-slate-600'
+                                                            }`}>
+                                                            <FileIcon size={14} />
+                                                            <span className="truncate">{msg.mediaType || 'Document'}</span>
+                                                         </a>
+                                                      )}
+                                                      {msg.content && (
+                                                         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                                                      )}
+                                                      <div className={`flex items-center gap-1 mt-1 ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                                                         <span className={`text-[10px] ${isOutbound ? 'text-emerald-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                                                            {time}
+                                                         </span>
+                                                         {isOutbound && (
+                                                            <span className={`${
+                                                               msg.status === 'read' ? 'text-blue-200' :
+                                                               msg.status === 'delivered' ? 'text-emerald-200' :
+                                                               msg.status === 'failed' ? 'text-red-300' :
+                                                               'text-emerald-300/60'
+                                                            }`}>
+                                                               {msg.status === 'failed' ? (
+                                                                  <AlertCircle size={12} />
+                                                               ) : msg.status === 'read' || msg.status === 'delivered' ? (
+                                                                  <CheckCheck size={12} />
+                                                               ) : (
+                                                                  <Check size={12} />
+                                                               )}
+                                                            </span>
+                                                         )}
+                                                      </div>
+                                                   </div>
+                                                </div>
+                                             </div>
+                                          );
+                                       })}
+                                    </div>
+                                 ))
+                              )}
+                           </div>
+
+                           {/* Footer */}
+                           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/80 flex items-center justify-between">
+                              <p className="text-xs text-gray-400 dark:text-gray-500">
+                                 Messages are sent by Nova automation via Twilio
+                              </p>
+                              {contact?.idChaseActive && (
+                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-medium">
+                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                                    Chase Active
+                                 </span>
+                              )}
+                           </div>
+                        </div>
+                     );
+                  })()}
+
+                  {/* Communication History */}
+                  <div className="flex justify-between items-center">
                      <h2 className="text-lg font-bold text-navy-900 dark:text-white">Communication History</h2>
                      <select
                         value={communicationFilter}

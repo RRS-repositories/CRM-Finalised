@@ -60,6 +60,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [offlineAgents, setOfflineAgents] = useState<{id:number;name:string;role:string;minutes_offline:number}[]>([]);
+  const [offlineBannerExpanded, setOfflineBannerExpanded] = useState(false);
+  const offlineBannerRef = useRef<HTMLDivElement>(null);
 
   // Global search state
   const navigate = useNavigate();
@@ -146,6 +149,41 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     }, 15000); // Poll every 15s for live error notifications
     return () => clearInterval(interval);
   }, [fetchPersistentNotifications]);
+
+  // Poll offline agents for Management users (CRM-wide, shows on every page)
+  useEffect(() => {
+    if (currentUser?.role !== 'Management') return;
+    const fetchOffline = async () => {
+      try {
+        const res = await fetch(`${API_ENDPOINTS.api}/task-work/offline-agents`);
+        const data = await res.json();
+        setOfflineAgents(data.offlineAgents || []);
+      } catch { /* silent */ }
+    };
+    fetchOffline();
+    const interval = setInterval(fetchOffline, 30000);
+    return () => clearInterval(interval);
+  }, [currentUser?.role]);
+
+  // Close offline banner on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (offlineBannerRef.current && !offlineBannerRef.current.contains(e.target as Node)) {
+        setOfflineBannerExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const formatOfflineTime = (minutes: number) => {
+    if (minutes >= 60) {
+      const hrs = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+    }
+    return `${Math.round(minutes)}m`;
+  };
 
   // Activity heartbeat: track mouse/keyboard activity, send heartbeat every 30s if active within last 3 min
   useEffect(() => {
@@ -818,6 +856,45 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
             </div>
           </div>
         </header>
+
+        {/* Offline Agents Banner - Management only, compact ticker */}
+        {currentUser?.role === 'Management' && offlineAgents.length > 0 && (
+          <div ref={offlineBannerRef} className="relative bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20">
+            <div
+              className="flex items-center gap-2 px-4 py-1.5 cursor-pointer select-none"
+              onClick={() => setOfflineBannerExpanded(prev => !prev)}
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span className="text-xs font-semibold text-red-700 dark:text-red-400">
+                {offlineAgents.length} agent{offlineAgents.length !== 1 ? 's' : ''} inactive
+              </span>
+              <div className="flex-1 overflow-hidden">
+                <div className="flex gap-3 text-xs text-red-600 dark:text-red-400 truncate">
+                  {offlineAgents.slice(0, 5).map(a => (
+                    <span key={a.id} className="whitespace-nowrap">
+                      {a.name.split(' ')[0]} <span className="text-red-400 dark:text-red-500">({formatOfflineTime(a.minutes_offline)})</span>
+                    </span>
+                  ))}
+                  {offlineAgents.length > 5 && <span className="text-red-400">+{offlineAgents.length - 5} more</span>}
+                </div>
+              </div>
+              <ChevronDown size={14} className={`text-red-400 transition-transform shrink-0 ${offlineBannerExpanded ? 'rotate-180' : ''}`} />
+            </div>
+            {offlineBannerExpanded && (
+              <div className="absolute left-0 right-0 top-full z-50 bg-white dark:bg-surface-800 border border-red-200 dark:border-red-500/20 rounded-b-xl shadow-lg max-h-60 overflow-auto">
+                {offlineAgents.map(a => (
+                  <div key={a.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 dark:border-white/5 last:border-b-0">
+                    <div className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                    <span className="text-xs font-medium text-gray-800 dark:text-gray-200 flex-1">{a.name} <span className="text-gray-400">({a.role})</span></span>
+                    <span className={`text-xs font-bold ${a.minutes_offline >= 60 ? 'text-red-600 dark:text-red-400' : 'text-orange-500 dark:text-orange-400'}`}>
+                      {formatOfflineTime(a.minutes_offline)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Content View Port */}
         <main className="flex-1 overflow-auto bg-gray-100 dark:bg-surface-900 relative">

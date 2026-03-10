@@ -183,6 +183,15 @@ export interface Contact {
   q1Submitted?: boolean;
   q2Submitted?: boolean;
   signatureQuestionnaireUrl?: string;
+
+  // ID Chase State (Nova integration)
+  idChaseActive?: boolean;
+  idChaseStage?: string;
+  idChaseStartedAt?: string;
+  idChaseLastActionAt?: string;
+  idChaseLastClientAt?: string;
+  idChaseChannel?: string;
+  botPaused?: boolean;
 }
 
 export interface ClientFormData {
@@ -476,6 +485,16 @@ export interface CRMCommunication {
   timestamp: string;
   read: boolean;
   attachments?: MessageAttachment[];
+  // Nova chase fields
+  type?: string;
+  from?: string;
+  to?: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  twilioSid?: string;
+  status?: string;
+  templateName?: string;
+  sentBy?: string;
 }
 
 // Workflow Trigger for Chase Sequences

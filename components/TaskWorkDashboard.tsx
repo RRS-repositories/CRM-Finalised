@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, AlertTriangle, Bell, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -32,19 +32,14 @@ interface AgentStatus {
   tasks_flagged: number;
   is_online: boolean;
   last_active_at: string | null;
-}
-
-interface OfflineAlert {
-  id: number;
-  name: string;
-  role: string;
-  minutes_offline: number;
+  today_wastage_minutes: number;
+  month_wastage_minutes: number;
 }
 
 type Period = 'day' | 'week' | 'month' | 'year';
 
 const TaskWorkDashboard: React.FC = () => {
-  const { currentUser, addNotification } = useCRM();
+  const { currentUser } = useCRM();
   const [period, setPeriod] = useState<Period>('day');
   const [kpis, setKpis] = useState<KPIs>({ dsarSentToLender: 0, complaintSentToLender: 0, countersSentToLender: 0, loggedInUsers: 0, totalAgents: 0 });
   const [dailyLeaderboard, setDailyLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -54,11 +49,6 @@ const TaskWorkDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [allStatuses, setAllStatuses] = useState<string[]>([]);
-  const [offlineAlerts, setOfflineAlerts] = useState<OfflineAlert[]>([]);
-  const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(new Set());
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const notifiedAgentsRef = useRef<Set<number>>(new Set());
-  const bellRef = useRef<HTMLDivElement>(null);
 
   if (currentUser?.role !== 'Management') {
     return (
@@ -103,43 +93,6 @@ const TaskWorkDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  // Poll for offline agents (> 10 minutes) and show notifications
-  const fetchOfflineAgents = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_ENDPOINTS.api}/task-work/offline-agents`);
-      const data = await res.json();
-      const offlineList: OfflineAlert[] = data.offlineAgents || [];
-      setOfflineAlerts(offlineList);
-
-      // Show notification toast for newly offline agents
-      for (const agent of offlineList) {
-        if (!notifiedAgentsRef.current.has(agent.id)) {
-          notifiedAgentsRef.current.add(agent.id);
-          addNotification('error', `${agent.name} (${agent.role}) has been offline for ${Math.round(agent.minutes_offline)} minutes`);
-        }
-      }
-
-      // Clear notified status for agents that come back online
-      const offlineIds = new Set(offlineList.map(a => a.id));
-      notifiedAgentsRef.current.forEach(id => {
-        if (!offlineIds.has(id)) notifiedAgentsRef.current.delete(id);
-      });
-    } catch (err) {
-      console.error('Failed to fetch offline agents:', err);
-    }
-  }, [addNotification]);
-
-  useEffect(() => {
-    fetchOfflineAgents();
-    const offlineInterval = setInterval(fetchOfflineAgents, 30000); // Check every 30s
-    return () => clearInterval(offlineInterval);
-  }, [fetchOfflineAgents]);
-
-  const dismissAlert = (agentId: number) => {
-    setDismissedAlerts(prev => new Set([...prev, agentId]));
-  };
-
-  const visibleAlerts = offlineAlerts.filter(a => !dismissedAlerts.has(a.id));
 
   const getInitials = (name: string) => {
     const parts = name.trim().split(' ');
@@ -168,16 +121,11 @@ const TaskWorkDashboard: React.FC = () => {
 
   const onlineCount = agents.filter(a => a.is_online).length;
 
-  // Close notification dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
-        setNotificationOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const formatWastage = (minutes: number) => {
+    const hrs = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    return `${hrs} HRS ${mins} MINS`;
+  };
 
   const periodButtons: { value: Period; label: string }[] = [
     { value: 'day', label: 'Day' },
@@ -198,56 +146,6 @@ const TaskWorkDashboard: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Notification Bell */}
-          <div className="relative" ref={bellRef}>
-            <button
-              onClick={() => setNotificationOpen(prev => !prev)}
-              className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/5 transition-all"
-            >
-              <Bell size={18} />
-              {visibleAlerts.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
-                  {visibleAlerts.length}
-                </span>
-              )}
-            </button>
-
-            {/* Notification Dropdown */}
-            {notificationOpen && (
-              <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-surface-800 border border-gray-200 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
-                  <h4 className="text-sm font-bold text-gray-900 dark:text-white">Offline Alerts</h4>
-                  <span className="text-xs text-gray-400">{visibleAlerts.length} alert{visibleAlerts.length !== 1 ? 's' : ''}</span>
-                </div>
-                <div className="max-h-80 overflow-auto">
-                  {visibleAlerts.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-sm text-gray-400">No offline alerts</div>
-                  ) : (
-                    visibleAlerts.map(agent => (
-                      <div key={agent.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 dark:border-white/5 last:border-b-0 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                        <div className="mt-0.5 p-1 rounded-full bg-red-100 dark:bg-red-500/20 shrink-0">
-                          <AlertTriangle size={14} className="text-red-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                            {agent.name} <span className="text-gray-400 font-normal">({agent.role})</span>
-                          </p>
-                          <p className="text-xs text-red-500 mt-0.5">Offline for {Math.round(agent.minutes_offline)} minutes</p>
-                        </div>
-                        <button
-                          onClick={() => dismissAlert(agent.id)}
-                          className="p-1 rounded-lg text-gray-300 hover:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors shrink-0"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Period Toggle */}
           <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-white/10">
             {periodButtons.map(pb => (
@@ -325,10 +223,10 @@ const TaskWorkDashboard: React.FC = () => {
             <h3 className="text-base font-bold text-gray-900 dark:text-white">Leaderboard</h3>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 max-h-80 overflow-auto">
             {/* Daily */}
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Today</h4>
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3 sticky top-0 bg-white dark:bg-surface-800 pb-1 z-10">Today</h4>
               <div className="space-y-2">
                 {dailyLeaderboard.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-4">No tasks today</p>
@@ -356,7 +254,7 @@ const TaskWorkDashboard: React.FC = () => {
 
             {/* Weekly/Period */}
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">This {period === 'day' ? 'Week' : period.charAt(0).toUpperCase() + period.slice(1)}</h4>
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3 sticky top-0 bg-white dark:bg-surface-800 pb-1 z-10">This {period === 'day' ? 'Week' : period.charAt(0).toUpperCase() + period.slice(1)}</h4>
               <div className="space-y-2">
                 {weeklyLeaderboard.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-4">No tasks this period</p>
@@ -485,6 +383,22 @@ const TaskWorkDashboard: React.FC = () => {
                 <div className="flex items-center justify-between text-[11px] pt-1 border-t border-gray-200 dark:border-white/10">
                   <span className="text-gray-500 dark:text-gray-400">Remaining</span>
                   <span className="font-bold text-gray-900 dark:text-white">{Math.max(0, agent.tasks_allocated - agent.tasks_completed)}</span>
+                </div>
+                {/* Time Wastage */}
+                <div className="pt-1.5 mt-1.5 border-t border-gray-200 dark:border-white/10">
+                  <div className="flex items-center gap-1 mb-1">
+                    <Clock size={9} className="text-gray-400" />
+                    <span className="text-[9px] font-semibold uppercase text-gray-400 tracking-wider">Time Wastage</span>
+                  </div>
+                  <div className="text-[10px] font-bold text-gray-700 dark:text-gray-300">
+                    {formatWastage(Number(agent.today_wastage_minutes) || 0)}
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] mt-0.5">
+                    <span className="text-gray-400">This Month</span>
+                    <span className={`font-bold ${Number(agent.month_wastage_minutes) > 120 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                      {formatWastage(Number(agent.month_wastage_minutes) || 0)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

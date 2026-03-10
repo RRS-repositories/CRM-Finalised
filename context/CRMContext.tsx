@@ -674,6 +674,13 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           q1Submitted: c.q1_submitted || false,
           q2Submitted: c.q2_submitted || false,
           signatureQuestionnaireUrl: c.signature_questionnaire_url || '',
+          idChaseActive: c.id_chase_active || false,
+          idChaseStage: c.id_chase_stage || null,
+          idChaseStartedAt: c.id_chase_started_at || null,
+          idChaseLastActionAt: c.id_chase_last_action_at || null,
+          idChaseLastClientAt: c.id_chase_last_client_at || null,
+          idChaseChannel: c.id_chase_channel || null,
+          botPaused: c.bot_paused || false,
         }));
 
         // Append to existing contacts
@@ -2184,7 +2191,16 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         agentId: c.agent_id,
         agentName: c.agent_name,
         timestamp: c.timestamp,
-        read: c.read
+        read: c.read,
+        type: c.type,
+        from: c.from,
+        to: c.to,
+        mediaUrl: c.media_url,
+        mediaType: c.media_type,
+        twilioSid: c.twilio_sid,
+        status: c.status,
+        templateName: c.template_name,
+        sentBy: c.sent_by
       }));
 
       setCommunications(mappedComms);
@@ -2325,6 +2341,20 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setWorkflowTriggers(prev => [newWorkflow, ...prev]);
       addNotification('success', `${workflowConfig.name} workflow triggered`);
+
+      // If this is an ID chase workflow, also trigger the Nova/Windmill automation
+      if (workflowType === 'id_chase') {
+        try {
+          await fetch(`${API_BASE_URL}/api/nova/trigger-chase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contact_id: clientId })
+          });
+        } catch (novaErr) {
+          console.error('Nova trigger failed (non-blocking):', novaErr);
+        }
+      }
+
       // Refresh to sync
       await refreshAllData();
       return { success: true, message: 'Workflow triggered', id: newWorkflow.id };

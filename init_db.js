@@ -485,6 +485,34 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_cases_created_at ON cases(created_at DESC);
     `);
 
+    // ============================================
+    // Nova Integration — Communications + Chase State
+    // ============================================
+
+    // Extend communications table with Twilio/messaging fields
+    console.log('Adding Twilio/messaging columns to communications...');
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS type VARCHAR(20);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS "from" VARCHAR(100);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS "to" VARCHAR(100);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS media_url TEXT;`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS media_type VARCHAR(50);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS twilio_sid VARCHAR(50);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent';`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS template_name VARCHAR(100);`);
+    await pool.query(`ALTER TABLE communications ADD COLUMN IF NOT EXISTS sent_by VARCHAR(20) DEFAULT 'system';`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_communications_twilio_sid ON communications(twilio_sid) WHERE twilio_sid IS NOT NULL;`);
+
+    // Add ID chase state columns to contacts
+    console.log('Adding ID chase state columns to contacts...');
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_active BOOLEAN DEFAULT false;`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_stage VARCHAR(30);`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_started_at TIMESTAMPTZ;`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_last_action_at TIMESTAMPTZ;`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_last_client_at TIMESTAMPTZ;`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS id_chase_channel VARCHAR(20);`);
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT false;`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_contacts_id_chase_active ON contacts(id_chase_active) WHERE id_chase_active = true;`);
+
     console.log('Database initialization complete!');
     process.exit(0);
   } catch (err) {
