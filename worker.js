@@ -798,9 +798,12 @@ async function gatherDocumentsForCase(contactId, lenderName, folderName, caseId,
         if (!documents.loa) {
             documents.loa = await findFileInS3Folder(`${folder}/LOA/`, lenderName, 'LOA', refSpec);
         }
-        // Fallback: check Documents/Letter_of_Authority/ (backend uploads LOAs here)
+        // Fallback: check Documents/Letter_of_Authority/ and Documents/LOA/ (backend uploads LOAs here)
         if (!documents.loa) {
             documents.loa = await findFileInS3Folder(`${folder}/Documents/Letter_of_Authority/`, lenderName, 'LOA', refSpec);
+        }
+        if (!documents.loa) {
+            documents.loa = await findFileInS3Folder(`${folder}/Documents/LOA/`, lenderName, 'LOA', refSpec);
         }
 
         // 2. Cover Letter PDF - Search S3 Lenders/{lender}/ folder directly
