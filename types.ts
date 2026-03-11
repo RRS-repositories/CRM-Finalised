@@ -68,7 +68,9 @@ export enum ClaimStatus {
   FAILED_PAYMENT_PLAN = "Failed Payment Plan",
   DEBT_LETTER_SENT = "DEBT LETTER SENT",
   IRL_PAYMENTS_CANCELLATION_FEE_PAID = "IRL/PAYMENTS/CANCELLATION FEE PAID",
-  CHASING_DEBT = "CHASING DEBT"
+  CHASING_DEBT = "CHASING DEBT",
+  PAYMENT_PLAN_SETUP = "Payment Plan Setup",
+  PAYMENT_PLAN_COMPLETED = "Payment Plan Completed"
 }
 
 export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments" | "Debt Recovery";
@@ -324,7 +326,7 @@ export interface Document {
   id: string;
   name: string;
   type: 'pdf' | 'docx' | 'image' | 'spreadsheet' | 'txt' | 'html';
-  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates' | 'Cover Letter' | 'LOA' | 'Letter of Authority' | 'ID Document' | 'Proof of Address' | 'Bank Statement' | 'DSAR' | 'Complaint Letter' | 'Final Response Letter (FRL)' | 'Counter Response' | 'FOS Complaint Form' | 'FOS Decision' | 'Offer Letter' | 'Acceptance Form' | 'Settlement Agreement' | 'Invoice';
+  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates' | 'Cover Letter' | 'LOA' | 'Letter of Authority' | 'ID Document' | 'Proof of Address' | 'Bank Statement' | 'DSAR' | 'Complaint Letter' | 'Questionnaire' | 'Final Response Letter (FRL)' | 'Counter Response' | 'FOS Complaint Form' | 'FOS Decision' | 'Offer Letter' | 'Acceptance Form' | 'Settlement Agreement' | 'Invoice';
   dateModified: string;
   createdAt?: string;
   size: string;

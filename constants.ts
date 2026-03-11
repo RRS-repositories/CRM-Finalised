@@ -105,6 +105,8 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.DEBT_LETTER_SENT,
       ClaimStatus.IRL_PAYMENTS_CANCELLATION_FEE_PAID,
       ClaimStatus.CHASING_DEBT,
+      ClaimStatus.PAYMENT_PLAN_SETUP,
+      ClaimStatus.PAYMENT_PLAN_COMPLETED,
     ],
   },
 ];
@@ -506,7 +508,8 @@ export const getSpecStatusColor = (status: string): string => {
   // Category 7: Debt Recovery - Cyan (#0891B2)
   if (status === 'DEBT Contact Required' || status === 'Failed Payment Plan' ||
     status === 'DEBT LETTER SENT' || status === 'IRL/PAYMENTS/CANCELLATION FEE PAID' ||
-    status === 'CHASING DEBT') {
+    status === 'CHASING DEBT' || status === 'Payment Plan Setup' ||
+    status === 'Payment Plan Completed') {
     return '#0891B2';
   }
 
@@ -829,6 +832,7 @@ export const DOCUMENT_CATEGORIES = [
   'Letter of Authority',
   'Cover Letter',
   'Complaint Letter',
+  'Questionnaire',
   'Final Response Letter (FRL)',
   'Counter Response',
   'FOS Complaint Form',
