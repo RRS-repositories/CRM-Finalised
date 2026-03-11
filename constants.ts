@@ -848,7 +848,7 @@ export const DOCUMENT_CATEGORIES = [
   'Settlement Agreement',
   'Invoice',
   'Other'
-];
+] as const;
 
 // Document Status Dashboard Configuration
 export const DOCUMENT_STATUS_CONFIG: Array<{

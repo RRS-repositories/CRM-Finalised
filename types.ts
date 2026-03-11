@@ -331,7 +331,7 @@ export interface Document {
   id: string;
   name: string;
   type: 'pdf' | 'docx' | 'image' | 'spreadsheet' | 'txt' | 'html';
-  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates' | 'Cover Letter' | 'LOA';
+  category: 'Client' | 'Correspondence' | 'Legal' | 'Other' | 'Templates' | 'Cover Letter' | 'LOA' | 'Letter of Authority' | 'ID Document' | 'Proof of Address' | 'Bank Statement' | 'DSAR' | 'Complaint Letter' | 'Final Response Letter (FRL)' | 'Counter Response' | 'FOS Complaint Form' | 'FOS Decision' | 'Offer Letter' | 'Acceptance Form' | 'Settlement Agreement' | 'Invoice';
   dateModified: string;
   createdAt?: string;
   size: string;

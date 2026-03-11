@@ -932,7 +932,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    };
 
    // Save category for a document
-   const handleDocCategorySave = async (docId: string, category: string) => {
+   const handleDocCategorySave = async (docId: string, category: Document['category']) => {
       setDocCategorySaving(docId);
       try {
          const res = await fetch(`${API_BASE_URL}/api/documents/category`, {
