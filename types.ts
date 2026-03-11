@@ -17,8 +17,6 @@ export enum ClaimStatus {
   EXTRA_LENDER_FORM_COMPLETED = "Extra Lender Selection Form Completed",
   QUESTIONNAIRE_SENT = "Questionnaire Sent",
   QUESTIONNAIRE_COMPLETED = "Questionnaire Completed",
-  BANK_STATEMENTS_REQUESTED = "Bank Statements Requested",
-  BANK_STATEMENTS_RECEIVED = "Bank Statements Received",
   ONBOARDING_COMPLETE = "Onboarding Complete",
 
   // Category 3: DSAR Process
@@ -33,6 +31,7 @@ export enum ClaimStatus {
   DSAR_REVIEW_COMPLETED = "Dsar Review Completed",
   WEAK_CASE_CANNOT_CONTINUE = "Weak Case Cannot Continue",
   MISSING_DATA_FROM_DSAR = "Missing Data From Dsar",
+  TIMEBARRED = "TIMEBARRED",
 
   // Category 4: Complaint Submission & Processing
   COMPLAINT_DRAFTED = "Complaint Drafted",
@@ -42,6 +41,7 @@ export enum ClaimStatus {
   UPHELD = "Upheld",
   PARTIAL_UPHELD = "Partial Upheld",
   NOT_UPHELD = "Not upheld",
+  BANK_STATEMENTS_REQUESTED = "Bank Statements Requested",
   COUNTER_TEAM = "Counter team",
   COUNTER_RESPONSE_SENT = "Counter Response sent",
 
@@ -56,26 +56,19 @@ export enum ClaimStatus {
 
   // Category 6: Payments
   OFFER_RECEIVED = "Offer Received",
-  OFFER_UNDER_NEGOTIATION = "Offer Under Negotiation",
   OFFER_ACCEPTED = "Offer Accepted",
   AWAITING_PAYMENT = "Awaiting Payment",
   PAYMENT_RECEIVED = "Payment Received",
-  FEE_DEDUCTED = "Fee Deducted",
   CLIENT_PAID = "Client Paid",
-  CLAIM_SUCCESSFUL = "Claim Successful",
   CLAIM_UNSUCCESSFUL = "Claim Unsuccessful",
   CLAIM_WITHDRAWN = "Claim Withdrawn",
 
   // Category 7: Debt Recovery
-  DEBT_CONTACT_ATTEMPTED = "DEBT Contact Attempted",
+  DEBT_CONTACT_REQUIRED = "DEBT Contact Required",
   FAILED_PAYMENT_PLAN = "Failed Payment Plan",
   DEBT_LETTER_SENT = "DEBT LETTER SENT",
   IRL_PAYMENTS_CANCELLATION_FEE_PAID = "IRL/PAYMENTS/CANCELLATION FEE PAID",
-  IRL_POA_REQUEST = "IRL POA REQUEST",
-  IRL_TIMEBARRED = "IRL- TIMEBARRED",
-  TEXT_INFORM_ABOUT_DSAR = "TEXT INFORM ABOUT DSAR",
-  CHASING_DEBT = "CHASING DEBT",
-  IRL_PAYMENT_UPHELD_DEBT = "IRL/PAYMENT UPHELD DEBT (partial legal fees cover)"
+  CHASING_DEBT = "CHASING DEBT"
 }
 
 export type PipelineCategory = "Lead Generation" | "Onboarding" | "DSAR Process" | "Complaint" | "FOS Escalation" | "Payments" | "Debt Recovery";

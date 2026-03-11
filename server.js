@@ -312,8 +312,7 @@ crmEvents.init(pool);
                     );
                     CREATE INDEX IF NOT EXISTS idx_offline_periods_user_date ON offline_periods (user_id, offline_start);
 
-                    -- One-time cleanup: clear stale offline_periods data (pre-fix bad records)
-                    DELETE FROM offline_periods WHERE created_at < '2026-03-12';
+                    -- One-time cleanup already ran (removed stale pre-fix records before 2026-03-12)
 
                     -- Normalize lender names: merge all 118 variants into "118 Money"
                     UPDATE cases SET lender = '118 Money' WHERE lender ILIKE '118%' AND lender != '118 Money';

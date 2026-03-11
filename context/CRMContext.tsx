@@ -3015,9 +3015,10 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               seenNotificationIds.current.add(n.id);
               addErrorToast(n);
             });
-            // Refresh claims data so status changes (e.g. reverted to LOA Signed) appear live
-            claimsFetchedAtRef.current = 0; // Reset cache to force fresh fetch
-            fetchAllClaims();
+            // Mark claims cache as stale so next user-initiated navigation will refresh
+            claimsFetchedAtRef.current = 0;
+            // DO NOT call fetchAllClaims() here — let it refresh lazily on next view
+            // This prevents a full re-render cascade every 60s from notification polling
           }
         }
       }
@@ -3170,10 +3171,9 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchTasks();
       fetchPersistentNotifications();
 
-      // Check for reminders every minute
+      // Check for reminders every minute (Layout.tsx handles notification polling separately)
       const reminderInterval = setInterval(() => {
         fetch(`${API_BASE_URL}/reminders/check`, { method: 'POST' })
-          .then(() => fetchPersistentNotifications())
           .catch(console.error);
       }, 60000);
 

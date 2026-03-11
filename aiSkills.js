@@ -49,7 +49,7 @@ export const KNOWLEDGE_BASE = {
 - SALE
 - LOA Sent
 
-**CATEGORY 2: CLIENT ONBOARDING** (12 statuses)
+**CATEGORY 2: CLIENT ONBOARDING** (10 statuses)
 - LOA Uploaded
 - LOA Signed
 - ID Request Sent
@@ -59,11 +59,9 @@ export const KNOWLEDGE_BASE = {
 - Extra Lender Selection Form Completed
 - Questionnaire Sent
 - Questionnaire Completed
-- Bank Statements Requested
-- Bank Statements Received
 - Onboarding Complete
 
-**CATEGORY 3: DSAR PROCESS** (11 statuses)
+**CATEGORY 3: DSAR PROCESS** (12 statuses)
 - DSAR Prepared
 - DSAR Prepared Awaiting I.D
 - DSAR Sent to Lender
@@ -75,8 +73,9 @@ export const KNOWLEDGE_BASE = {
 - Dsar Review Completed
 - Weak Case Cannot Continue
 - Missing Data From Dsar
+- TIMEBARRED
 
-**CATEGORY 4: COMPLAINT SUBMISSION** (9 statuses)
+**CATEGORY 4: COMPLAINT SUBMISSION** (10 statuses)
 - Complaint Drafted
 - Complaint Drafted Awaiting Questionnaire
 - Complaint Submitted
@@ -84,6 +83,7 @@ export const KNOWLEDGE_BASE = {
 - Upheld
 - Partial Upheld
 - Not upheld
+- Bank Statements Requested
 - Counter team
 - Counter Response sent
 
@@ -96,28 +96,21 @@ export const KNOWLEDGE_BASE = {
 - FOS Final Decision
 - FOS Appeal
 
-**CATEGORY 6: PAYMENTS** (10 statuses)
+**CATEGORY 6: PAYMENTS** (7 statuses)
 - Offer Received
-- Offer Under Negotiation
 - Offer Accepted
 - Awaiting Payment
 - Payment Received
-- Fee Deducted
 - Client Paid
-- Claim Successful
 - Claim Unsuccessful
 - Claim Withdrawn
 
-**CATEGORY 7: DEBT RECOVERY** (9 statuses)
-- DEBT Contact Attempted
+**CATEGORY 7: DEBT RECOVERY** (5 statuses)
+- DEBT Contact Required
 - Failed Payment Plan
 - DEBT LETTER SENT
 - IRL/PAYMENTS/CANCELLATION FEE PAID
-- IRL POA REQUEST
-- IRL- TIMEBARRED
-- TEXT INFORM ABOUT DSAR
-- CHASING DEBT
-- IRL/PAYMENT UPHELD DEBT (partial legal fees cover)`
+- CHASING DEBT`
     },
 
     lenders: {

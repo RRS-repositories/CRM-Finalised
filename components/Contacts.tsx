@@ -139,8 +139,8 @@ const getStatusColor = (status: string) => {
    }
 
    // Category 6: Payments - Green (Offers, Payments, Success)
-   if (status.includes('Offer') || status.includes('Payment') || status === 'Fee Deducted' ||
-      status === 'Client Paid' || status === 'Claim Successful' || status === 'Awaiting Payment') {
+   if (status.includes('Offer') || status.includes('Payment') ||
+      status === 'Client Paid' || status === 'Awaiting Payment') {
       return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
    }
 
@@ -271,7 +271,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       refreshAllData, addNotification, fetchCasesForContact, updateClaimStatus
    } = useCRM();
 
-   const inMemoryContact = contacts.find(c => c.id === contactId);
+   const inMemoryContact = useMemo(() => contacts.find(c => c.id === contactId), [contacts, contactId]);
 
    // If contact not in memory (e.g. page refresh with paginated data), fetch from API
    const [fetchedContact, setFetchedContact] = useState<Contact | null>(null);
@@ -351,7 +351,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    }, [fetchedContact, contactId, fetchCasesForContact]);
 
-   const contactClaims = claims.filter(c => c.contactId === contactId);
+   const contactClaims = useMemo(() => claims.filter(c => c.contactId === contactId), [claims, contactId]);
 
    // Main 7-Tab Navigation
    const [activeTab, setActiveTab] = useState<ContactTab>(initialTab);
@@ -1115,54 +1115,64 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
-   // Filter logs for this contact (legacy activity logs)
-   const legacyTimeline = legacyActivityLogs
-      .filter(log => log.contactId === contactId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+   // PERFORMANCE: Memoize filter/sort operations to prevent recalculation on every render
+   const legacyTimeline = useMemo(() =>
+      legacyActivityLogs
+         .filter(log => log.contactId === contactId)
+         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      [legacyActivityLogs, contactId]
+   );
 
-   const notesList = legacyActivityLogs
-      .filter(log => log.contactId === contactId && log.type === 'note')
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+   const notesList = useMemo(() =>
+      legacyActivityLogs
+         .filter(log => log.contactId === contactId && log.type === 'note')
+         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      [legacyActivityLogs, contactId]
+   );
 
-   // Filter communications based on selected filter
-   const filteredCommunications = communications.filter(comm => {
-      if (communicationFilter === 'all') return true;
-      if (communicationFilter === 'email') return comm.channel === 'email';
-      if (communicationFilter === 'sms') return comm.channel === 'sms';
-      if (communicationFilter === 'whatsapp') return comm.channel === 'whatsapp';
-      if (communicationFilter === 'call') return comm.channel === 'call';
-      if (communicationFilter === 'inbound') return comm.direction === 'inbound';
-      if (communicationFilter === 'outbound') return comm.direction === 'outbound';
-      return true;
-   });
+   const filteredCommunications = useMemo(() =>
+      communications.filter(comm => {
+         if (communicationFilter === 'all') return true;
+         if (communicationFilter === 'email') return comm.channel === 'email';
+         if (communicationFilter === 'sms') return comm.channel === 'sms';
+         if (communicationFilter === 'whatsapp') return comm.channel === 'whatsapp';
+         if (communicationFilter === 'call') return comm.channel === 'call';
+         if (communicationFilter === 'inbound') return comm.direction === 'inbound';
+         if (communicationFilter === 'outbound') return comm.direction === 'outbound';
+         return true;
+      }),
+      [communications, communicationFilter]
+   );
 
-   // Filter action logs based on timeline filter and current contact
-   const filteredActionLogs = actionLogs.filter(log => {
-      // Only show logs for the current contact
-      if (String(log.clientId) !== String(contactId)) return false;
+   const filteredActionLogs = useMemo(() =>
+      actionLogs.filter(log => {
+         if (String(log.clientId) !== String(contactId)) return false;
+         if (timelineFilter === 'all') return true;
+         if (timelineFilter === 'claims') return log.actionCategory === 'claims';
+         if (timelineFilter === 'communication') return log.actionCategory === 'communication';
+         if (timelineFilter === 'documents') return log.actionCategory === 'documents';
+         if (timelineFilter === 'notes') return log.actionCategory === 'notes';
+         if (timelineFilter === 'workflows') return log.actionCategory === 'workflows';
+         return true;
+      }),
+      [actionLogs, contactId, timelineFilter]
+   );
 
-      if (timelineFilter === 'all') return true;
-      if (timelineFilter === 'claims') return log.actionCategory === 'claims';
-      if (timelineFilter === 'communication') return log.actionCategory === 'communication';
-      if (timelineFilter === 'documents') return log.actionCategory === 'documents';
-      if (timelineFilter === 'notes') return log.actionCategory === 'notes';
-      if (timelineFilter === 'workflows') return log.actionCategory === 'workflows';
-      return true;
-   });
-
-   // Sort & filter CRM notes (pinned first, then by date)
-   const sortedNotes = [...crmNotes]
-      .filter((note) => {
-         if (noteFilter === 'all') return true;
-         const { lender } = parseLenderFromNote(note.content);
-         if (noteFilter === 'note') return !lender;
-         return lender === noteFilter;
-      })
-      .sort((a, b) => {
-         if (a.pinned && !b.pinned) return -1;
-         if (!a.pinned && b.pinned) return 1;
-         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
+   const sortedNotes = useMemo(() =>
+      [...crmNotes]
+         .filter((note) => {
+            if (noteFilter === 'all') return true;
+            const { lender } = parseLenderFromNote(note.content);
+            if (noteFilter === 'note') return !lender;
+            return lender === noteFilter;
+         })
+         .sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+         }),
+      [crmNotes, noteFilter]
+   );
 
    // PERFORMANCE: Memoize lender extraction from notes
    const noteLenders = useMemo(() => [...new Set(crmNotes.map(n => parseLenderFromNote(n.content).lender).filter(Boolean))], [crmNotes]);
@@ -3164,7 +3174,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  id: 'onboarding',
                                  label: 'Onboarding',
                                  color: '#a855f7', // purple
-                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'POA Required', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Uploaded', 'LOA Signed', 'Bank Statements Requested', 'Lender Selection Form Completed', 'Bank Statements Received', 'Onboarding Complete']
+                                 statuses: ['Onboarding Started', 'ID Verification Pending', 'ID Verification Complete', 'POA Required', 'Questionnaire Sent', 'Questionnaire Complete', 'LOA Sent', 'LOA Uploaded', 'LOA Signed', 'Lender Selection Form Completed', 'Onboarding Complete']
                               },
                               {
                                  id: 'dsar-process',
@@ -3188,7 +3198,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  id: 'payments',
                                  label: 'Payments',
                                  color: '#10b981', // emerald green
-                                 statuses: ['Offer Received', 'Offer Under Negotiation', 'Offer Accepted', 'Awaiting Payment', 'Payment Received', 'Fee Deducted', 'Client Paid', 'Claim Successful', 'Claim Unsuccessful', 'Claim Withdrawn']
+                                 statuses: ['Offer Received', 'Offer Accepted', 'Awaiting Payment', 'Payment Received', 'Client Paid', 'Claim Unsuccessful', 'Claim Withdrawn']
                               }
                            ];
 

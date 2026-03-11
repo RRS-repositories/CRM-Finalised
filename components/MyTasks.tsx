@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter, RefreshCw, Check, Flag, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
@@ -90,13 +90,13 @@ const MyTasks: React.FC = () => {
     );
   }
 
-  const fetchMyTasks = useCallback(async (p = pagination.page, l = pagination.limit) => {
+  const fetchMyTasks = useCallback(async (p?: number, l?: number) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
         userId: String(currentUser.id),
-        page: String(p),
-        limit: String(l),
+        page: String(p ?? pagination.page),
+        limit: String(l ?? pagination.limit),
         ...(search && { search }),
         ...(statusFilter && { status: statusFilter }),
       });
@@ -104,13 +104,14 @@ const MyTasks: React.FC = () => {
       const data = await res.json();
       setClaims(data.claims || []);
       setSummary(data.summary || { totalTasks: 0, completedCount: 0, awaitingCount: 0, flaggedCount: 0, documentsCount: 0 });
-      setPagination(data.pagination || { page: p, limit: l, total: 0, totalPages: 0, hasMore: false });
+      setPagination(data.pagination || { page: p ?? pagination.page, limit: l ?? pagination.limit, total: 0, totalPages: 0, hasMore: false });
     } catch (err) {
       console.error('Failed to fetch my tasks:', err);
     } finally {
       setLoading(false);
     }
-  }, [currentUser.id, search, statusFilter, pagination.page, pagination.limit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser.id, search, statusFilter]);
 
   // Fetch statuses for filter dropdown
   useEffect(() => {
@@ -123,11 +124,13 @@ const MyTasks: React.FC = () => {
   // Fetch tasks when search/filters change — reset to page 1
   useEffect(() => {
     fetchMyTasks(1, pagination.limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter]);
 
   // Fetch tasks when page/limit change
   useEffect(() => {
-    fetchMyTasks();
+    fetchMyTasks(pagination.page, pagination.limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.page, pagination.limit]);
 
   // Debounced search
@@ -167,7 +170,7 @@ const MyTasks: React.FC = () => {
   };
 
   const openContact = (contactId: number) => {
-    navigate(`/contacts/${contactId}`);
+    window.open(`/contacts/${contactId}`, '_blank');
   };
 
   const handleStatusChange = async (claimId: number, newStatus: string) => {
@@ -218,16 +221,16 @@ const MyTasks: React.FC = () => {
   };
 
   // Client-side sort on the current page of results
-  let displayed = [...claims];
-  if (sortField) {
-    displayed.sort((a, b) => {
+  const displayed = useMemo(() => {
+    if (!sortField) return claims;
+    return [...claims].sort((a, b) => {
       let va = '', vb = '';
       if (sortField === 'name') { va = a.contact_name || ''; vb = b.contact_name || ''; }
       else if (sortField === 'lender') { va = a.lender || ''; vb = b.lender || ''; }
       else if (sortField === 'status') { va = a.status || ''; vb = b.status || ''; }
       return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
     });
-  }
+  }, [claims, sortField, sortDir]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

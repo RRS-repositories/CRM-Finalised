@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
@@ -59,8 +59,16 @@ const TaskWorkDashboard: React.FC = () => {
     );
   }
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  // Track whether this is the initial load vs background refresh
+  const hasFetchedRef = useRef(false);
+  const fetchingRef = useRef(false);
+
+  const fetchAll = useCallback(async (isBackground = false) => {
+    // Prevent concurrent fetches
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    // Only show loading spinner on initial load, not background refreshes
+    if (!isBackground) setLoading(true);
     try {
       const params = `period=${period}`;
       const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : '';
@@ -80,28 +88,30 @@ const TaskWorkDashboard: React.FC = () => {
       setStatusActions(saData.statusActions || []);
       setAgents(agData.agents || []);
       setAllStatuses(stData.statuses || []);
+      hasFetchedRef.current = true;
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
     } finally {
-      setLoading(false);
+      fetchingRef.current = false;
+      if (!isBackground) setLoading(false);
     }
   }, [period, statusFilter]);
 
   useEffect(() => {
-    fetchAll();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAll, 30000);
+    fetchAll(false);
+    // Auto-refresh every 2 minutes (background — no loading spinner)
+    const interval = setInterval(() => fetchAll(true), 120000);
     return () => clearInterval(interval);
   }, [fetchAll]);
 
 
-  const getInitials = (name: string) => {
+  const getInitials = useCallback((name: string) => {
     const parts = name.trim().split(' ');
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     return name.substring(0, 2).toUpperCase();
-  };
+  }, []);
 
-  const getAvatarColor = (name: string) => {
+  const getAvatarColor = useCallback((name: string) => {
     const colors = [
       'from-blue-500 to-blue-600', 'from-green-500 to-green-600', 'from-purple-500 to-purple-600',
       'from-orange-500 to-orange-600', 'from-pink-500 to-pink-600', 'from-teal-500 to-teal-600',
@@ -111,22 +121,22 @@ const TaskWorkDashboard: React.FC = () => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return colors[Math.abs(hash) % colors.length];
-  };
+  }, []);
 
-  const getRankStyle = (rank: number) => {
+  const getRankStyle = useCallback((rank: number) => {
     if (rank === 1) return 'bg-yellow-500 text-black';
     if (rank === 2) return 'bg-blue-500 text-white';
     if (rank === 3) return 'bg-orange-500 text-white';
     return 'bg-gray-600 text-gray-300';
-  };
+  }, []);
 
-  const onlineCount = agents.filter(a => a.is_online).length;
+  const onlineCount = useMemo(() => agents.filter(a => a.is_online).length, [agents]);
 
-  const formatWastage = (minutes: number) => {
+  const formatWastage = useCallback((minutes: number) => {
     const hrs = Math.floor(minutes / 60);
     const mins = Math.round(minutes % 60);
     return `${hrs} HRS ${mins} MINS`;
-  };
+  }, []);
 
   const periodButtons: { value: Period; label: string }[] = [
     { value: 'day', label: 'Day' },

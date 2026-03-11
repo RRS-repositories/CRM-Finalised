@@ -71,12 +71,12 @@ const TaskWork: React.FC = () => {
     );
   }
 
-  const fetchClaims = useCallback(async (p = pagination.page, l = pagination.limit) => {
+  const fetchClaims = useCallback(async (p?: number, l?: number) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        page: String(p),
-        limit: String(l),
+        page: String(p ?? pagination.page),
+        limit: String(l ?? pagination.limit),
         ...(search && { search }),
         ...(statusFilter && { status: statusFilter }),
         ...(lenderFilter && { lender: lenderFilter }),
@@ -87,13 +87,14 @@ const TaskWork: React.FC = () => {
       const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
       const data = await res.json();
       setClaims(data.claims || []);
-      setPagination(data.pagination || { page: p, limit: l, total: 0, totalPages: 0, hasMore: false });
+      setPagination(data.pagination || { page: p ?? pagination.page, limit: l ?? pagination.limit, total: 0, totalPages: 0, hasMore: false });
     } catch (err) {
       console.error('Failed to fetch task work claims:', err);
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, pagination.page, pagination.limit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo]);
 
   const fetchFilterData = useCallback(async () => {
     try {
@@ -117,12 +118,16 @@ const TaskWork: React.FC = () => {
     fetchFilterData();
   }, [fetchFilterData]);
 
+  // Fetch on filter change — reset to page 1
   useEffect(() => {
     fetchClaims(1, pagination.limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo]);
 
+  // Fetch on pagination change only
   useEffect(() => {
-    fetchClaims();
+    fetchClaims(pagination.page, pagination.limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.page, pagination.limit]);
 
   const handleSelectAll = () => {
@@ -426,9 +431,9 @@ const TaskWork: React.FC = () => {
                         className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-brand-orange focus:ring-brand-orange/50 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 cursor-pointer" onDoubleClick={() => window.open(`/contacts/${claim.contact_id}`, '_blank')}>
                       <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">{claim.contact_name}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-500 transition-colors">{claim.contact_name}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">{claim.email}</p>
                       </div>
                     </td>

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Search, Filter, Send, Paperclip, MoreVertical, Phone, Video, 
   MessageCircle, Mail, Smartphone, Image as ImageIcon,
@@ -56,13 +56,16 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Filter conversations based on prop and search
-  const filteredConversations = conversations.filter(c => {
-    const matchesPlatform = platformFilter === 'all' || c.platform === platformFilter;
-    const matchesSearch =
-       c.contactName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-       c.lastMessage.text.toLowerCase().includes(debouncedSearch.toLowerCase());
-    return matchesPlatform && matchesSearch;
-  });
+  const filteredConversations = useMemo(() =>
+    conversations.filter(c => {
+      const matchesPlatform = platformFilter === 'all' || c.platform === platformFilter;
+      const matchesSearch =
+         c.contactName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+         c.lastMessage.text.toLowerCase().includes(debouncedSearch.toLowerCase());
+      return matchesPlatform && matchesSearch;
+    }),
+    [conversations, platformFilter, debouncedSearch]
+  );
 
   // Automatically select first conversation if list changes or filter changes
   useEffect(() => {
@@ -73,13 +76,16 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
      }
   }, [platformFilter, filteredConversations.length]); // Depend on length change to re-select
 
-  const selectedConversation = conversations.find(c => c.id === selectedId);
-  
+  const selectedConversation = useMemo(() => conversations.find(c => c.id === selectedId), [conversations, selectedId]);
+
   // Map conversation to Contact based on internal ID or Name match
-  const relatedContact = selectedConversation ? (contacts.find(c => {
-    if (c.id === selectedConversation.contactId) return true;
-    return c.fullName.trim().toLowerCase() === selectedConversation.contactName.trim().toLowerCase();
-  }) || contacts.find(c => c.id === selectedConversation.contactId)) : undefined;
+  const relatedContact = useMemo(() => {
+    if (!selectedConversation) return undefined;
+    return contacts.find(c => {
+      if (c.id === selectedConversation.contactId) return true;
+      return c.fullName.trim().toLowerCase() === selectedConversation.contactName.trim().toLowerCase();
+    }) || contacts.find(c => c.id === selectedConversation.contactId);
+  }, [selectedConversation, contacts]);
 
   // Auto-scroll to bottom of chat
   useEffect(() => {

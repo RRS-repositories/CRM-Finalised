@@ -12,6 +12,7 @@ import { ViewState } from '../types';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 import SupportTicketModal from './SupportTicketModal';
+import MattermostBubble from './MattermostBubble';
 
 interface SearchResult {
   contact_id: string;
@@ -146,7 +147,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     fetchPersistentNotifications();
     const interval = setInterval(() => {
       fetchPersistentNotifications();
-    }, 15000); // Poll every 15s for live error notifications
+    }, 60000); // Poll every 60s for error notifications
     return () => clearInterval(interval);
   }, [fetchPersistentNotifications]);
 
@@ -190,7 +191,13 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     if (!currentUser?.id) return;
     let lastActivity = Date.now();
 
-    const onActivity = () => { lastActivity = Date.now(); };
+    let throttled = false;
+    const onActivity = () => {
+      if (throttled) return;
+      lastActivity = Date.now();
+      throttled = true;
+      setTimeout(() => { throttled = false; }, 5000); // Throttle to once per 5s
+    };
     window.addEventListener('mousemove', onActivity);
     window.addEventListener('mousedown', onActivity);
     window.addEventListener('keydown', onActivity);
@@ -983,6 +990,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
             ))}
           </div>
         )}
+
+        {/* Mattermost Chat Bubble & Notifications */}
+        <MattermostBubble />
 
         {/* Support Ticket Modal */}
         <SupportTicketModal isOpen={ticketModalOpen} onClose={() => setTicketModalOpen(false)} />

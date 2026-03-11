@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Upload, FileText, X, Check, AlertTriangle, ArrowRight, ArrowLeft,
   Users, Loader2, ChevronDown, RefreshCw, Download, Eye, Trash2,
@@ -425,6 +425,16 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
 
   // Apply mappings and generate preview
   const generatePreview = () => {
+    // PERFORMANCE: Build lookup maps for O(1) duplicate detection instead of O(n) per row
+    const emailMap = new Map<string, Contact>();
+    const phoneMap = new Map<string, Contact>();
+    const nameMap = new Map<string, Contact>();
+    contacts.forEach(c => {
+      if (c.email) emailMap.set(c.email.toLowerCase(), c);
+      if (c.phone) phoneMap.set(c.phone, c);
+      if (c.fullName) nameMap.set(c.fullName.toLowerCase(), c);
+    });
+
     const parsedList: ParsedContact[] = rawData.map((row, index) => {
       const contact: ParsedContact = {
         id: `import-${index}`,
@@ -696,12 +706,12 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
         contact.errors.push('Invalid email format');
       }
 
-      // Check for duplicates against existing CRM contacts
-      const existingContact = contacts.find(c =>
-        (contact.email && c.email?.toLowerCase() === contact.email.toLowerCase()) ||
-        (contact.phone && c.phone === contact.phone) ||
-        (contact.fullName && c.fullName?.toLowerCase() === contact.fullName.toLowerCase())
-      );
+      // Check for duplicates against existing CRM contacts using O(1) map lookups
+      const existingContact =
+        (contact.email && emailMap.get(contact.email.toLowerCase())) ||
+        (contact.phone && phoneMap.get(contact.phone)) ||
+        (contact.fullName && nameMap.get(contact.fullName.toLowerCase())) ||
+        null;
 
       if (existingContact) {
         contact.isDuplicate = true;
@@ -1103,11 +1113,23 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
     </div>
   );
 
+  // PERFORMANCE: Memoize preview stats — single pass instead of 3x O(n) filter on every render
+  const previewStats = useMemo(() =>
+    parsedContacts.reduce((acc, c) => {
+      if (c.isValid) acc.valid++;
+      if (!c.isValid) acc.invalid++;
+      if (c.isDuplicate) acc.duplicate++;
+      return acc;
+    }, { valid: 0, duplicate: 0, invalid: 0 }),
+    [parsedContacts]
+  );
+
+  // PERFORMANCE: Limit preview table to first 100 rows to avoid rendering 1000+ DOM nodes
+  const previewContacts = useMemo(() => parsedContacts.slice(0, 100), [parsedContacts]);
+
   // Render preview step
   const renderPreviewStep = () => {
-    const validCount = parsedContacts.filter(c => c.isValid).length;
-    const duplicateCount = parsedContacts.filter(c => c.isDuplicate).length;
-    const invalidCount = parsedContacts.filter(c => !c.isValid).length;
+    const { valid: validCount, duplicate: duplicateCount, invalid: invalidCount } = previewStats;
 
     return (
       <div className="space-y-6">
@@ -1188,7 +1210,7 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                {parsedContacts.map((contact) => (
+                {previewContacts.map((contact) => (
                   <tr key={contact.id} className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 ${!contact.isValid ? 'bg-red-50 dark:bg-red-900/10' : contact.isDuplicate ? 'bg-yellow-50 dark:bg-yellow-900/10' : ''
                     }`}>
                     <td className="px-4 py-3">
@@ -1227,6 +1249,11 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
               </tbody>
             </table>
           </div>
+          {parsedContacts.length > 100 && (
+            <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800 text-center">
+              <p className="text-xs text-blue-600 dark:text-blue-400">Showing first 100 of {parsedContacts.length.toLocaleString()} contacts. All contacts will be imported.</p>
+            </div>
+          )}
         </div>
 
         {/* Actions */}

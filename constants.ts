@@ -28,8 +28,6 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.EXTRA_LENDER_FORM_COMPLETED,
       ClaimStatus.QUESTIONNAIRE_SENT,
       ClaimStatus.QUESTIONNAIRE_COMPLETED,
-      ClaimStatus.BANK_STATEMENTS_REQUESTED,
-      ClaimStatus.BANK_STATEMENTS_RECEIVED,
       ClaimStatus.ONBOARDING_COMPLETE,
     ],
   },
@@ -49,6 +47,7 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.DSAR_REVIEW_COMPLETED,
       ClaimStatus.WEAK_CASE_CANNOT_CONTINUE,
       ClaimStatus.MISSING_DATA_FROM_DSAR,
+      ClaimStatus.TIMEBARRED,
     ],
   },
   {
@@ -63,6 +62,7 @@ export const PIPELINE_CATEGORIES = [
       ClaimStatus.UPHELD,
       ClaimStatus.PARTIAL_UPHELD,
       ClaimStatus.NOT_UPHELD,
+      ClaimStatus.BANK_STATEMENTS_REQUESTED,
       ClaimStatus.COUNTER_TEAM,
       ClaimStatus.COUNTER_RESPONSE_SENT,
     ],
@@ -87,13 +87,10 @@ export const PIPELINE_CATEGORIES = [
     color: 'border-l-green-500',
     statuses: [
       ClaimStatus.OFFER_RECEIVED,
-      ClaimStatus.OFFER_UNDER_NEGOTIATION,
       ClaimStatus.OFFER_ACCEPTED,
       ClaimStatus.AWAITING_PAYMENT,
       ClaimStatus.PAYMENT_RECEIVED,
-      ClaimStatus.FEE_DEDUCTED,
       ClaimStatus.CLIENT_PAID,
-      ClaimStatus.CLAIM_SUCCESSFUL,
       ClaimStatus.CLAIM_UNSUCCESSFUL,
       ClaimStatus.CLAIM_WITHDRAWN,
     ],
@@ -103,15 +100,11 @@ export const PIPELINE_CATEGORIES = [
     title: 'Debt Recovery',
     color: 'border-l-cyan-500',
     statuses: [
-      ClaimStatus.DEBT_CONTACT_ATTEMPTED,
+      ClaimStatus.DEBT_CONTACT_REQUIRED,
       ClaimStatus.FAILED_PAYMENT_PLAN,
       ClaimStatus.DEBT_LETTER_SENT,
       ClaimStatus.IRL_PAYMENTS_CANCELLATION_FEE_PAID,
-      ClaimStatus.IRL_POA_REQUEST,
-      ClaimStatus.IRL_TIMEBARRED,
-      ClaimStatus.TEXT_INFORM_ABOUT_DSAR,
       ClaimStatus.CHASING_DEBT,
-      ClaimStatus.IRL_PAYMENT_UPHELD_DEBT,
     ],
   },
 ];
@@ -458,7 +451,6 @@ export const getSpecStatusColor = (status: string): string => {
     status === 'POA Required' ||
     status === 'Extra Lender Selection Form Sent' || status === 'Extra Lender Selection Form Completed' ||
     status === 'Questionnaire Sent' || status === 'Questionnaire Completed' ||
-    status === 'Bank Statements Requested' || status === 'Bank Statements Received' ||
     status === 'Onboarding Complete') {
     return '#9C27B0';
   }
@@ -467,7 +459,7 @@ export const getSpecStatusColor = (status: string): string => {
   if (status === 'DSAR Prepared' || status === 'DSAR Prepared Awaiting I.D' || status === 'DSAR Sent to Lender' ||
     status === 'Unable to Locate' || status === 'Unable to Locate Account Number' ||
     status === 'DSAR Overdue' || status === 'DSAR Response Received' || status === 'DSAR Escalated (ICO)' ||
-    status === 'Dsar Review Completed') {
+    status === 'Dsar Review Completed' || status === 'TIMEBARRED') {
     return '#FF9800';
   }
   // Weak case / Missing data - Amber/Warning
@@ -478,7 +470,7 @@ export const getSpecStatusColor = (status: string): string => {
   // Category 4: Complaint Submission & Processing - Coral/Pink (#F06292)
   if (status === 'Complaint Drafted' || status === 'Complaint Drafted Awaiting Questionnaire' ||
     status === 'Complaint Submitted' || status === 'Complaint Overdue' ||
-    status === 'Counter team' || status === 'Counter Response sent') {
+    status === 'Bank Statements Requested' || status === 'Counter team' || status === 'Counter Response sent') {
     return '#F06292';
   }
   // Complaint outcomes
@@ -500,9 +492,9 @@ export const getSpecStatusColor = (status: string): string => {
   }
 
   // Category 6: Payments - Green (#4CAF50)
-  if (status === 'Offer Received' || status === 'Offer Under Negotiation' || status === 'Offer Accepted' ||
-    status === 'Awaiting Payment' || status === 'Payment Received' || status === 'Fee Deducted' ||
-    status === 'Client Paid' || status === 'Claim Successful') {
+  if (status === 'Offer Received' || status === 'Offer Accepted' ||
+    status === 'Awaiting Payment' || status === 'Payment Received' ||
+    status === 'Client Paid') {
     return '#4CAF50';
   }
 
@@ -512,11 +504,9 @@ export const getSpecStatusColor = (status: string): string => {
   }
 
   // Category 7: Debt Recovery - Cyan (#0891B2)
-  if (status === 'DEBT Contact Attempted' || status === 'Failed Payment Plan' ||
+  if (status === 'DEBT Contact Required' || status === 'Failed Payment Plan' ||
     status === 'DEBT LETTER SENT' || status === 'IRL/PAYMENTS/CANCELLATION FEE PAID' ||
-    status === 'IRL POA REQUEST' || status === 'IRL- TIMEBARRED' ||
-    status === 'TEXT INFORM ABOUT DSAR' || status === 'CHASING DEBT' ||
-    status === 'IRL/PAYMENT UPHELD DEBT (partial legal fees cover)') {
+    status === 'CHASING DEBT') {
     return '#0891B2';
   }
 
