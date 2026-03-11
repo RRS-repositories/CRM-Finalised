@@ -485,6 +485,21 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_cases_created_at ON cases(created_at DESC);
     `);
 
+    // Task Work indexes — critical for admin task loading performance
+    console.log('Creating Task Work performance indexes...');
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cases_tw_assigned_to ON cases(tw_assigned_to) WHERE tw_assigned_to IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cases_tw_assigned_sort ON cases(tw_assigned_to, tw_completed, tw_red_flag, tw_assigned_at DESC) WHERE tw_assigned_to IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_notes_client_latest ON notes(client_id, created_at DESC);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_action_logs_status_changed ON action_logs(action_type, action_category, timestamp) WHERE action_type = 'status_changed';
+    `);
+
     // ============================================
     // Nova Integration — Communications + Chase State
     // ============================================

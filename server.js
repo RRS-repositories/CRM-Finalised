@@ -312,6 +312,9 @@ crmEvents.init(pool);
                     );
                     CREATE INDEX IF NOT EXISTS idx_offline_periods_user_date ON offline_periods (user_id, offline_start);
 
+                    -- One-time cleanup: clear stale offline_periods data (pre-fix bad records)
+                    DELETE FROM offline_periods WHERE created_at < '2026-03-12';
+
                     -- Normalize lender names: merge all 118 variants into "118 Money"
                     UPDATE cases SET lender = '118 Money' WHERE lender ILIKE '118%' AND lender != '118 Money';
 
@@ -17295,63 +17298,116 @@ app.post('/api/heartbeat', async (req, res) => {
 // ============================================
 // TIME WASTAGE TRACKING
 // ============================================
-// Calculate time wastage per user for current month (Mon-Fri only)
 // Working hours IST: 13:30-18:30 (shift 1) + 19:15-22:30 (shift 2)
 // Break: 18:30-19:15 IST (45 min dinner) — NOT counted as wastage
+// Includes LIVE ongoing wastage for currently-offline agents
+
+// Shared SQL CTEs for wastage calculation (used by both time-wastage and agent-status endpoints)
+// NOTE: offline_start, online_at, last_active_at are TIMESTAMP (stored in UTC).
+// Must use "col AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'" to correctly convert UTC→IST.
+// NOW() is TIMESTAMPTZ so "NOW() AT TIME ZONE 'Asia/Kolkata'" works directly.
+function buildWastageCTEs() {
+    return `
+    -- Recorded offline periods from this month with shift overlap
+    recorded_offline AS (
+        SELECT
+            op.user_id,
+            (op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
+            GREATEST(0,
+                EXTRACT(EPOCH FROM LEAST(
+                    op.online_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
+                )) -
+                EXTRACT(EPOCH FROM GREATEST(
+                    op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
+                ))
+            ) / 60.0 as shift1_offline,
+            GREATEST(0,
+                EXTRACT(EPOCH FROM LEAST(
+                    op.online_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
+                )) -
+                EXTRACT(EPOCH FROM GREATEST(
+                    op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
+                ))
+            ) / 60.0 as shift2_offline
+        FROM offline_periods op
+        WHERE op.offline_start >= date_trunc('month', NOW())
+          AND EXTRACT(ISODOW FROM op.offline_start AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') <= 5
+    ),
+    -- LIVE ongoing wastage for agents currently offline (>3 min inactive)
+    live_ongoing AS (
+        SELECT
+            u.id as user_id,
+            (NOW() AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
+            GREATEST(0,
+                EXTRACT(EPOCH FROM LEAST(
+                    NOW() AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
+                )) -
+                EXTRACT(EPOCH FROM GREATEST(
+                    COALESCE(u.last_active_at, u.last_login) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
+                ))
+            ) / 60.0 as shift1_offline,
+            GREATEST(0,
+                EXTRACT(EPOCH FROM LEAST(
+                    NOW() AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
+                )) -
+                EXTRACT(EPOCH FROM GREATEST(
+                    COALESCE(u.last_active_at, u.last_login) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+                    date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
+                ))
+            ) / 60.0 as shift2_offline
+        FROM users u
+        WHERE u.is_approved = true
+          AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
+          AND COALESCE(u.last_active_at, u.last_login) IS NOT NULL
+          AND COALESCE(u.last_active_at, u.last_login) < NOW() - INTERVAL '3 minutes'
+          AND EXTRACT(ISODOW FROM NOW() AT TIME ZONE 'Asia/Kolkata') <= 5
+    ),
+    -- Combine recorded + live ongoing
+    all_offline AS (
+        SELECT user_id, offline_date, shift1_offline, shift2_offline FROM recorded_offline
+        UNION ALL
+        SELECT user_id, offline_date, shift1_offline, shift2_offline FROM live_ongoing
+    ),
+    daily_wastage AS (
+        SELECT
+            user_id,
+            offline_date,
+            SUM(shift1_offline + shift2_offline) as wastage_minutes,
+            SUM(shift1_offline) as shift1_total,
+            SUM(shift2_offline) as shift2_total
+        FROM all_offline
+        GROUP BY user_id, offline_date
+    ),
+    user_wastage AS (
+        SELECT
+            user_id,
+            COALESCE(SUM(CASE WHEN offline_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+                              THEN wastage_minutes ELSE 0 END), 0) as today_wastage,
+            COALESCE(SUM(CASE WHEN offline_date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)
+                              THEN wastage_minutes ELSE 0 END), 0) as week_wastage,
+            COALESCE(SUM(wastage_minutes), 0) as month_wastage
+        FROM daily_wastage
+        GROUP BY user_id
+    )`;
+}
+
 app.get('/api/task-work/time-wastage', async (req, res) => {
     try {
         const { rows } = await pool.query(`
-            WITH monthly_offline AS (
-                SELECT
-                    op.user_id,
-                    op.offline_start,
-                    op.online_at,
-                    (op.offline_start AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
-                    -- Overlap with Shift 1: 13:30 - 18:30 IST
-                    GREATEST(0,
-                        EXTRACT(EPOCH FROM LEAST(
-                            op.online_at AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
-                        )) -
-                        EXTRACT(EPOCH FROM GREATEST(
-                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
-                        ))
-                    ) / 60.0 as shift1_offline,
-                    -- Overlap with Shift 2: 19:15 - 22:30 IST
-                    GREATEST(0,
-                        EXTRACT(EPOCH FROM LEAST(
-                            op.online_at AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
-                        )) -
-                        EXTRACT(EPOCH FROM GREATEST(
-                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
-                        ))
-                    ) / 60.0 as shift2_offline
-                FROM offline_periods op
-                WHERE op.offline_start >= date_trunc('month', NOW())
-                  AND EXTRACT(ISODOW FROM op.offline_start AT TIME ZONE 'Asia/Kolkata') <= 5
-            ),
-            daily_wastage AS (
-                SELECT
-                    user_id,
-                    offline_date,
-                    SUM(shift1_offline + shift2_offline) as wastage_minutes,
-                    SUM(shift1_offline) as shift1_total,
-                    SUM(shift2_offline) as shift2_total
-                FROM monthly_offline
-                GROUP BY user_id, offline_date
-            )
+            WITH ${buildWastageCTEs()}
             SELECT
                 u.id as user_id,
                 u.full_name as name,
-                COALESCE(
-                    (SELECT dw.wastage_minutes FROM daily_wastage dw
-                     WHERE dw.user_id = u.id AND dw.offline_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date),
-                    0
-                ) as today_wastage_minutes,
-                COALESCE(SUM(dw.wastage_minutes), 0) as month_wastage_minutes,
+                COALESCE(uw.today_wastage, 0) as today_wastage_minutes,
+                COALESCE(uw.week_wastage, 0) as week_wastage_minutes,
+                COALESCE(uw.month_wastage, 0) as month_wastage_minutes,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -17364,10 +17420,11 @@ app.get('/api/task-work/time-wastage', async (req, res) => {
                     '[]'::json
                 ) as daily_breakdown
             FROM users u
+            LEFT JOIN user_wastage uw ON uw.user_id = u.id
             LEFT JOIN daily_wastage dw ON dw.user_id = u.id
             WHERE u.is_approved = true
               AND u.role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')
-            GROUP BY u.id, u.full_name
+            GROUP BY u.id, u.full_name, uw.today_wastage, uw.week_wastage, uw.month_wastage
             ORDER BY u.full_name
         `);
 
@@ -17631,28 +17688,86 @@ app.get('/api/task-work/my-tasks', async (req, res) => {
         const userId = parseInt(req.query.userId);
         if (!userId) return res.status(400).json({ error: 'userId is required' });
 
-        const { rows } = await pool.query(`
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 50));
+        const offset = (page - 1) * limit;
+        const search = req.query.search ? req.query.search.trim() : '';
+        const statusFilter = req.query.status || '';
+
+        // Build WHERE conditions
+        let conditions = 'cs.tw_assigned_to = $1';
+        const params = [userId];
+        let paramIdx = 2;
+
+        if (search) {
+            params.push(`%${search}%`);
+            conditions += ` AND (ct.full_name ILIKE $${paramIdx} OR ct.email ILIKE $${paramIdx} OR ct.phone ILIKE $${paramIdx} OR cs.lender ILIKE $${paramIdx})`;
+            paramIdx++;
+        }
+        if (statusFilter) {
+            params.push(statusFilter);
+            conditions += ` AND cs.status = $${paramIdx}`;
+            paramIdx++;
+        }
+
+        // Get summary counts in a single efficient query (no subqueries per row)
+        const summaryQuery = pool.query(`
+            SELECT
+                COUNT(*) as total_tasks,
+                COUNT(*) FILTER (WHERE cs.tw_completed = true) as completed_count,
+                COUNT(*) FILTER (WHERE cs.tw_completed = false AND cs.tw_red_flag = false) as awaiting_count,
+                COUNT(*) FILTER (WHERE cs.tw_red_flag = true) as flagged_count,
+                COUNT(*) FILTER (WHERE cs.status IN ('DSAR Sent to Lender', 'Complaint Submitted')) as documents_count
+            FROM cases cs
+            WHERE cs.tw_assigned_to = $1
+        `, [userId]);
+
+        // Get paginated claims with LEFT JOIN LATERAL instead of correlated subqueries
+        const claimsQuery = pool.query(`
             SELECT cs.id, cs.contact_id, cs.lender, cs.status, cs.claim_value, cs.created_at,
                    cs.tw_assigned_at, cs.tw_completed, cs.tw_completed_at,
                    cs.tw_red_flag, cs.tw_red_flag_at,
                    ct.full_name as contact_name, ct.first_name, ct.last_name, ct.email, ct.phone,
-                   (SELECT n.content FROM notes n WHERE n.client_id = ct.id ORDER BY n.created_at DESC LIMIT 1) as last_note,
-                   (SELECT COUNT(*) FROM documents d WHERE d.contact_id = ct.id) as documents_count
+                   ln.content as last_note,
+                   COALESCE(dc.doc_count, 0) as documents_count
             FROM cases cs
             JOIN contacts ct ON cs.contact_id = ct.id
-            WHERE cs.tw_assigned_to = $1
+            LEFT JOIN LATERAL (
+                SELECT n.content FROM notes n WHERE n.client_id = ct.id ORDER BY n.created_at DESC LIMIT 1
+            ) ln ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) as doc_count FROM documents d WHERE d.contact_id = ct.id
+            ) dc ON true
+            WHERE ${conditions}
             ORDER BY cs.tw_completed ASC, cs.tw_red_flag ASC, cs.tw_assigned_at DESC
-        `, [userId]);
+            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+        `, [...params, limit, offset]);
 
-        // Compute summary counts
-        const totalTasks = rows.length;
-        const completedCount = rows.filter(r => r.tw_completed).length;
-        const awaitingCount = rows.filter(r => !r.tw_completed && !r.tw_red_flag).length;
-        const flaggedCount = rows.filter(r => r.tw_red_flag).length;
-        // Documents Sent = claims with status "DSAR Sent to Lender" or "Complaint Submitted"
-        const documentsCount = rows.filter(r => r.status === 'DSAR Sent to Lender' || r.status === 'Complaint Submitted').length;
+        // Count total for pagination (with filters applied)
+        const countQuery = pool.query(`
+            SELECT COUNT(*) as total
+            FROM cases cs
+            JOIN contacts ct ON cs.contact_id = ct.id
+            WHERE ${conditions}
+        `, params);
 
-        res.json({ claims: rows, summary: { totalTasks, completedCount, awaitingCount, flaggedCount, documentsCount } });
+        const [summaryResult, claimsResult, countResult] = await Promise.all([summaryQuery, claimsQuery, countQuery]);
+
+        const total = parseInt(countResult.rows[0].total);
+        const totalPages = Math.ceil(total / limit);
+        const sr = summaryResult.rows[0];
+
+        res.json({
+            claims: claimsResult.rows,
+            summary: {
+                totalTasks: parseInt(sr.total_tasks),
+                completedCount: parseInt(sr.completed_count),
+                awaitingCount: parseInt(sr.awaiting_count),
+                flaggedCount: parseInt(sr.flagged_count),
+                documentsCount: parseInt(sr.documents_count)
+            },
+            pagination: { page, limit, total, totalPages, hasMore: page < totalPages }
+        });
     } catch (err) {
         console.error('Error fetching my tasks:', err);
         res.status(500).json({ error: err.message });
@@ -17757,57 +17872,11 @@ app.get('/api/task-work/dashboard/status-actions', async (req, res) => {
 });
 
 // Agent status: each agent with allocated/completed/flagged counts, online status, and time wastage
-// Working hours IST: 13:30-18:30 (shift 1) + 19:15-22:30 (shift 2). Break 18:30-19:15 excluded.
+// Uses shared buildWastageCTEs() with live ongoing wastage + weekly/monthly tracking
 app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
     try {
         const { rows } = await pool.query(`
-            WITH monthly_offline AS (
-                SELECT
-                    op.user_id,
-                    (op.offline_start AT TIME ZONE 'Asia/Kolkata')::date as offline_date,
-                    -- Overlap with Shift 1: 13:30 - 18:30 IST
-                    GREATEST(0,
-                        EXTRACT(EPOCH FROM LEAST(
-                            op.online_at AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '18 hours 30 minutes'
-                        )) -
-                        EXTRACT(EPOCH FROM GREATEST(
-                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '13 hours 30 minutes'
-                        ))
-                    ) / 60.0 as shift1_offline,
-                    -- Overlap with Shift 2: 19:15 - 22:30 IST
-                    GREATEST(0,
-                        EXTRACT(EPOCH FROM LEAST(
-                            op.online_at AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '22 hours 30 minutes'
-                        )) -
-                        EXTRACT(EPOCH FROM GREATEST(
-                            op.offline_start AT TIME ZONE 'Asia/Kolkata',
-                            date_trunc('day', op.offline_start AT TIME ZONE 'Asia/Kolkata') + INTERVAL '19 hours 15 minutes'
-                        ))
-                    ) / 60.0 as shift2_offline
-                FROM offline_periods op
-                WHERE op.offline_start >= date_trunc('month', NOW())
-                  AND EXTRACT(ISODOW FROM op.offline_start AT TIME ZONE 'Asia/Kolkata') <= 5
-            ),
-            daily_wastage AS (
-                SELECT
-                    user_id,
-                    offline_date,
-                    SUM(shift1_offline + shift2_offline) as wastage_minutes
-                FROM monthly_offline
-                GROUP BY user_id, offline_date
-            ),
-            user_wastage AS (
-                SELECT
-                    user_id,
-                    COALESCE(SUM(CASE WHEN offline_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-                                      THEN wastage_minutes ELSE 0 END), 0) as today_wastage,
-                    COALESCE(SUM(wastage_minutes), 0) as month_wastage
-                FROM daily_wastage
-                GROUP BY user_id
-            )
+            WITH ${buildWastageCTEs()}
             SELECT u.id, u.full_name as name, u.role,
                    (SELECT COUNT(*) FROM cases c2 WHERE c2.tw_assigned_to = u.id) as tasks_allocated,
                    (SELECT COUNT(*) FROM cases c3 WHERE c3.tw_assigned_to = u.id AND c3.tw_completed = true) as tasks_completed,
@@ -17816,6 +17885,7 @@ app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
                         THEN true ELSE false END as is_online,
                    COALESCE(u.last_active_at, u.last_login) as last_active_at,
                    COALESCE(uw.today_wastage, 0) as today_wastage_minutes,
+                   COALESCE(uw.week_wastage, 0) as week_wastage_minutes,
                    COALESCE(uw.month_wastage, 0) as month_wastage_minutes
             FROM users u
             LEFT JOIN user_wastage uw ON uw.user_id = u.id

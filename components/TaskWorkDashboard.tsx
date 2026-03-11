@@ -33,6 +33,7 @@ interface AgentStatus {
   is_online: boolean;
   last_active_at: string | null;
   today_wastage_minutes: number;
+  week_wastage_minutes: number;
   month_wastage_minutes: number;
 }
 
@@ -394,8 +395,14 @@ const TaskWorkDashboard: React.FC = () => {
                     {formatWastage(Number(agent.today_wastage_minutes) || 0)}
                   </div>
                   <div className="flex items-center justify-between text-[9px] mt-0.5">
+                    <span className="text-gray-400">This Week</span>
+                    <span className={`font-bold ${Number(agent.week_wastage_minutes) > 300 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                      {formatWastage(Number(agent.week_wastage_minutes) || 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] mt-0.5">
                     <span className="text-gray-400">This Month</span>
-                    <span className={`font-bold ${Number(agent.month_wastage_minutes) > 120 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                    <span className={`font-bold ${Number(agent.month_wastage_minutes) > 600 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
                       {formatWastage(Number(agent.month_wastage_minutes) || 0)}
                     </span>
                   </div>

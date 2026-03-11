@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, RefreshCw, Check, Flag, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Search, Filter, RefreshCw, Check, Flag, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 import { ClaimStatus } from '../types';
@@ -35,6 +35,14 @@ interface Summary {
   documentsCount: number;
 }
 
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
 type SortField = 'name' | 'lender' | 'status';
 type SortDir = 'asc' | 'desc';
 
@@ -63,6 +71,7 @@ const MyTasks: React.FC = () => {
   const navigate = useNavigate();
   const [claims, setClaims] = useState<AssignedClaim[]>([]);
   const [summary, setSummary] = useState<Summary>({ totalTasks: 0, completedCount: 0, awaitingCount: 0, flaggedCount: 0, documentsCount: 0 });
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false });
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -71,6 +80,7 @@ const MyTasks: React.FC = () => {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState<number | null>(null);
+  const [statuses, setStatuses] = useState<string[]>([]);
 
   if (!currentUser || currentUser.role === 'Sales') {
     return (
@@ -80,21 +90,45 @@ const MyTasks: React.FC = () => {
     );
   }
 
-  const fetchMyTasks = useCallback(async () => {
+  const fetchMyTasks = useCallback(async (p = pagination.page, l = pagination.limit) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_ENDPOINTS.api}/task-work/my-tasks?userId=${currentUser.id}`);
+      const params = new URLSearchParams({
+        userId: String(currentUser.id),
+        page: String(p),
+        limit: String(l),
+        ...(search && { search }),
+        ...(statusFilter && { status: statusFilter }),
+      });
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/my-tasks?${params}`);
       const data = await res.json();
       setClaims(data.claims || []);
       setSummary(data.summary || { totalTasks: 0, completedCount: 0, awaitingCount: 0, flaggedCount: 0, documentsCount: 0 });
+      setPagination(data.pagination || { page: p, limit: l, total: 0, totalPages: 0, hasMore: false });
     } catch (err) {
       console.error('Failed to fetch my tasks:', err);
     } finally {
       setLoading(false);
     }
-  }, [currentUser.id]);
+  }, [currentUser.id, search, statusFilter, pagination.page, pagination.limit]);
 
-  useEffect(() => { fetchMyTasks(); }, [fetchMyTasks]);
+  // Fetch statuses for filter dropdown
+  useEffect(() => {
+    fetch(`${API_ENDPOINTS.api}/task-work/statuses`)
+      .then(r => r.json())
+      .then(data => setStatuses(data.statuses || []))
+      .catch(() => {});
+  }, []);
+
+  // Fetch tasks when search/filters change — reset to page 1
+  useEffect(() => {
+    fetchMyTasks(1, pagination.limit);
+  }, [search, statusFilter]);
+
+  // Fetch tasks when page/limit change
+  useEffect(() => {
+    fetchMyTasks();
+  }, [pagination.page, pagination.limit]);
 
   // Debounced search
   useEffect(() => {
@@ -155,6 +189,16 @@ const MyTasks: React.FC = () => {
     }
   };
 
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      setPagination(prev => ({ ...prev, page: newPage }));
+    }
+  };
+
+  const handleLimitChange = (newLimit: number) => {
+    setPagination(prev => ({ ...prev, limit: newLimit, page: 1 }));
+  };
+
   const getInitials = (name: string) => {
     const parts = name.trim().split(' ');
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -173,18 +217,10 @@ const MyTasks: React.FC = () => {
     return { dot: 'bg-gray-400', text: 'text-gray-400' };
   };
 
-  // Filter + search + sort
-  let filtered = claims.filter(c => {
-    if (statusFilter && c.status !== statusFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (c.contact_name?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.phone?.includes(q) || c.lender?.toLowerCase().includes(q));
-    }
-    return true;
-  });
-
+  // Client-side sort on the current page of results
+  let displayed = [...claims];
   if (sortField) {
-    filtered = [...filtered].sort((a, b) => {
+    displayed.sort((a, b) => {
       let va = '', vb = '';
       if (sortField === 'name') { va = a.contact_name || ''; vb = b.contact_name || ''; }
       else if (sortField === 'lender') { va = a.lender || ''; vb = b.lender || ''; }
@@ -192,8 +228,6 @@ const MyTasks: React.FC = () => {
       return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
     });
   }
-
-  const uniqueStatuses = [...new Set(claims.map(c => c.status).filter(Boolean))].sort();
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -208,6 +242,9 @@ const MyTasks: React.FC = () => {
     if (sortField !== field) return <ChevronDown size={12} className="opacity-30" />;
     return sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />;
   };
+
+  const startIdx = (pagination.page - 1) * pagination.limit + 1;
+  const endIdx = Math.min(pagination.page * pagination.limit, pagination.total);
 
   return (
     <div className="h-full flex flex-col bg-[#0a0e1a] text-white overflow-hidden">
@@ -273,7 +310,7 @@ const MyTasks: React.FC = () => {
                 className="px-3 py-2 text-sm bg-[#0a0e1a] border border-white/10 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-orange/30 min-w-[180px]"
               >
                 <option value="">All Statuses</option>
-                {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                {statuses.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             {statusFilter && (
@@ -323,14 +360,14 @@ const MyTasks: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : displayed.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-20 text-gray-500">
-                    {search ? 'No matching tasks found' : 'No tasks assigned to you'}
+                    {search || statusFilter ? 'No matching tasks found' : 'No tasks assigned to you'}
                   </td>
                 </tr>
               ) : (
-                filtered.map(claim => {
+                displayed.map(claim => {
                   const sc = statusColor(claim.status);
                   return (
                     <tr
@@ -465,9 +502,48 @@ const MyTasks: React.FC = () => {
           </table>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end px-4 py-3 border-t border-white/10 bg-[#0d1320] shrink-0">
-          <span className="text-sm text-gray-500">Showing {filtered.length} items</span>
+        {/* Pagination Footer */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 bg-[#0d1320] shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400">
+              {pagination.total > 0 ? `${startIdx}-${endIdx} of ${pagination.total.toLocaleString()}` : '0 results'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">Per page:</span>
+              {[20, 50, 100].map(n => (
+                <button
+                  key={n}
+                  onClick={() => handleLimitChange(n)}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                    pagination.limit === n
+                      ? 'bg-brand-orange/10 text-brand-orange'
+                      : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(pagination.page - 1)}
+              disabled={pagination.page <= 1}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span className="text-sm text-gray-400">
+              Page {pagination.page} of {pagination.totalPages || 1}
+            </span>
+            <button
+              onClick={() => handlePageChange(pagination.page + 1)}
+              disabled={!pagination.hasMore}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

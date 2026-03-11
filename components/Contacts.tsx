@@ -2238,27 +2238,25 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  <div className="space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                        <div>
-                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1">
-                                             <Lock className="w-3 h-3" />
+                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                                              First Name
                                           </label>
                                           <input
                                              type="text"
                                              value={personalInfoForm.firstName}
-                                             disabled
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                             onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, firstName: e.target.value })}
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                           />
                                        </div>
                                        <div>
-                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1">
-                                             <Lock className="w-3 h-3" />
+                                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                                              Last Name
                                           </label>
                                           <input
                                              type="text"
                                              value={personalInfoForm.lastName}
-                                             disabled
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                             onChange={(e) => setPersonalInfoForm({ ...personalInfoForm, lastName: e.target.value })}
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                           />
                                        </div>
                                        <div>
@@ -4698,7 +4696,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         <Loader2 size={20} className="animate-spin mr-2" /> Loading documents...
                      </div>
                   ) : contactDocs.length > 0 ? (
-                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-x-hidden">
                         {/* Pagination Info Header */}
                         <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 flex items-center justify-between">
                            <span className="text-sm text-gray-600 dark:text-gray-400">
@@ -4833,7 +4831,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              )}
                                           </button>
                                           {docLenderDropdown === doc.id && (
-                                             <div className="absolute z-50 left-0 mt-1 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden" onClick={e => e.stopPropagation()}>
+                                             <div className={`absolute z-50 left-0 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= paginatedDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
                                                 <div className="p-2 border-b border-gray-100 dark:border-slate-700">
                                                    <input
                                                       autoFocus
@@ -4910,7 +4908,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              )}
                                           </button>
                                           {docCategoryDropdown === doc.id && (
-                                             <div className="absolute z-50 left-0 mt-1 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden" onClick={e => e.stopPropagation()}>
+                                             <div className={`absolute z-50 left-0 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= paginatedDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
                                                 <div className="max-h-56 overflow-y-auto">
                                                    {DOCUMENT_CATEGORIES.map(cat => (
                                                       <button
