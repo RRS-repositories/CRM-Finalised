@@ -380,37 +380,42 @@ async function processQuestionnaire(queueId, contact, clientName, baseUrl) {
         gamblingLink = `${baseUrl}/questionnaire/token/${gamblingTokenRes.rows[0].token}`;
     }
 
-    // Build CTA buttons
-    const ctaButtons = hasGambling
-        ? `<div class="btn-container">
-               <a href="${irlLink}" class="btn">Complete IRL Questionnaire</a>
-           </div>
-           <div class="btn-container" style="margin-top: 16px;">
-               <a href="${gamblingLink}" class="btn" style="background: linear-gradient(145deg, #8b5cf6 0%, #7c3aed 100%); box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);">Complete Gambling Questionnaire</a>
-           </div>`
-        : `<div class="btn-container">
-               <a href="${irlLink}" class="btn">Complete IRL Questionnaire</a>
-           </div>`;
-
-    const html = buildQuestionnaireEmail(clientName,
-        'Complete Your Questionnaire' + (hasGambling ? 's' : ''),
+    // Send IRL questionnaire email (always)
+    const irlHtml = buildEmail(clientName,
+        'Complete Your Questionnaire',
         'Help Us Build Your Case',
-        `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire${hasGambling ? 's' : ''} to help strengthen your case.</p>
+        `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire to help strengthen your case.</p>
         <div class="highlight-box">
-            <span class="highlight-text">Action Required: Complete Your Questionnaire${hasGambling ? 's' : ''}</span>
-            <p>${hasGambling
-                ? 'We have prepared two questionnaires based on your claim details. Please complete both to help us build the strongest possible case.'
-                : 'This questionnaire covers your experience with irresponsible lending. Your answers help us build the strongest possible case.'
-            }</p>
+            <span class="highlight-text">Action Required: Complete Your Questionnaire</span>
+            <p>This questionnaire covers your experience with irresponsible lending. Your answers help us build the strongest possible case.</p>
         </div>
         <div class="info-box">
             <p><strong>What happens next?</strong> Once we receive the lender's response to our DSAR, we will review it alongside your questionnaire answers and proceed with your claim.</p>
         </div>`,
-        ctaButtons
+        'Complete IRL Questionnaire', irlLink, null
     );
 
-    const result = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', html);
-    if (!result.success) throw new Error(result.error);
+    const irlResult = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', irlHtml);
+    if (!irlResult.success) throw new Error(irlResult.error);
+
+    // Send separate gambling questionnaire email if applicable
+    if (hasGambling && gamblingLink) {
+        const gamblingHtml = buildEmail(clientName,
+            'Complete Your Gambling Questionnaire',
+            'Additional Questionnaire for Your Gambling Claim',
+            `<p>As part of your gambling-related claim, we need you to complete an additional questionnaire to help us understand your experience.</p>
+            <div class="highlight-box">
+                <span class="highlight-text">Action Required: Gambling Questionnaire</span>
+                <p>This questionnaire specifically covers your experience with gambling-related lending. Your detailed answers are crucial for building a strong case.</p>
+            </div>
+            <div class="info-box">
+                <p><strong>Why is this separate?</strong> Gambling claims require specific details about your experience. This helps us tailor your case for the best possible outcome.</p>
+            </div>`,
+            'Complete Gambling Questionnaire', gamblingLink, null
+        );
+
+        await sendEmail(contact.email, 'Complete Your Gambling Questionnaire - Rowan Rose Solicitors', gamblingHtml);
+    }
 
     await markStatus(queueId, 'sent', null, { irlLink, gamblingLink, hasGambling });
     await _pool.query(`UPDATE contacts SET workflow_step = 'questionnaire_sent', workflow_step_at = NOW() WHERE id = $1`, [contact.id]);
