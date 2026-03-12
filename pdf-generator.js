@@ -491,6 +491,22 @@ export async function generateClientCareLetter(contact, pool) {
             address: clientAddress,
             phone: contact.phone || '',
             email: contact.email || '',
+            postcode: contact.postal_code || '',
+            dateOfBirth: contact.dob ? new Date(contact.dob).toLocaleDateString('en-GB') : '',
+            dob: contact.dob ? new Date(contact.dob).toLocaleDateString('en-GB') : '',
+        },
+        // Empty claim/lender/firm objects so template variables like {{claim.caseRef}} don't crash
+        claim: {
+            lender: '', value: '', reference: '', refSpec: '', contactId: String(contactId), caseId: '', caseRef: '',
+        },
+        lender: {
+            name: '', companyName: '', address: '', city: '', postcode: '', email: '',
+        },
+        firm: {
+            name: 'Rowan Rose Solicitors',
+            address: '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+            phone: '0161 505 0150',
+            sraNumber: '8000843',
         },
         system: {
             today: today,
@@ -517,6 +533,11 @@ export async function generateClientCareLetter(contact, pool) {
         "Client ID": clientId,
         "Contact ID": clientId,
         contactId: String(contactId),
+        firmName: 'Rowan Rose Solicitors',
+        firmAddress: '1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ',
+        firmPhone: '0161 505 0150',
+        sraNumber: '8000843',
+        year: String(new Date().getFullYear()),
     };
 
     // 5. Fill template
@@ -525,6 +546,7 @@ export async function generateClientCareLetter(contact, pool) {
         template: templateBuffer,
         data: variables,
         cmdDelimiter: ['{{', '}}'],
+        failFast: false,
     });
 
     // 6. Convert to PDF using OnlyOffice
