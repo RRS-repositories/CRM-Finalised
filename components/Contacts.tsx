@@ -398,6 +398,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [generatingIrlQ, setGeneratingIrlQ] = useState(false);
    const [copiedGamblingQ, setCopiedGamblingQ] = useState(false);
    const [copiedIrlQ, setCopiedIrlQ] = useState(false);
+   const [idUploadLink, setIdUploadLink] = useState<string | null>(null);
+   const [generatingIdUpload, setGeneratingIdUpload] = useState(false);
+   const [copiedIdUpload, setCopiedIdUpload] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -2871,6 +2874,28 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         >
                            {generatingIrlQ ? '...' : '📄 Generate IRL Q Link'}
                         </button>
+
+                        {/* ID Upload Link */}
+                        <button
+                           onClick={async () => {
+                              setGeneratingIdUpload(true);
+                              try {
+                                 const res = await fetch('/api/generate-id-upload-token', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ contactId: contact.id })
+                                 });
+                                 const data = await res.json();
+                                 if (data.success) setIdUploadLink(`${window.location.origin}${data.url}`);
+                              } finally {
+                                 setGeneratingIdUpload(false);
+                              }
+                           }}
+                           disabled={generatingIdUpload}
+                           className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                        >
+                           {generatingIdUpload ? '...' : '🪪 Generate ID Upload Link'}
+                        </button>
                      </div>
 
                      {/* Gambling Q Link row */}
@@ -2905,6 +2930,24 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIrlQ ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
                            >
                               {copiedIrlQ ? '✓ Copied' : 'Copy'}
+                           </button>
+                        </div>
+                     )}
+
+                     {/* ID Upload Link row */}
+                     {idUploadLink && (
+                        <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                           <span className="text-emerald-700 text-xs font-medium whitespace-nowrap">ID Upload:</span>
+                           <span className="text-xs text-slate-600 truncate flex-1">{idUploadLink}</span>
+                           <button
+                              onClick={() => {
+                                 navigator.clipboard.writeText(idUploadLink);
+                                 setCopiedIdUpload(true);
+                                 setTimeout(() => setCopiedIdUpload(false), 2000);
+                              }}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIdUpload ? 'bg-green-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                           >
+                              {copiedIdUpload ? '✓ Copied' : 'Copy'}
                            </button>
                         </div>
                      )}

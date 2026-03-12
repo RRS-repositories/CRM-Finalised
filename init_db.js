@@ -254,6 +254,21 @@ async function initDb() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questionnaire_tokens_token ON questionnaire_tokens(token);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questionnaire_tokens_contact ON questionnaire_tokens(contact_id);`);
 
+    // ID upload tokens table (secure token-based links for ID document upload)
+    console.log('Creating id_upload_tokens table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS id_upload_tokens (
+        id SERIAL PRIMARY KEY,
+        token UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        submitted BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '90 days'
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_id_upload_tokens_token ON id_upload_tokens(token);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_id_upload_tokens_contact ON id_upload_tokens(contact_id);`);
+
     // Add extended claim fields to cases table
     console.log('Adding extended claim fields to cases...');
     await pool.query(`

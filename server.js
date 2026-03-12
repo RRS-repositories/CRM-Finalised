@@ -8640,6 +8640,204 @@ app.post('/api/submit-questionnaire', async (req, res) => {
     }
 });
 
+// =============================================
+// ID UPLOAD TOKEN SYSTEM (Secure tokenised links)
+// =============================================
+
+// Generate ID upload token for a contact
+// POST /api/generate-id-upload-token  { contactId }
+app.post('/api/generate-id-upload-token', async (req, res) => {
+    const { contactId } = req.body;
+    if (!contactId) {
+        return res.status(400).json({ success: false, message: 'contactId required' });
+    }
+    try {
+        // Delete old unused tokens for this contact, then create fresh one
+        await pool.query(
+            'DELETE FROM id_upload_tokens WHERE contact_id = $1 AND submitted = false',
+            [contactId]
+        );
+        const tokenRes = await pool.query(
+            `INSERT INTO id_upload_tokens (contact_id) VALUES ($1) RETURNING token`,
+            [contactId]
+        );
+        const token = tokenRes.rows[0].token;
+        res.json({ success: true, token, url: `/id-upload/${token}` });
+    } catch (error) {
+        console.error('Generate ID upload token error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Serve ID upload page via secure token
+// GET /id-upload/:token
+app.get('/id-upload/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const tokenRes = await pool.query(
+            `SELECT it.*, c.id as cid, c.first_name, c.last_name
+             FROM id_upload_tokens it
+             JOIN contacts c ON c.id = it.contact_id
+             WHERE it.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).send('<h1>Invalid or expired link</h1><p>This ID upload link is not valid. Please contact Rowan Rose Solicitors for a new link.</p>');
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.send('<h1>Already Submitted</h1><p>Identification has already been uploaded using this link. If you need to upload again, please contact Rowan Rose Solicitors.</p>');
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).send('<h1>Link Expired</h1><p>This ID upload link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');
+        }
+        // Serve the iddocument.html page
+        res.sendFile(path.join(__dirname, 'iddocument.html'));
+    } catch (error) {
+        console.error('Serve ID upload page error:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Validate ID upload token (called by iddocument.html to get contact info)
+// GET /api/id-upload-token/:token/validate
+app.get('/api/id-upload-token/:token/validate', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const tokenRes = await pool.query(
+            `SELECT it.*, c.id as cid, c.first_name, c.last_name
+             FROM id_upload_tokens it
+             JOIN contacts c ON c.id = it.contact_id
+             WHERE it.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid token' });
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.status(400).json({ success: false, message: 'Already submitted' });
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).json({ success: false, message: 'Token expired' });
+        }
+        res.json({ success: true, first_name: row.first_name, last_name: row.last_name, contact_id: row.cid });
+    } catch (error) {
+        console.error('Validate ID upload token error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Handle ID upload via secure token
+// POST /api/id-upload/:token
+app.post('/api/id-upload/:token', upload.single('document'), async (req, res) => {
+    const { token } = req.params;
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    try {
+        // Validate token
+        const tokenRes = await pool.query(
+            `SELECT it.*, c.id as cid, c.first_name, c.last_name
+             FROM id_upload_tokens it
+             JOIN contacts c ON c.id = it.contact_id
+             WHERE it.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid token' });
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.status(400).json({ success: false, message: 'ID already uploaded with this link' });
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).json({ success: false, message: 'Token expired' });
+        }
+
+        const contactId = row.cid;
+        const safeName = `${sanitizeNameForS3(row.first_name)}_${sanitizeNameForS3(row.last_name)}`;
+        const originalName = file.originalname;
+        const ext = path.extname(originalName);
+        const baseName = path.basename(originalName, ext);
+
+        // Build S3 path — same structure as intake form ID uploads
+        const folderPath = `${safeName}_${contactId}/Documents/ID_Document`;
+
+        // Check for existing file with same name
+        let s3FileName = `${baseName}${ext}`;
+        const nameCheck = await pool.query(
+            `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
+            [contactId, `${baseName}%${ext}`, 'ID Document']
+        );
+        if (nameCheck.rows.length > 0) {
+            let maxVersion = 0;
+            const regex = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?\\${ext}$`);
+            nameCheck.rows.forEach(r => {
+                const match = r.name.match(regex);
+                if (match) {
+                    const ver = match[1] ? parseInt(match[1]) : 0;
+                    if (ver >= maxVersion) maxVersion = ver;
+                }
+            });
+            s3FileName = `${baseName} (${maxVersion + 1})${ext}`;
+        }
+
+        const key = `${folderPath}/${s3FileName}`;
+
+        // Upload to S3
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const s3Url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 604800 });
+
+        // Determine document type
+        const extLower = ext.toLowerCase().replace('.', '');
+        let docType = 'unknown';
+        if (['pdf'].includes(extLower)) docType = 'pdf';
+        else if (['doc', 'docx'].includes(extLower)) docType = 'docx';
+        else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic'].includes(extLower)) docType = 'image';
+
+        // Save document record
+        const { rows } = await pool.query(
+            `INSERT INTO documents (contact_id, name, type, category, url, size, tags, document_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed') RETURNING *`,
+            [contactId, s3FileName, docType, 'ID Document', s3Url, `${(file.size / 1024).toFixed(1)} KB`, ['ID Document', 'Uploaded', `Original: ${originalName}`]]
+        );
+
+        // Tick IDENTIFICATION checkbox in document_checklist
+        await pool.query(
+            `UPDATE contacts
+             SET document_checklist = COALESCE(document_checklist, '{}')::jsonb || '{"identification": true}'::jsonb
+             WHERE id = $1`,
+            [contactId]
+        );
+
+        // Mark token as submitted
+        await pool.query('UPDATE id_upload_tokens SET submitted = true WHERE token = $1', [token]);
+
+        // Log action
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+             VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
+            [contactId, `Client uploaded ID document via secure link: "${s3FileName}"`, JSON.stringify({ document_id: rows[0].id, category: 'ID Document', via: 'id_upload_token' })]
+        );
+
+        console.log(`[ID Upload Token] "${originalName}" → "${key}" for contact ${contactId}, identification set to true`);
+        res.json({ success: true, message: 'ID uploaded successfully' });
+    } catch (error) {
+        console.error('ID Upload Token Error:', error);
+        res.status(500).json({ success: false, message: 'Upload failed' });
+    }
+});
+
 // Get action timeline for a contact
 app.get('/api/contacts/:id/action-timeline', async (req, res) => {
     const { id } = req.params;

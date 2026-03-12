@@ -47,6 +47,7 @@ export const uploadDocument = async (
     formData.append('document', file);
     formData.append('contact_id', clientId);
     formData.append('folder_name', folderName);
+    formData.append('category', 'ID Document');
 
     const response = await fetch(`${API_BASE_URL}/upload-document`, {
         method: 'POST',

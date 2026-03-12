@@ -265,19 +265,29 @@
 
     <script>
         let selectedFile = null;
-        let contactId = null;
+        let uploadToken = null;
 
-        // Extract contact ID from URL: /iddocument/:id
+        // Extract token from URL: /id-upload/:token
         const pathParts = window.location.pathname.split('/');
-        const idIndex = pathParts.indexOf('iddocument');
-        if (idIndex !== -1 && pathParts[idIndex + 1]) {
-            contactId = pathParts[idIndex + 1];
+        const idUploadIndex = pathParts.indexOf('id-upload');
+        if (idUploadIndex !== -1 && pathParts[idUploadIndex + 1]) {
+            uploadToken = pathParts[idUploadIndex + 1];
         }
 
-        // Fetch contact name to personalise the heading
-        if (contactId) {
-            fetch(`/api/contacts/${contactId}/basic`)
-                .then(r => r.ok ? r.json() : null)
+        // Validate token and fetch contact name
+        if (uploadToken) {
+            fetch(`/api/id-upload-token/${uploadToken}/validate`)
+                .then(r => {
+                    if (!r.ok) {
+                        r.json().then(data => {
+                            document.getElementById('uploadForm').classList.add('hidden');
+                            document.getElementById('errorScreen').classList.remove('hidden');
+                            document.getElementById('errorMessage').textContent = data.message || 'Invalid or expired link.';
+                        });
+                        return null;
+                    }
+                    return r.json();
+                })
                 .then(data => {
                     if (data && data.first_name) {
                         document.getElementById('welcomeHeading').textContent =
@@ -285,6 +295,11 @@
                     }
                 })
                 .catch(() => {});
+        } else {
+            // No token in URL — show error
+            document.getElementById('uploadForm').classList.add('hidden');
+            document.getElementById('errorScreen').classList.remove('hidden');
+            document.getElementById('errorMessage').textContent = 'Invalid link. Please use the link provided by Rowan Rose Solicitors.';
         }
 
         // Drag & drop
@@ -365,8 +380,8 @@
         }
 
         async function handleSubmit() {
-            if (!selectedFile || !contactId) {
-                if (!contactId) alert('Invalid link. Contact ID is missing.');
+            if (!selectedFile || !uploadToken) {
+                if (!uploadToken) alert('Invalid link. Please use the link provided by Rowan Rose Solicitors.');
                 return;
             }
 
@@ -394,11 +409,9 @@
 
             try {
                 const formData = new FormData();
-                formData.append('file', selectedFile);
-                formData.append('contact_id', contactId);
-                formData.append('category', 'Identification');
+                formData.append('document', selectedFile);
 
-                const response = await fetch(`/api/contacts/${contactId}/upload-id`, {
+                const response = await fetch(`/api/id-upload/${uploadToken}`, {
                     method: 'POST',
                     body: formData
                 });
