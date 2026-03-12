@@ -17736,7 +17736,7 @@ app.post('/api/task-work/unflag', async (req, res) => {
         if (ids.length === 0 || !userId) {
             return res.status(400).json({ error: 'claimId(s) and userId are required' });
         }
-        const placeholders = ids.map((_: number, i: number) => `$${i + 1}`).join(',');
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
         await pool.query(
             `UPDATE cases SET tw_red_flag = false, tw_red_flag_at = NULL, tw_red_flag_by = NULL WHERE id IN (${placeholders})`,
             ids
