@@ -2666,6 +2666,44 @@ app.post('/api/generate-pdf', async (req, res) => {
     }
 });
 
+// Generate Client Care Letter by contact ID (called by sales_crm worker)
+app.post('/api/generate-client-care-letter', async (req, res) => {
+    const { contactId } = req.body;
+
+    try {
+        if (!contactId) {
+            return res.status(400).json({ success: false, message: 'contactId is required' });
+        }
+
+        // Fetch contact data
+        const contactRes = await pool.query(
+            `SELECT id, first_name, last_name, email, phone, address_line_1, address_line_2,
+                    city, state_county, postal_code, dob
+             FROM contacts WHERE id = $1`,
+            [contactId]
+        );
+
+        if (contactRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: `Contact ${contactId} not found` });
+        }
+
+        const contact = contactRes.rows[0];
+        const result = await generateClientCareLetter(contact, pool);
+
+        if (result.skipped) {
+            console.log(`[CCL API] Client Care Letter already generated for contact ${contactId}, skipped`);
+            return res.json({ success: true, skipped: true, message: 'Already generated' });
+        }
+
+        console.log(`[CCL API] ✅ Client Care Letter generated for contact ${contactId}: ${result.fileName}`);
+        res.json({ success: true, ...result });
+
+    } catch (err) {
+        console.error('[CCL API] Error:', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // --- LEGAL INTAKE ENDPOINTS ---
 
 // Helper function to generate lender-specific LOA PDF
