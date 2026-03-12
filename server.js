@@ -8826,8 +8826,8 @@ app.post('/api/id-upload/:token', upload.single('document'), async (req, res) =>
         // Log action
         await pool.query(
             `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
-             VALUES ($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NOW())`,
-            [contactId, `Client uploaded ID document via secure link: "${s3FileName}"`, JSON.stringify({ document_id: rows[0].id, category: 'ID Document', via: 'id_upload_token' })]
+             VALUES ($1, 'client', $2, 'Client', 'document_completed', 'documents', $3, $4, NOW())`,
+            [contactId, String(contactId), `Client uploaded ID document via secure link: "${s3FileName}"`, JSON.stringify({ document_id: rows[0].id, category: 'ID Document', via: 'id_upload_token' })]
         );
 
         console.log(`[ID Upload Token] "${originalName}" → "${key}" for contact ${contactId}, identification set to true`);
