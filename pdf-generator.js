@@ -226,6 +226,9 @@ function buildDocxVariables(contact, caseData, lenderAddress, lenderEmail, signa
         clientId: clientId,
         reference: fullReference,
         refSpec: refSpec,
+        claimId: String(caseData.id || ''),
+        claimRef: fullReference,
+        caseRef: fullReference,
         claimValue: caseData.claim_value
             ? `£${Number(caseData.claim_value).toLocaleString()}`
             : '',
