@@ -52,6 +52,47 @@ function buildS3Folder(firstName, lastName, contactId) {
     return `${sanitizeNameForS3(firstName)}_${sanitizeNameForS3(lastName)}_${contactId}/`;
 }
 
+function renderAlreadySubmittedPage(title, message) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title} - Rowan Rose Solicitors</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%); padding: 20px; }
+        .card { background: #fff; border-radius: 24px; padding: 48px; max-width: 520px; width: 100%; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.3); }
+        .icon { width: 80px; height: 80px; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; }
+        .icon svg { width: 40px; height: 40px; color: #f59e0b; }
+        h1 { font-size: 28px; font-weight: 700; color: #0f172a; margin-bottom: 12px; }
+        p { font-size: 16px; color: #64748b; line-height: 1.6; margin-bottom: 32px; }
+        .btn { display: inline-block; background: linear-gradient(145deg, #f97316, #ea580c); color: #fff; font-size: 16px; font-weight: 600; padding: 16px 40px; border-radius: 12px; text-decoration: none; box-shadow: 0 4px 16px rgba(249,115,22,0.35); transition: transform 0.2s, box-shadow 0.2s; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(249,115,22,0.4); }
+        .footer { margin-top: 32px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+        .footer p { font-size: 13px; color: #94a3b8; margin-bottom: 4px; }
+        .footer a { color: #f97316; text-decoration: none; font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        </div>
+        <h1>${title}</h1>
+        <p>${message}</p>
+        <a href="https://www.rowanrose.co.uk/" class="btn">Visit Our Website</a>
+        <div class="footer">
+            <p><strong>Rowan Rose Solicitors</strong></p>
+            <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+            <p><a href="tel:01615331706">0161 533 1706</a> | <a href="mailto:irl@rowanrose.co.uk">irl@rowanrose.co.uk</a></p>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
 // Trust proxy for correct protocol detection behind nginx (important for HTTPS)
 // This ensures req.protocol returns 'https' when behind a reverse proxy
 app.set('trust proxy', 1);
@@ -7055,64 +7096,19 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
             );
 
             if (tokenRes.rows.length === 0) {
-                return res.status(404).send(`
-                                <!DOCTYPE html>
-                                <html>
-                                    <head>
-                                        <title>Invalid Link</title>
-                                        <style>
-                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                                            h1 {color: #EF4444; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <h1>Invalid or Expired Link</h1>
-                                        <p>This LOA form link is not valid. Please contact Rowan Rose Solicitors for assistance.</p>
-                                    </body>
-                                </html>
-                                `);
+                return res.status(404).send(renderAlreadySubmittedPage('Invalid Link', 'This form link is not valid. Please contact Rowan Rose Solicitors for assistance.'));
             }
 
             const tokenData = tokenRes.rows[0];
 
             // Check if expired
             if (new Date() > new Date(tokenData.expires_at)) {
-                return res.status(404).send(`
-                                <!DOCTYPE html>
-                                <html>
-                                    <head>
-                                        <title>Expired Link</title>
-                                        <style>
-                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                                            h1 {color: #EF4444; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <h1>Link Expired</h1>
-                                        <p>This LOA form link has expired. Please contact Rowan Rose Solicitors for a new link.</p>
-                                    </body>
-                                </html>
-                                `);
+                return res.status(404).send(renderAlreadySubmittedPage('Link Expired', 'This form link has expired. Please contact Rowan Rose Solicitors for a new link.'));
             }
 
             // Check if already submitted
             if (tokenData.loa_submitted) {
-                return res.status(400).send(`
-                                <!DOCTYPE html>
-                                <html>
-                                    <head>
-                                        <title>Already Submitted</title>
-                                        <style>
-                                            body {font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                                            h1 {color: #F59E0B; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <h1>Already Submitted</h1>
-                                        <p>This form has already been submitted. Thank you.</p>
-                                    </body>
-                                </html>
-                                `);
+                return res.status(400).send(renderAlreadySubmittedPage('Already Submitted', 'This form has already been submitted. Thank you for completing it — no further action is needed.'));
             }
 
             // Use token data as contact
@@ -7817,7 +7813,7 @@ app.get('/questionnaire/:contactId', async (req, res) => {
         const clientRef = contact.client_id || `RR-${contact.id}`;
 
         if (contact.questionnaire_submitted) {
-            return res.status(400).send(`<!DOCTYPE html><html><head><title>Already Submitted</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#F59E0B;}</style></head><body><h1>Already Submitted</h1><p>This questionnaire has already been submitted. Thank you.</p></body></html>`);
+            return res.status(400).send(renderAlreadySubmittedPage('Already Submitted', 'This questionnaire has already been submitted. Thank you for completing it — no further action is needed.'));
         }
 
         res.send(`<!DOCTYPE html>
@@ -8343,7 +8339,7 @@ app.get('/questionnaire/token/:token', async (req, res) => {
         const qType = row.questionnaire_type;
         const alreadySubmitted = qType === 1 ? row.q1_submitted : row.q2_submitted;
         if (row.submitted || alreadySubmitted) {
-            return res.status(400).send(`<!DOCTYPE html><html><head><title>Already Submitted</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#F59E0B;}</style></head><body><h1>Already Submitted</h1><p>This questionnaire has already been submitted. Thank you.</p></body></html>`);
+            return res.status(400).send(renderAlreadySubmittedPage('Already Submitted', 'This questionnaire has already been submitted. Thank you for completing it — no further action is needed.'));
         }
         const templateFile = qType === 1 ? 'questionnaire1.html' : 'questionnaire2.html';
         const contactName = row.full_name || `${row.first_name} ${row.last_name}`.trim();
@@ -8704,7 +8700,7 @@ app.get('/id-upload/:token', async (req, res) => {
         }
         const row = tokenRes.rows[0];
         if (row.submitted) {
-            return res.send('<h1>Already Submitted</h1><p>Identification has already been uploaded using this link. If you need to upload again, please contact Rowan Rose Solicitors.</p>');
+            return res.send(renderAlreadySubmittedPage('ID Already Uploaded', 'Your identification has already been uploaded using this link. If you need to upload again, please contact Rowan Rose Solicitors.'));
         }
         if (new Date(row.expires_at) < new Date()) {
             return res.status(410).send('<h1>Link Expired</h1><p>This ID upload link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');
@@ -8918,7 +8914,7 @@ app.get('/previous-address/:token', async (req, res) => {
         }
         const row = tokenRes.rows[0];
         if (row.submitted) {
-            return res.send('<h1>Already Submitted</h1><p>This form has already been submitted. If you need to make changes, please contact Rowan Rose Solicitors.</p>');
+            return res.send(renderAlreadySubmittedPage('Already Submitted', 'This form has already been submitted. If you need to make changes, please contact Rowan Rose Solicitors.'));
         }
         if (new Date(row.expires_at) < new Date()) {
             return res.status(410).send('<h1>Link Expired</h1><p>This link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');

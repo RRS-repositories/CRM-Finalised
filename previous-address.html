@@ -524,7 +524,7 @@
                 if (response.ok) {
                     document.getElementById('mainForm').classList.add('hidden');
                     document.getElementById('successScreen').classList.remove('hidden');
-                    setTimeout(() => { window.location.href = 'https://www.rowanrose.co.uk/'; }, 2500);
+                    setTimeout(() => { window.location.href = 'https://www.rowanrose.co.uk/'; }, 30000);
                 } else {
                     const data = await response.json();
                     throw new Error(data.message || 'Submission failed');
