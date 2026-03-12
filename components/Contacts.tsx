@@ -405,6 +405,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [prevAddrLink, setPrevAddrLink] = useState<string | null>(null);
    const [generatingPrevAddr, setGeneratingPrevAddr] = useState(false);
    const [copiedPrevAddr, setCopiedPrevAddr] = useState(false);
+   const [showLinkModal, setShowLinkModal] = useState<{ title: string; description: string; link: string } | null>(null);
+   const [copiedModalLink, setCopiedModalLink] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -2104,7 +2106,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
          if (data.success) {
             setLoaLink(data.uniqueLink);
-            setShowLoaLinkModal(true);
+            setShowLinkModal({ title: 'Extra Lender Form Link', description: `Share this link with ${contact?.fullName} to complete the Extra Lender Selection Form:`, link: data.uniqueLink });
          } else {
             console.error('API returned error:', data.message);
             alert('Error generating LOA link: ' + data.message);
@@ -2846,7 +2848,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     body: JSON.stringify({ contactId: contact.id, type: 1 })
                                  });
                                  const data = await res.json();
-                                 if (data.success) setGamblingQLink(`${window.location.origin}${data.url}`);
+                                 if (data.success) {
+                                    const link = `${window.location.origin}${data.url}`;
+                                    setGamblingQLink(link);
+                                    setShowLinkModal({ title: 'Gambling Questionnaire Link', description: `Share this link with ${contact?.fullName} to complete the Gambling Questionnaire:`, link });
+                                 }
                               } finally {
                                  setGeneratingGamblingQ(false);
                               }
@@ -2868,7 +2874,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     body: JSON.stringify({ contactId: contact.id, type: 2 })
                                  });
                                  const data = await res.json();
-                                 if (data.success) setIrlQLink(`${window.location.origin}${data.url}`);
+                                 if (data.success) {
+                                    const link = `${window.location.origin}${data.url}`;
+                                    setIrlQLink(link);
+                                    setShowLinkModal({ title: 'IRL Questionnaire Link', description: `Share this link with ${contact?.fullName} to complete the IRL Questionnaire:`, link });
+                                 }
                               } finally {
                                  setGeneratingIrlQ(false);
                               }
@@ -2890,7 +2900,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     body: JSON.stringify({ contactId: contact.id })
                                  });
                                  const data = await res.json();
-                                 if (data.success) setIdUploadLink(`${window.location.origin}${data.url}`);
+                                 if (data.success) {
+                                    const link = `${window.location.origin}${data.url}`;
+                                    setIdUploadLink(link);
+                                    setShowLinkModal({ title: 'ID Upload Link', description: `Share this link with ${contact?.fullName} to upload their identification:`, link });
+                                 }
                               } finally {
                                  setGeneratingIdUpload(false);
                               }
@@ -2921,7 +2935,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     body: JSON.stringify({ contactId: contact.id })
                                  });
                                  const data = await res.json();
-                                 if (data.success) setPrevAddrLink(`${window.location.origin}${data.url}`);
+                                 if (data.success) {
+                                    const link = `${window.location.origin}${data.url}`;
+                                    setPrevAddrLink(link);
+                                    setShowLinkModal({ title: 'Previous Address Link', description: `Share this link with ${contact?.fullName} to confirm their previous addresses:`, link });
+                                 }
                               } finally {
                                  setGeneratingPrevAddr(false);
                               }
@@ -6107,6 +6125,51 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   <div className="flex justify-end gap-3">
                      <button
                         onClick={() => setShowLoaLinkModal(false)}
+                        className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
+                     >
+                        Done
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* Unified Link Modal */}
+         {showLinkModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-lg p-6 border border-gray-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between mb-4">
+                     <h3 className="font-bold text-lg text-navy-900 dark:text-white">{showLinkModal.title}</h3>
+                     <button
+                        onClick={() => { setShowLinkModal(null); setCopiedModalLink(false); }}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                     >
+                        <X size={20} />
+                     </button>
+                  </div>
+                  <div className="mb-4">
+                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                        {showLinkModal.description}
+                     </p>
+                     <div className="bg-gray-50 dark:bg-slate-700 p-3 rounded-lg border border-gray-200 dark:border-slate-600 flex items-center gap-2">
+                        <code className="flex-1 text-xs text-gray-800 dark:text-gray-200 break-all font-mono">
+                           {showLinkModal.link}
+                        </code>
+                        <button
+                           onClick={() => {
+                              navigator.clipboard.writeText(showLinkModal.link);
+                              setCopiedModalLink(true);
+                              setTimeout(() => setCopiedModalLink(false), 2000);
+                           }}
+                           className={`px-3 py-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedModalLink ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                        >
+                           {copiedModalLink ? '✓ Copied' : 'Copy'}
+                        </button>
+                     </div>
+                  </div>
+                  <div className="flex justify-end">
+                     <button
+                        onClick={() => { setShowLinkModal(null); setCopiedModalLink(false); }}
                         className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
                      >
                         Done
