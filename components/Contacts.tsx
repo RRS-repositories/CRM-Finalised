@@ -401,6 +401,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [idUploadLink, setIdUploadLink] = useState<string | null>(null);
    const [generatingIdUpload, setGeneratingIdUpload] = useState(false);
    const [copiedIdUpload, setCopiedIdUpload] = useState(false);
+   const [copiedLoaLink, setCopiedLoaLink] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -2896,6 +2897,15 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         >
                            {generatingIdUpload ? '...' : '🪪 Generate ID Upload Link'}
                         </button>
+
+                        {/* Extra Lender Form Link */}
+                        <button
+                           onClick={() => handleGenerateLoaLink()}
+                           disabled={generatingLoaLink}
+                           className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                        >
+                           {generatingLoaLink ? '...' : '📋 Generate Extra Lender Link'}
+                        </button>
                      </div>
 
                      {/* Gambling Q Link row */}
@@ -2948,6 +2958,24 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIdUpload ? 'bg-green-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                            >
                               {copiedIdUpload ? '✓ Copied' : 'Copy'}
+                           </button>
+                        </div>
+                     )}
+
+                     {/* Extra Lender Link row */}
+                     {loaLink && (
+                        <div className="flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                           <span className="text-purple-700 text-xs font-medium whitespace-nowrap">Extra Lender:</span>
+                           <span className="text-xs text-slate-600 truncate flex-1">{loaLink}</span>
+                           <button
+                              onClick={() => {
+                                 navigator.clipboard.writeText(loaLink);
+                                 setCopiedLoaLink(true);
+                                 setTimeout(() => setCopiedLoaLink(false), 2000);
+                              }}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedLoaLink ? 'bg-green-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
+                           >
+                              {copiedLoaLink ? '✓ Copied' : 'Copy'}
                            </button>
                         </div>
                      )}
