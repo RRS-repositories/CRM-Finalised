@@ -330,8 +330,8 @@
         }
 
         function validateAndSetFile(file) {
-            if (file.size > 10 * 1024 * 1024) {
-                alert('File is too large. Maximum size is 10MB.');
+            if (file.size > 40 * 1024 * 1024) {
+                alert('File is too large. Maximum size is 40MB.');
                 return;
             }
             selectedFile = file;
