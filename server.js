@@ -31,7 +31,7 @@ import { createReport } from 'docx-templates';
 import { convertDocxToPdf } from './oo-converter.js';
 import jwt from 'jsonwebtoken';
 import crmEvents from './services/crmEvents.js';
-import { generatePdfFromCase } from './pdf-generator.js';
+import { generatePdfFromCase, generateClientCareLetter } from './pdf-generator.js';
 import marketingRouter from './routes/marketing/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -7778,7 +7778,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
     try {
         // Find contact by unique link and fetch complete data
         const contactRes = await pool.query(
-            `SELECT id, first_name, last_name, address_line_1, address_line_2,
+            `SELECT id, first_name, last_name, email, phone, address_line_1, address_line_2,
                                                                         city, state_county, postal_code, dob, loa_submitted, intake_lender
                                                                         FROM contacts WHERE unique_form_link = $1`,
             [uniqueId]
@@ -7788,7 +7788,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         if (contactRes.rows.length === 0) {
             // Check submission_tokens table if not found in contacts
             const tokenRes = await pool.query(
-                `SELECT c.id, c.first_name, c.last_name, c.address_line_1, c.address_line_2,
+                `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.address_line_1, c.address_line_2,
                  c.city, c.state_county, c.postal_code, c.dob, c.loa_submitted, c.intake_lender
                  FROM submission_tokens st
                  JOIN contacts c ON st.contact_id = c.id
@@ -8095,6 +8095,18 @@ app.post('/api/submit-loa-form', async (req, res) => {
                     console.log(`[Background LOA] IRL Multiple Lender Form PDF generated for contact ${contactId}`);
                 } catch (pdfErr) {
                     console.error(`[Background LOA] IRL Multiple Lender Form PDF generation failed:`, pdfErr.message);
+                }
+
+                // Generate Client Care Letter (once per contact)
+                try {
+                    const cclResult = await generateClientCareLetter(contact, pool);
+                    if (cclResult.skipped) {
+                        console.log(`[Background LOA] Client Care Letter already generated for contact ${contactId}, skipped`);
+                    } else {
+                        console.log(`[Background LOA] ✅ Client Care Letter generated for contact ${contactId}`);
+                    }
+                } catch (cclErr) {
+                    console.error(`[Background LOA] Client Care Letter generation failed for contact ${contactId}:`, cclErr.message);
                 }
 
                 console.log(`[Background LOA] ✅ ALL TASKS COMPLETED for contact ${contactId}`);

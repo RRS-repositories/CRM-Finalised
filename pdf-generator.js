@@ -423,3 +423,140 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
         s3Key
     };
 }
+
+/**
+ * Generate Client Care Letter PDF for a contact (once per contact).
+ * Looks up the template named "client_care_letter" in oo_templates.
+ * Template variables: client full name, full address, today's date, contact number, contact ID.
+ */
+export async function generateClientCareLetter(contact, pool) {
+    const contactId = contact.id;
+    console.log(`[Client Care Letter] Starting generation for contact ${contactId}`);
+
+    // 1. Check if already generated
+    const flagCheck = await pool.query(
+        `SELECT client_care_letter_generated FROM contacts WHERE id = $1`,
+        [contactId]
+    );
+    if (flagCheck.rows.length === 0) {
+        throw new Error(`Contact ${contactId} not found`);
+    }
+    if (flagCheck.rows[0].client_care_letter_generated) {
+        console.log(`[Client Care Letter] Already generated for contact ${contactId}, skipping`);
+        return { success: true, skipped: true };
+    }
+
+    // 2. Find the client_care_letter template in oo_templates
+    const templateResult = await pool.query(
+        `SELECT s3_key FROM oo_templates
+         WHERE LOWER(name) = 'client_care_letter' AND is_active = TRUE
+         ORDER BY updated_at DESC LIMIT 1`
+    );
+    if (templateResult.rows.length === 0) {
+        throw new Error('No active template named "client_care_letter" found in oo_templates');
+    }
+
+    const templateKey = templateResult.rows[0].s3_key;
+    console.log(`[Client Care Letter] Using template: ${templateKey}`);
+
+    // 3. Fetch template from S3
+    const templateBuffer = await fetchFromS3(templateKey);
+    if (!templateBuffer) {
+        throw new Error(`Failed to fetch template from S3: ${templateKey}`);
+    }
+
+    // 4. Build template variables
+    const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+    const clientId = `RR-${contactId}`;
+    const clientAddress = [
+        contact.address_line_1,
+        contact.address_line_2,
+        contact.city,
+        contact.state_county,
+        contact.postal_code
+    ].filter(Boolean).join(', ');
+
+    const today = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+    });
+
+    const variables = {
+        // Nested structure
+        client: {
+            fullName: fullName,
+            firstName: contact.first_name || '',
+            lastName: contact.last_name || '',
+            address: clientAddress,
+            phone: contact.phone || '',
+            email: contact.email || '',
+        },
+        system: {
+            today: today,
+            date: today,
+            year: String(new Date().getFullYear()),
+        },
+
+        // Flat variables for template compatibility
+        clientFullName: fullName,
+        "Client Full Name": fullName,
+        "Full Name": fullName,
+        fullName: fullName,
+        clientAddress: clientAddress,
+        "Current Full Address": clientAddress,
+        address: clientAddress,
+        today: today,
+        date: today,
+        "Today's Date": today,
+        todayDate: today,
+        clientPhone: contact.phone || '',
+        "Contact Number": contact.phone || '',
+        phone: contact.phone || '',
+        clientId: clientId,
+        "Client ID": clientId,
+        "Contact ID": clientId,
+        contactId: String(contactId),
+    };
+
+    // 5. Fill template
+    console.log('[Client Care Letter] Filling DOCX template with variables...');
+    const filledDocx = await createReport({
+        template: templateBuffer,
+        data: variables,
+        cmdDelimiter: ['{{', '}}'],
+    });
+
+    // 6. Convert to PDF using OnlyOffice
+    console.log('[Client Care Letter] Converting DOCX to PDF using OnlyOffice...');
+    const pdfBuffer = await convertDocxToPdf(filledDocx, `Client_Care_Letter_${contactId}.docx`);
+
+    // 7. Build S3 key — stored in contact's Documents/Other folder (not per-lender)
+    const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contactId}`;
+    const fileName = `Client_Care_Letter_${fullName.replace(/[^a-zA-Z0-9 _-]/g, '')}.pdf`;
+    const s3Key = `${folderPrefix}/Documents/Other/${fileName}`;
+
+    // 8. Upload to S3
+    console.log(`[Client Care Letter] Uploading PDF to S3: ${s3Key}`);
+    const signedUrl = await uploadToS3(pdfBuffer, s3Key);
+
+    // 9. Insert document record
+    const fileSize = `${(pdfBuffer.length / 1024).toFixed(1)} KB`;
+    await pool.query(
+        `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [contactId, fileName, 'pdf', 'Client Care Letter', signedUrl, fileSize, ['Client Care Letter']]
+    );
+
+    // 10. Set flag so it's never generated again
+    await pool.query(
+        `UPDATE contacts SET client_care_letter_generated = true, updated_at = NOW() WHERE id = $1`,
+        [contactId]
+    );
+
+    console.log(`[Client Care Letter] ✅ Generated successfully for contact ${contactId}: ${fileName}`);
+
+    return { success: true, fileName, signedUrl, s3Key };
+}

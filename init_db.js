@@ -528,6 +528,10 @@ async function initDb() {
     await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT false;`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_contacts_id_chase_active ON contacts(id_chase_active) WHERE id_chase_active = true;`);
 
+    // Add client_care_letter_generated column to contacts (one-time generation flag)
+    console.log('Adding client_care_letter_generated column to contacts...');
+    await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_care_letter_generated BOOLEAN DEFAULT false;`);
+
     console.log('Database initialization complete!');
     process.exit(0);
   } catch (err) {
