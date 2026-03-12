@@ -226,10 +226,13 @@
     </div>
 
     <script>
+        const GEOAPIFY_KEY = '4ce7ddaeaf724f009a58ea42fde55199';
         let token = null;
         let contactData = null;
         let hasSelected = null; // null = not answered, true = yes, false = no
         let addressCount = 0;
+        const searchTimeouts = {};
+        const suggestionsData = {};
 
         // Extract token from URL: /previous-address/:token
         const pathParts = window.location.pathname.split('/');
@@ -303,6 +306,89 @@
             updateSubmitButton();
         }
 
+        // --- GEOAPIFY AUTOCOMPLETE ---
+        async function fetchSuggestions(query) {
+            try {
+                const res = await fetch(
+                    `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_KEY}`
+                );
+                const data = await res.json();
+                return (data.results || []).slice(0, 5);
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function extractAddress(result) {
+            const ukMatch = (result.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i);
+            const postcode = result.postcode || result.postal_code || (ukMatch ? ukMatch[0].trim() : '');
+            let street1, street2;
+            if (result.name && result.street && result.name !== result.street) {
+                street1 = result.name;
+                street2 = [result.housenumber, result.street].filter(Boolean).join(' ');
+            } else {
+                street1 = [result.housenumber, result.street].filter(Boolean).join(' ') || result.street || result.address_line1 || '';
+                street2 = '';
+            }
+            return {
+                street: street1, street2,
+                city: result.city || result.town || result.village || result.county || '',
+                county: result.county || result.state || '',
+                postcode
+            };
+        }
+
+        function handleSearchInput(idx, query) {
+            if (searchTimeouts[idx]) clearTimeout(searchTimeouts[idx]);
+            const dropdown = document.getElementById(`addr_${idx}_suggestions`);
+            if (query.length <= 2) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; return; }
+
+            searchTimeouts[idx] = setTimeout(async () => {
+                const results = await fetchSuggestions(query);
+                suggestionsData[idx] = results;
+                if (results.length === 0) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; return; }
+                dropdown.innerHTML = results.map((r, i) =>
+                    `<div class="px-4 py-2.5 hover:bg-amber-50 cursor-pointer text-sm text-slate-700 border-b border-slate-100 last:border-0" onclick="selectSuggestion(${idx}, ${i})">${r.formatted}</div>`
+                ).join('');
+                dropdown.classList.remove('hidden');
+            }, 300);
+        }
+
+        async function selectSuggestion(idx, sugIdx) {
+            const suggestion = suggestionsData[idx]?.[sugIdx];
+            if (!suggestion) return;
+            const addr = extractAddress(suggestion);
+            let postcode = addr.postcode;
+
+            // Reverse geocode fallback for postcode
+            if (!postcode && suggestion.lat && suggestion.lon) {
+                try {
+                    const res = await fetch(`https://api.geoapify.com/v1/geocode/reverse?lat=${suggestion.lat}&lon=${suggestion.lon}&filter=countrycode:gb&format=json&apiKey=${GEOAPIFY_KEY}`);
+                    const data = await res.json();
+                    const top = data.results?.[0];
+                    if (top) {
+                        postcode = top.postcode || top.postal_code || '';
+                        if (!postcode) { const m = (top.formatted || '').match(/[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i); if (m) postcode = m[0].trim(); }
+                    }
+                } catch (e) {}
+            }
+
+            document.getElementById(`addr_${idx}_line1`).value = addr.street;
+            document.getElementById(`addr_${idx}_line2`).value = addr.street2;
+            document.getElementById(`addr_${idx}_city`).value = addr.city;
+            document.getElementById(`addr_${idx}_county`).value = addr.county;
+            document.getElementById(`addr_${idx}_postcode`).value = postcode;
+            document.getElementById(`addr_${idx}_search`).value = suggestion.formatted;
+            document.getElementById(`addr_${idx}_suggestions`).classList.add('hidden');
+        }
+
+        // Close dropdowns on outside click
+        document.addEventListener('click', (e) => {
+            document.querySelectorAll('[id$="_suggestions"]').forEach(d => {
+                if (!d.parentElement.contains(e.target)) d.classList.add('hidden');
+            });
+        });
+
         function addAddressForm() {
             addressCount++;
             const idx = addressCount;
@@ -314,6 +400,14 @@
                 <div class="flex items-center justify-between mb-2">
                     <h4 class="font-semibold text-slate-800">Address ${idx}</h4>
                     ${idx > 1 ? `<button type="button" onclick="removeAddressForm(${idx})" class="text-red-400 hover:text-red-600 text-xs font-bold uppercase"><i class="fas fa-times mr-1"></i>Remove</button>` : ''}
+                </div>
+                <div class="relative">
+                    <label class="block text-xs font-medium text-slate-600 mb-1"><i class="fas fa-search mr-1 text-brand-orange"></i>Search Address</label>
+                    <input type="text" id="addr_${idx}_search" autocomplete="off"
+                        class="w-full px-4 py-3 border-2 border-brand-orange/40 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors bg-amber-50/30"
+                        placeholder="Start typing your address..."
+                        oninput="handleSearchInput(${idx}, this.value)">
+                    <div id="addr_${idx}_suggestions" class="hidden absolute z-20 w-full bg-white border-2 border-slate-200 rounded-lg mt-1 shadow-lg max-h-52 overflow-y-auto"></div>
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-1">Address Line 1 *</label>
