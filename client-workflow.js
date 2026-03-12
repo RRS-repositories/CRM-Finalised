@@ -107,35 +107,35 @@ async function logAction(contactId, actionType, description, metadata = {}) {
  *
  * source = 'migration' (from sales CRM):
  *   ID Upload: immediate
- *   Extra Lender: +2 min
- *   Previous Address: +4 min
+ *   Extra Lender: +30 min
+ *   Previous Address: +3 days
  *
  * source = 'intake' (from intake form — extra lender already sent by intake):
- *   ID Upload: +2 min (skip if ID already attached)
- *   Previous Address: +4 min
+ *   ID Upload: +30 min (skip if ID already attached)
+ *   Previous Address: +3 days
  *   Extra Lender: SKIPPED (already sent by intake flow)
  */
 async function queueOnboardingEmails(contactId, { skipIdUpload = false, source = 'migration' } = {}) {
     try {
         if (source === 'intake') {
-            // Intake: LOA/extra lender already sent. Queue ID (+2min if needed) and Prev Address (+4min)
+            // Intake: LOA/extra lender already sent. Queue ID (+30min if needed) and Prev Address (+3 days)
             if (!skipIdUpload) {
                 await _pool.query(
                     `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
-                     VALUES ($1, 'id_upload', NOW() + INTERVAL '2 minutes')
+                     VALUES ($1, 'id_upload', NOW() + INTERVAL '30 minutes')
                      ON CONFLICT (contact_id, step) DO NOTHING`,
                     [contactId]
                 );
             }
             await _pool.query(
                 `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
-                 VALUES ($1, 'previous_address', NOW() + INTERVAL '4 minutes')
+                 VALUES ($1, 'previous_address', NOW() + INTERVAL '3 days')
                  ON CONFLICT (contact_id, step) DO NOTHING`,
                 [contactId]
             );
             console.log(`[Client Workflow] Queued INTAKE onboarding for contact ${contactId} (skipId: ${skipIdUpload})`);
         } else {
-            // Migration: ID (now), Extra Lender (+2min), Previous Address (+4min)
+            // Migration: ID (now), Extra Lender (+30min), Previous Address (+3 days)
             if (!skipIdUpload) {
                 await _pool.query(
                     `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
@@ -146,13 +146,13 @@ async function queueOnboardingEmails(contactId, { skipIdUpload = false, source =
             }
             await _pool.query(
                 `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
-                 VALUES ($1, 'extra_lender', NOW() + INTERVAL '2 minutes')
+                 VALUES ($1, 'extra_lender', NOW() + INTERVAL '30 minutes')
                  ON CONFLICT (contact_id, step) DO NOTHING`,
                 [contactId]
             );
             await _pool.query(
                 `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
-                 VALUES ($1, 'previous_address', NOW() + INTERVAL '4 minutes')
+                 VALUES ($1, 'previous_address', NOW() + INTERVAL '3 days')
                  ON CONFLICT (contact_id, step) DO NOTHING`,
                 [contactId]
             );
