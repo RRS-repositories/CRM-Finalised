@@ -1712,6 +1712,18 @@ const processPendingDSAREmails = async () => {
                         [record.contact_id, record.case_id, `DSAR ${EMAIL_DRAFT_MODE ? 'draft created' : 'sent'} to ${record.lender} (${emailResult.email})`]
                     );
 
+                    // Workflow: Queue questionnaire email (once per contact, UNIQUE constraint prevents duplicates)
+                    try {
+                        await pool.query(
+                            `INSERT INTO workflow_email_queue (contact_id, step, scheduled_at)
+                             VALUES ($1, 'questionnaire', NOW())
+                             ON CONFLICT (contact_id, step) DO NOTHING`,
+                            [record.contact_id]
+                        );
+                    } catch (wfErr) {
+                        console.error(`[Worker] Workflow queue error:`, wfErr.message);
+                    }
+
                     console.log(`[Worker] ✅ ${statusMessage}`);
                 } else {
                     console.log(`[Worker] ⚠️ DSAR not ${EMAIL_DRAFT_MODE ? 'drafted' : 'sent'} for Case ${record.case_id}: ${emailResult.reason}${emailResult.error ? ' - ' + emailResult.error : ''}`);

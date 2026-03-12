@@ -32,6 +32,7 @@ import { createReport } from 'docx-templates';
 import { convertDocxToPdf } from './oo-converter.js';
 import jwt from 'jsonwebtoken';
 import crmEvents from './services/crmEvents.js';
+import clientWorkflow from './client-workflow.js';
 import { generatePdfFromCase, generateClientCareLetter } from './pdf-generator.js';
 import marketingRouter from './routes/marketing/index.js';
 
@@ -1303,6 +1304,9 @@ emailTransporter.verify((error, success) => {
         console.log('✅ Email server is ready to send messages');
     }
 });
+
+// Initialise client workflow engine (DB-backed email queue + poller)
+clientWorkflow.init(pool, emailTransporter);
 
 // AI Configuration moved to aiSkills.js for modularity
 // System prompt and tools are now dynamically built based on context
@@ -4917,6 +4921,11 @@ app.post('/api/contacts', async (req, res) => {
         );
         console.log('[Server POST /api/contacts] Inserted row:', rows[0]);
         crmEvents.emit('contact.created', { contactId: rows[0].id, data: rows[0] });
+
+        // Queue onboarding workflow emails (fire-and-forget)
+        const checklist = rows[0].document_checklist || {};
+        clientWorkflow.queueOnboardingEmails(rows[0].id, { skipIdUpload: checklist.identification === true }).catch(e => console.error('[Workflow] Queue error:', e.message));
+
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -6497,6 +6506,12 @@ app.patch('/api/cases/:id', async (req, res) => {
 
         console.log(`✅ Updated case ${id} status to: ${status}`);
         crmEvents.emit('case.status_changed', { caseId: parseInt(id), contactId: updatedCase.contact_id, data: updatedCase, newStatus: status });
+
+        // Workflow: Queue questionnaire email when DSAR sent to lender (once per contact)
+        if (status === 'DSAR Sent to Lender' && updatedCase.contact_id) {
+            clientWorkflow.queueQuestionnaireEmail(updatedCase.contact_id).catch(e => console.error('[Workflow] Queue questionnaire error:', e.message));
+        }
+
         res.json(updatedCase);
     } catch (error) {
         console.error('❌ Error updating case status:', error);
