@@ -8838,6 +8838,207 @@ app.post('/api/id-upload/:token', upload.single('document'), async (req, res) =>
     }
 });
 
+// ============================================
+// Previous Address Token-Based Form
+// ============================================
+
+// POST /api/generate-previous-address-token  { contactId }
+app.post('/api/generate-previous-address-token', async (req, res) => {
+    const { contactId } = req.body;
+    if (!contactId) {
+        return res.status(400).json({ success: false, message: 'contactId required' });
+    }
+    try {
+        // Ensure table exists
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS previous_address_tokens (
+                id SERIAL PRIMARY KEY,
+                token UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+                contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                submitted BOOLEAN DEFAULT false,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '90 days'
+            );
+        `);
+        // Delete old unused tokens for this contact, then create fresh one
+        await pool.query(
+            'DELETE FROM previous_address_tokens WHERE contact_id = $1 AND submitted = false',
+            [contactId]
+        );
+        const tokenRes = await pool.query(
+            `INSERT INTO previous_address_tokens (contact_id) VALUES ($1) RETURNING token`,
+            [contactId]
+        );
+        const token = tokenRes.rows[0].token;
+        res.json({ success: true, token, url: `/previous-address/${token}` });
+    } catch (error) {
+        console.error('Generate previous address token error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Serve Previous Address page via secure token
+// GET /previous-address/:token
+app.get('/previous-address/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        await pool.query(`CREATE TABLE IF NOT EXISTS previous_address_tokens (
+            id SERIAL PRIMARY KEY, token UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
+            contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+            submitted BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW(),
+            expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '90 days'
+        );`);
+        const tokenRes = await pool.query(
+            `SELECT pat.*, c.id as cid, c.first_name, c.last_name
+             FROM previous_address_tokens pat
+             JOIN contacts c ON c.id = pat.contact_id
+             WHERE pat.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).send('<h1>Invalid or expired link</h1><p>This link is not valid. Please contact Rowan Rose Solicitors for a new link.</p>');
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.send('<h1>Already Submitted</h1><p>This form has already been submitted. If you need to make changes, please contact Rowan Rose Solicitors.</p>');
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).send('<h1>Link Expired</h1><p>This link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');
+        }
+        res.sendFile(path.join(__dirname, 'previous-address.html'));
+    } catch (error) {
+        console.error('Serve previous address page error:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Validate previous address token (called by previous-address.html to get contact info)
+// GET /api/previous-address-token/:token/validate
+app.get('/api/previous-address-token/:token/validate', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const tokenRes = await pool.query(
+            `SELECT pat.*, c.id as cid, c.first_name, c.last_name,
+                    c.address_line_1, c.address_line_2, c.city, c.state_county, c.postal_code,
+                    c.previous_addresses
+             FROM previous_address_tokens pat
+             JOIN contacts c ON c.id = pat.contact_id
+             WHERE pat.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid token' });
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.status(400).json({ success: false, message: 'Already submitted' });
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).json({ success: false, message: 'Token expired' });
+        }
+
+        // Also fetch from previous_addresses table
+        const prevRes = await pool.query(
+            'SELECT address_line_1, address_line_2, city, county, postal_code FROM previous_addresses WHERE contact_id = $1 ORDER BY id',
+            [row.cid]
+        );
+
+        // Merge: JSONB previous_addresses + previous_addresses table rows
+        let allPrev = [];
+        if (row.previous_addresses && Array.isArray(row.previous_addresses)) {
+            allPrev = row.previous_addresses;
+        }
+        if (prevRes.rows.length > 0) {
+            allPrev = allPrev.concat(prevRes.rows);
+        }
+
+        res.json({
+            success: true,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            address_line_1: row.address_line_1,
+            address_line_2: row.address_line_2,
+            city: row.city,
+            state_county: row.state_county,
+            postal_code: row.postal_code,
+            previous_addresses: allPrev
+        });
+    } catch (error) {
+        console.error('Validate previous address token error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+// Submit previous address form
+// POST /api/previous-address/:token
+app.post('/api/previous-address/:token', async (req, res) => {
+    const { token } = req.params;
+    const { hasPreviousAddress, addresses } = req.body;
+
+    try {
+        const tokenRes = await pool.query(
+            `SELECT pat.*, c.id as cid, c.first_name, c.last_name
+             FROM previous_address_tokens pat
+             JOIN contacts c ON c.id = pat.contact_id
+             WHERE pat.token = $1`,
+            [token]
+        );
+        if (tokenRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid token' });
+        }
+        const row = tokenRes.rows[0];
+        if (row.submitted) {
+            return res.status(400).json({ success: false, message: 'Already submitted' });
+        }
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(410).json({ success: false, message: 'Token expired' });
+        }
+
+        const contactId = row.cid;
+
+        if (hasPreviousAddress && addresses && addresses.length > 0) {
+            // Insert each address into previous_addresses table
+            for (const addr of addresses) {
+                await pool.query(
+                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [contactId, addr.address_line_1, addr.address_line_2 || null, addr.city, addr.county || null, addr.postal_code]
+                );
+            }
+
+            // Also append to JSONB previous_addresses on contacts
+            const contactRes = await pool.query('SELECT previous_addresses FROM contacts WHERE id = $1', [contactId]);
+            let existing = contactRes.rows[0]?.previous_addresses || [];
+            if (!Array.isArray(existing)) existing = [];
+            const merged = existing.concat(addresses);
+            await pool.query('UPDATE contacts SET previous_addresses = $1 WHERE id = $2', [JSON.stringify(merged), contactId]);
+        }
+
+        // Mark token as submitted
+        await pool.query('UPDATE previous_address_tokens SET submitted = true WHERE token = $1', [token]);
+
+        // Log action
+        await pool.query(
+            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+             VALUES ($1, 'client', $2, 'Client', 'previous_address_submitted', 'contact', $3, $4, NOW())`,
+            [
+                contactId,
+                String(contactId),
+                hasPreviousAddress
+                    ? `Client submitted ${addresses.length} previous address(es) via secure link`
+                    : 'Client confirmed no additional previous addresses via secure link',
+                JSON.stringify({ hasPreviousAddress, addresses: addresses || [] })
+            ]
+        );
+
+        console.log(`[Previous Address] Contact ${contactId}: ${hasPreviousAddress ? addresses.length + ' address(es) added' : 'No previous addresses'}`);
+        res.json({ success: true, message: 'Previous address submitted successfully' });
+    } catch (error) {
+        console.error('Previous Address Submit Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 // Get action timeline for a contact
 app.get('/api/contacts/:id/action-timeline', async (req, res) => {
     const { id } = req.params;

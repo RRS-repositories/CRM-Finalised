@@ -402,6 +402,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [generatingIdUpload, setGeneratingIdUpload] = useState(false);
    const [copiedIdUpload, setCopiedIdUpload] = useState(false);
    const [copiedLoaLink, setCopiedLoaLink] = useState(false);
+   const [prevAddrLink, setPrevAddrLink] = useState<string | null>(null);
+   const [generatingPrevAddr, setGeneratingPrevAddr] = useState(false);
+   const [copiedPrevAddr, setCopiedPrevAddr] = useState(false);
 
    // ============================================
    // CRM Specification State (Phase 4 & 5)
@@ -2906,6 +2909,28 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         >
                            {generatingLoaLink ? '...' : '📋 Generate Extra Lender Link'}
                         </button>
+
+                        {/* Previous Address Link */}
+                        <button
+                           onClick={async () => {
+                              setGeneratingPrevAddr(true);
+                              try {
+                                 const res = await fetch('/api/generate-previous-address-token', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ contactId: contact.id })
+                                 });
+                                 const data = await res.json();
+                                 if (data.success) setPrevAddrLink(`${window.location.origin}${data.url}`);
+                              } finally {
+                                 setGeneratingPrevAddr(false);
+                              }
+                           }}
+                           disabled={generatingPrevAddr}
+                           className="px-3 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                        >
+                           {generatingPrevAddr ? '...' : '🏠 Generate Prev Address Link'}
+                        </button>
                      </div>
 
                      {/* Gambling Q Link row */}
@@ -2976,6 +3001,24 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedLoaLink ? 'bg-green-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
                            >
                               {copiedLoaLink ? '✓ Copied' : 'Copy'}
+                           </button>
+                        </div>
+                     )}
+
+                     {/* Previous Address Link row */}
+                     {prevAddrLink && (
+                        <div className="flex items-center gap-2 p-2 bg-teal-50 border border-teal-200 rounded-lg">
+                           <span className="text-teal-700 text-xs font-medium whitespace-nowrap">Prev Address:</span>
+                           <span className="text-xs text-slate-600 truncate flex-1">{prevAddrLink}</span>
+                           <button
+                              onClick={() => {
+                                 navigator.clipboard.writeText(prevAddrLink);
+                                 setCopiedPrevAddr(true);
+                                 setTimeout(() => setCopiedPrevAddr(false), 2000);
+                              }}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedPrevAddr ? 'bg-green-600 text-white' : 'bg-teal-600 hover:bg-teal-700 text-white'}`}
+                           >
+                              {copiedPrevAddr ? '✓ Copied' : 'Copy'}
                            </button>
                         </div>
                      )}

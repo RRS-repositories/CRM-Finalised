@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Previous Address - Rowan Rose Solicitors</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Inter"', '"Lato"', 'sans-serif'],
+                        serif: ['"Playfair Display"', 'serif'],
+                    },
+                    colors: {
+                        brand: { orange: '#F18F01' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes ping1 { 0% { transform: scale(1); opacity: 1; } 75%, 100% { transform: scale(1.3); opacity: 0; } }
+        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        .slide-up { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+
+<body>
+    <div class="min-h-screen w-full bg-slate-50 font-sans flex flex-col md:flex-row">
+
+        <!-- MOBILE HEADER -->
+        <div class="md:hidden bg-[#0f172a] p-6 flex items-center gap-3 shrink-0">
+            <img src="/rr-logo.png" alt="Logo" class="w-12 h-12 rounded-full shadow-lg" />
+            <h1 class="font-serif text-2xl tracking-wide text-white">Rowan Rose Solicitors</h1>
+        </div>
+
+        <!-- LEFT PANEL -->
+        <div class="order-3 md:order-1 md:w-5/12 lg:w-1/3 bg-[#0f172a] text-white flex flex-col justify-between shrink-0 shadow-2xl z-20 relative overflow-y-auto">
+            <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
+            <div class="absolute bottom-0 left-0 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none hidden md:block"></div>
+
+            <div class="relative z-10 h-full flex flex-col p-8 md:p-12">
+                <div class="hidden md:flex items-center gap-3 mb-8 shrink-0">
+                    <img src="/rr-logo.png" alt="Logo" class="w-16 h-16 rounded-full shadow-lg" />
+                    <h1 class="font-serif text-3xl tracking-wide">Rowan Rose Solicitors</h1>
+                </div>
+
+                <div class="flex-1">
+                    <h2 class="text-2xl font-serif font-light leading-tight mb-4 text-brand-orange">Multi Discipline Law Firm in the Heart of Manchester</h2>
+                    <p class="text-slate-300 font-light leading-relaxed text-sm mb-8 border-l-2 border-slate-700 pl-4">
+                        Rowan Rose is a high-end boutique law firm committed to delivering the highest quality of service and advice.</p>
+
+                    <h3 class="text-lg font-serif text-white mb-6 border-b border-slate-700 pb-2">Why Choose Us</h3>
+
+                    <div class="space-y-4">
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700">
+                                <i class="fas fa-scale-balanced text-brand-orange text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-brand-orange font-medium text-base mb-1">Expertise</h4>
+                                <p class="text-slate-400 text-xs leading-relaxed">We have the expertise to handle a wide range of legal matters with precision and care.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700">
+                                <i class="fas fa-shield-halved text-brand-orange text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-brand-orange font-medium text-base mb-1">Trust</h4>
+                                <p class="text-slate-400 text-xs leading-relaxed">Your data is handled securely and confidentially at every step.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-4 items-start">
+                            <div class="mt-1 w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700">
+                                <i class="fas fa-handshake text-brand-orange text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-brand-orange font-medium text-base mb-1">Commitment</h4>
+                                <p class="text-slate-400 text-xs leading-relaxed">We are committed to achieving the best possible outcomes for our clients.</p>
+                            </div>
+                        </div>
+                    <!-- Contact Info -->
+                    <div class="mt-10 border-t border-slate-700 pt-7">
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-4 group">
+                                <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700 group-hover:border-brand-orange transition-colors">
+                                    <i class="fas fa-envelope text-brand-orange text-lg"></i>
+                                </div>
+                                <a href="mailto:info@rowanrose.co.uk" class="text-white hover:text-brand-orange transition-colors text-sm">
+                                    info@rowanrose.co.uk
+                                </a>
+                            </div>
+                            <div class="flex items-center gap-4 group">
+                                <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700 group-hover:border-brand-orange transition-colors">
+                                    <i class="fas fa-phone text-brand-orange text-lg"></i>
+                                </div>
+                                <a href="tel:01615330444" class="text-white hover:text-brand-orange transition-colors text-sm">
+                                    0161 533 0444
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Location / Map -->
+                <div class="mt-8 pt-4 border-t border-slate-800 w-full px-8 md:px-12 pb-8">
+                    <div class="rounded-xl overflow-hidden shadow-lg border border-slate-700 h-[200px]">
+                        <iframe
+                            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2656.6080394027376!2d-2.2841397875980527!3d53.46533976569785!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x487bb1be4045833f%3A0x8c6f32074438a7eb!2sRowan%20Rose%20Solicitors%20Ltd!5e1!3m2!1sen!2sin!4v1768378150706!5m2!1sen!2sin"
+                            width="100%"
+                            height="100%"
+                            style="border:0"
+                            allowfullscreen="true"
+                            loading="lazy"
+                            referrerpolicy="no-referrer-when-downgrade"
+                            title="Location"
+                        ></iframe>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL (Main Content) -->
+        <div class="order-2 flex-1 overflow-y-auto p-6 md:p-12 lg:p-16">
+
+            <!-- Main Form -->
+            <div id="mainForm" class="fade-in max-w-2xl mx-auto">
+                <div class="text-center mb-10">
+                    <h2 id="welcomeHeading" class="text-4xl md:text-5xl font-serif text-slate-900 mb-4 font-bold">Previous Address</h2>
+                    <p class="text-slate-500 text-sm uppercase tracking-wide">
+                        Please confirm your address details below
+                    </p>
+                </div>
+
+                <!-- Current Address -->
+                <div id="currentAddressSection" class="mb-8">
+                    <h3 class="text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                        <i class="fas fa-home text-brand-orange"></i> Current Address
+                    </h3>
+                    <div id="currentAddress" class="p-5 bg-white border-2 border-slate-200 rounded-xl text-slate-700 leading-relaxed">
+                        Loading...
+                    </div>
+                </div>
+
+                <!-- Existing Previous Addresses -->
+                <div id="existingPrevSection" class="mb-8 hidden">
+                    <h3 class="text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                        <i class="fas fa-clock-rotate-left text-brand-orange"></i> Previous Address(es) On File
+                    </h3>
+                    <div id="existingPrevAddresses" class="space-y-3"></div>
+                </div>
+
+                <!-- Question -->
+                <div class="mb-8 p-6 bg-amber-50 rounded-xl border-2 border-amber-200">
+                    <p class="text-amber-900 font-semibold text-base mb-4">
+                        Have you had any other previous addresses in the past 10 years not shown above?
+                    </p>
+                    <div class="flex gap-4">
+                        <button id="btnYes" onclick="selectAnswer(true)"
+                            class="flex-1 py-3 rounded-lg border-2 border-slate-300 text-slate-700 font-semibold text-lg transition-all hover:border-brand-orange hover:bg-amber-50">
+                            Yes
+                        </button>
+                        <button id="btnNo" onclick="selectAnswer(false)"
+                            class="flex-1 py-3 rounded-lg border-2 border-slate-300 text-slate-700 font-semibold text-lg transition-all hover:border-brand-orange hover:bg-amber-50">
+                            No
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Address Entry (hidden until Yes) -->
+                <div id="addressEntry" class="hidden slide-up space-y-6">
+                    <div id="addressForms"></div>
+
+                    <button type="button" onclick="addAddressForm()"
+                        class="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-medium hover:border-brand-orange hover:text-brand-orange transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-plus"></i> Add Another Address
+                    </button>
+                </div>
+
+                <!-- Submit Button -->
+                <div class="mt-8">
+                    <button id="submitBtn" onclick="handleSubmit()" disabled
+                        class="w-full py-4 text-white font-medium tracking-wide text-lg rounded-lg transition-all bg-sky-300 opacity-50 cursor-not-allowed shadow-md">
+                        Submit
+                    </button>
+                </div>
+            </div>
+
+            <!-- Success Screen -->
+            <div id="successScreen" class="hidden flex flex-col items-center justify-center h-[50vh] text-center fade-in">
+                <div class="relative">
+                    <div class="w-24 h-24 border-4 border-green-500 rounded-full flex items-center justify-center" style="animation: ping1 1s ease-in-out 1;"></div>
+                    <div class="absolute top-0 left-0 w-24 h-24 bg-green-50 rounded-full flex items-center justify-center border-4 border-green-500">
+                        <i class="fas fa-check text-4xl text-green-600"></i>
+                    </div>
+                </div>
+                <h2 class="text-3xl font-serif text-slate-900 mt-8 mb-2">Submitted Successfully</h2>
+                <p class="text-slate-500 text-lg">Thank you! Your address details have been received.</p>
+                <p class="text-slate-400 text-sm mt-2">Redirecting you securely...</p>
+            </div>
+
+            <!-- Error Screen -->
+            <div id="errorScreen" class="hidden flex flex-col items-center justify-center h-[50vh] text-center fade-in">
+                <div class="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center border-4 border-red-400">
+                    <i class="fas fa-exclamation-triangle text-4xl text-red-500"></i>
+                </div>
+                <h2 class="text-3xl font-serif text-slate-900 mt-8 mb-2">Something Went Wrong</h2>
+                <p id="errorMessage" class="text-slate-500 text-lg">Please try again or contact Rowan Rose Solicitors.</p>
+                <button onclick="location.reload()" class="mt-6 px-8 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all">
+                    Try Again
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let token = null;
+        let contactData = null;
+        let hasSelected = null; // null = not answered, true = yes, false = no
+        let addressCount = 0;
+
+        // Extract token from URL: /previous-address/:token
+        const pathParts = window.location.pathname.split('/');
+        const paIndex = pathParts.indexOf('previous-address');
+        if (paIndex !== -1 && pathParts[paIndex + 1]) {
+            token = pathParts[paIndex + 1];
+        }
+
+        // Validate token and load contact data
+        if (token) {
+            fetch(`/api/previous-address-token/${token}/validate`)
+                .then(r => {
+                    if (!r.ok) {
+                        return r.json().then(data => {
+                            document.getElementById('mainForm').classList.add('hidden');
+                            document.getElementById('errorScreen').classList.remove('hidden');
+                            document.getElementById('errorMessage').textContent = data.message || 'Invalid or expired link.';
+                            return null;
+                        });
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    contactData = data;
+                    document.getElementById('welcomeHeading').textContent =
+                        `Hi ${data.first_name} ${data.last_name || ''}`;
+
+                    // Show current address
+                    const addrParts = [data.address_line_1, data.address_line_2, data.city, data.state_county, data.postal_code].filter(Boolean);
+                    document.getElementById('currentAddress').innerHTML = addrParts.length > 0
+                        ? `<p class="font-medium">${addrParts.join(', ')}</p>`
+                        : '<p class="text-slate-400 italic">No current address on file</p>';
+
+                    // Show existing previous addresses
+                    if (data.previous_addresses && data.previous_addresses.length > 0) {
+                        document.getElementById('existingPrevSection').classList.remove('hidden');
+                        const container = document.getElementById('existingPrevAddresses');
+                        data.previous_addresses.forEach((addr, i) => {
+                            const parts = [addr.address_line_1, addr.address_line_2, addr.city, addr.county, addr.postal_code].filter(Boolean);
+                            const div = document.createElement('div');
+                            div.className = 'p-4 bg-white border-2 border-slate-200 rounded-xl text-slate-700';
+                            div.innerHTML = `<p class="font-medium">${parts.join(', ')}</p>`;
+                            container.appendChild(div);
+                        });
+                    }
+                })
+                .catch(() => {});
+        } else {
+            document.getElementById('mainForm').classList.add('hidden');
+            document.getElementById('errorScreen').classList.remove('hidden');
+            document.getElementById('errorMessage').textContent = 'Invalid link. Please use the link provided by Rowan Rose Solicitors.';
+        }
+
+        function selectAnswer(yes) {
+            hasSelected = yes;
+            const btnYes = document.getElementById('btnYes');
+            const btnNo = document.getElementById('btnNo');
+            const entry = document.getElementById('addressEntry');
+
+            if (yes) {
+                btnYes.className = 'flex-1 py-3 rounded-lg border-2 border-brand-orange bg-amber-100 text-brand-orange font-semibold text-lg transition-all';
+                btnNo.className = 'flex-1 py-3 rounded-lg border-2 border-slate-300 text-slate-700 font-semibold text-lg transition-all hover:border-brand-orange hover:bg-amber-50';
+                entry.classList.remove('hidden');
+                if (addressCount === 0) addAddressForm();
+            } else {
+                btnNo.className = 'flex-1 py-3 rounded-lg border-2 border-brand-orange bg-amber-100 text-brand-orange font-semibold text-lg transition-all';
+                btnYes.className = 'flex-1 py-3 rounded-lg border-2 border-slate-300 text-slate-700 font-semibold text-lg transition-all hover:border-brand-orange hover:bg-amber-50';
+                entry.classList.add('hidden');
+            }
+            updateSubmitButton();
+        }
+
+        function addAddressForm() {
+            addressCount++;
+            const idx = addressCount;
+            const container = document.getElementById('addressForms');
+            const div = document.createElement('div');
+            div.id = `addressBlock_${idx}`;
+            div.className = 'p-5 bg-white border-2 border-slate-200 rounded-xl space-y-4 relative';
+            div.innerHTML = `
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="font-semibold text-slate-800">Address ${idx}</h4>
+                    ${idx > 1 ? `<button type="button" onclick="removeAddressForm(${idx})" class="text-red-400 hover:text-red-600 text-xs font-bold uppercase"><i class="fas fa-times mr-1"></i>Remove</button>` : ''}
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Address Line 1 *</label>
+                    <input type="text" id="addr_${idx}_line1" required
+                        class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors"
+                        placeholder="House number and street">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Address Line 2</label>
+                    <input type="text" id="addr_${idx}_line2"
+                        class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors"
+                        placeholder="Flat, apartment, etc. (optional)">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">City / Town *</label>
+                        <input type="text" id="addr_${idx}_city" required
+                            class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors"
+                            placeholder="City">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">County</label>
+                        <input type="text" id="addr_${idx}_county"
+                            class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors"
+                            placeholder="County">
+                    </div>
+                </div>
+                <div class="w-1/2">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Postcode *</label>
+                    <input type="text" id="addr_${idx}_postcode" required
+                        class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg text-sm focus:border-brand-orange focus:outline-none transition-colors"
+                        placeholder="e.g. M1 1AA">
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function removeAddressForm(idx) {
+            const block = document.getElementById(`addressBlock_${idx}`);
+            if (block) block.remove();
+        }
+
+        function updateSubmitButton() {
+            const btn = document.getElementById('submitBtn');
+            if (hasSelected !== null) {
+                btn.disabled = false;
+                btn.className = 'w-full py-4 text-white font-medium tracking-wide text-lg rounded-lg transition-all bg-blue-600 shadow-xl shadow-blue-600/30 hover:bg-blue-700 hover:shadow-2xl hover:-translate-y-1 ring-2 ring-blue-400 ring-offset-2';
+            }
+        }
+
+        async function handleSubmit() {
+            if (hasSelected === null || !token) return;
+
+            // If yes, collect addresses and validate required fields
+            let newAddresses = [];
+            if (hasSelected) {
+                const blocks = document.querySelectorAll('[id^="addressBlock_"]');
+                for (const block of blocks) {
+                    const idx = block.id.split('_')[1];
+                    const line1 = document.getElementById(`addr_${idx}_line1`)?.value.trim();
+                    const city = document.getElementById(`addr_${idx}_city`)?.value.trim();
+                    const postcode = document.getElementById(`addr_${idx}_postcode`)?.value.trim();
+
+                    if (!line1 || !city || !postcode) {
+                        alert('Please fill in all required address fields (Address Line 1, City, Postcode).');
+                        return;
+                    }
+
+                    newAddresses.push({
+                        address_line_1: line1,
+                        address_line_2: document.getElementById(`addr_${idx}_line2`)?.value.trim() || '',
+                        city: city,
+                        county: document.getElementById(`addr_${idx}_county`)?.value.trim() || '',
+                        postal_code: postcode
+                    });
+                }
+
+                if (newAddresses.length === 0) {
+                    alert('Please add at least one previous address.');
+                    return;
+                }
+            }
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="flex items-center justify-center gap-2"><i class="fas fa-circle-notch fa-spin"></i> Submitting...</span>';
+
+            try {
+                const response = await fetch(`/api/previous-address/${token}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        hasPreviousAddress: hasSelected,
+                        addresses: newAddresses
+                    })
+                });
+
+                if (response.ok) {
+                    document.getElementById('mainForm').classList.add('hidden');
+                    document.getElementById('successScreen').classList.remove('hidden');
+                    setTimeout(() => { window.location.href = 'https://www.rowanrose.co.uk/'; }, 2500);
+                } else {
+                    const data = await response.json();
+                    throw new Error(data.message || 'Submission failed');
+                }
+            } catch (err) {
+                document.getElementById('mainForm').classList.add('hidden');
+                document.getElementById('errorScreen').classList.remove('hidden');
+                document.getElementById('errorMessage').textContent = err.message || 'Something went wrong. Please try again.';
+            }
+        }
+    </script>
+</body>
+
+</html>
