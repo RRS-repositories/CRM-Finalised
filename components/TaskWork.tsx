@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Filter, ChevronLeft, ChevronRight, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle, X } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -19,9 +19,15 @@ interface TaskWorkClaim {
   tw_assigned_at: string | null;
   tw_completed: boolean;
   tw_completed_at: string | null;
+  tw_completed_by: number | null;
   tw_red_flag: boolean;
   tw_red_flag_at: string | null;
+  tw_red_flag_by: number | null;
+  tw_originally_assigned_to: number | null;
   assigned_to_name: string | null;
+  completed_by_name: string | null;
+  flagged_by_name: string | null;
+  originally_assigned_to_name: string | null;
 }
 
 interface AdminUser {
@@ -56,6 +62,7 @@ const TaskWork: React.FC = () => {
   const [assignedToFilter, setAssignedToFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [flagFilter, setFlagFilter] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Selection state
@@ -83,6 +90,7 @@ const TaskWork: React.FC = () => {
         ...(assignedToFilter && { assignedTo: assignedToFilter }),
         ...(dateFrom && { dateFrom }),
         ...(dateTo && { dateTo }),
+        ...(flagFilter && { flagFilter }),
       });
       const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
       const data = await res.json();
@@ -94,7 +102,7 @@ const TaskWork: React.FC = () => {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo]);
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
 
   const fetchFilterData = useCallback(async () => {
     try {
@@ -122,7 +130,7 @@ const TaskWork: React.FC = () => {
   useEffect(() => {
     fetchClaims(1, pagination.limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo]);
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
 
   // Fetch on pagination change only
   useEffect(() => {
@@ -181,6 +189,42 @@ const TaskWork: React.FC = () => {
       }
     } catch (err) {
       addNotification('error', 'Failed to unassign claims');
+    }
+  };
+
+  const handleUnflag = async (claimId: number) => {
+    try {
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/unflag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claimId, userId: currentUser.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification('success', 'Red flag removed');
+        fetchClaims();
+      }
+    } catch {
+      addNotification('error', 'Failed to unflag task');
+    }
+  };
+
+  const handleBulkUnflag = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/unflag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claimIds: Array.from(selectedIds), userId: currentUser.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification('success', `Unflagged ${data.unflagged} claims successfully`);
+        setSelectedIds(new Set());
+        fetchClaims();
+      }
+    } catch {
+      addNotification('error', 'Failed to bulk unflag claims');
     }
   };
 
@@ -331,9 +375,21 @@ const TaskWork: React.FC = () => {
                 />
               </div>
             </div>
-            {(statusFilter || lenderFilter || assignedToFilter || dateFrom || dateTo) && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1.5">Flag Status</label>
+              <select
+                value={flagFilter}
+                onChange={e => setFlagFilter(e.target.value)}
+                className="px-3 py-2 text-sm bg-gray-100 dark:bg-surface-900 border border-gray-200 dark:border-white/10 rounded-lg text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-orange/30 min-w-[160px]"
+              >
+                <option value="">All</option>
+                <option value="completed">Task Completed</option>
+                <option value="red_flagged">Red Flagged</option>
+              </select>
+            </div>
+            {(statusFilter || lenderFilter || assignedToFilter || dateFrom || dateTo || flagFilter) && (
               <button
-                onClick={() => { setStatusFilter(''); setLenderFilter(''); setAssignedToFilter(''); setDateFrom(''); setDateTo(''); }}
+                onClick={() => { setStatusFilter(''); setLenderFilter(''); setAssignedToFilter(''); setDateFrom(''); setDateTo(''); setFlagFilter(''); }}
                 className="px-3 py-2 text-sm text-red-500 hover:text-red-400 font-medium transition-all"
               >
                 Clear All
@@ -373,6 +429,14 @@ const TaskWork: React.FC = () => {
             <UserX size={16} />
             Unassign
           </button>
+          <button
+            onClick={handleBulkUnflag}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <X size={16} />
+            Unflag
+          </button>
         </div>
       </div>
 
@@ -393,16 +457,15 @@ const TaskWork: React.FC = () => {
                 <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Contact</th>
                 <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Lender</th>
                 <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Status</th>
-                <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Claim Value</th>
                 <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Date</th>
                 <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Assigned To</th>
-                <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3 w-20">Flags</th>
+                <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3 min-w-[180px]">Flags</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-20">
+                  <td colSpan={7} className="text-center py-20">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-3 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin" />
                       <p className="text-sm text-gray-500 dark:text-gray-400">Loading claims...</p>
@@ -411,7 +474,7 @@ const TaskWork: React.FC = () => {
                 </tr>
               ) : claims.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-20 text-gray-500 dark:text-gray-400">
+                  <td colSpan={7} className="text-center py-20 text-gray-500 dark:text-gray-400">
                     No claims found
                   </td>
                 </tr>
@@ -450,9 +513,6 @@ const TaskWork: React.FC = () => {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(claim.claim_value)}</span>
-                    </td>
-                    <td className="px-4 py-3">
                       <span className="text-sm text-gray-500 dark:text-gray-400">{formatDate(claim.created_at)}</span>
                     </td>
                     <td className="px-4 py-3">
@@ -461,17 +521,41 @@ const TaskWork: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        {claim.tw_completed && (
-                          <span title="Task Completed" className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20">
-                            <CheckCircle size={14} className="text-green-500" />
-                          </span>
-                        )}
-                        {claim.tw_red_flag && (
-                          <span title="Red Flagged" className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-500/20">
-                            <Flag size={14} className="text-red-500" />
-                          </span>
-                        )}
+                      <div className="flex flex-col gap-1">
+                        {claim.tw_completed ? (
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle size={12} className="text-green-500 shrink-0" />
+                            <span className="text-[11px] text-green-500 font-medium leading-tight">
+                              Task Completed by {claim.completed_by_name || 'Unknown'}
+                            </span>
+                          </div>
+                        ) : claim.tw_red_flag ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <Flag size={12} className="text-red-500 shrink-0" />
+                              <span className="text-[11px] text-red-500 font-medium leading-tight">
+                                Red Flagged by {claim.flagged_by_name || 'Unknown'}
+                              </span>
+                            </div>
+                            {claim.originally_assigned_to_name && (
+                              <span className="text-[10px] text-gray-400 leading-tight pl-[18px]">
+                                Assigned to: {claim.originally_assigned_to_name}
+                              </span>
+                            )}
+                            {claim.assigned_to_name && (
+                              <span className="text-[10px] text-blue-400 leading-tight pl-[18px]">
+                                Now with: {claim.assigned_to_name}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleUnflag(claim.id); }}
+                              className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-400 font-medium pl-[18px] w-fit"
+                            >
+                              <X size={10} />
+                              Unflag
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

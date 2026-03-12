@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock } from 'lucide-react';
+import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock, X, UserCheck } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 
@@ -37,6 +37,29 @@ interface AgentStatus {
   month_wastage_minutes: number;
 }
 
+interface AgentTask {
+  id: number;
+  contact_id: number;
+  contact_name: string;
+  email: string;
+  phone: string;
+  lender: string;
+  status: string;
+  claim_value: number | null;
+  tw_completed: boolean;
+  tw_completed_at: string | null;
+  tw_completed_by: number | null;
+  tw_red_flag: boolean;
+  tw_red_flag_at: string | null;
+  tw_red_flag_by: number | null;
+  tw_assigned_to: number | null;
+  tw_originally_assigned_to: number | null;
+  assigned_to_name: string | null;
+  flagged_by_name: string | null;
+  completed_by_name: string | null;
+  originally_assigned_to_name: string | null;
+}
+
 type Period = 'day' | 'week' | 'month' | 'year';
 
 const TaskWorkDashboard: React.FC = () => {
@@ -50,6 +73,13 @@ const TaskWorkDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [allStatuses, setAllStatuses] = useState<string[]>([]);
+
+  // Agent drill-down modal state
+  const [selectedAgent, setSelectedAgent] = useState<AgentStatus | null>(null);
+  const [agentTasks, setAgentTasks] = useState<AgentTask[]>([]);
+  const [agentTasksLoading, setAgentTasksLoading] = useState(false);
+  const [agentFlagFilter, setAgentFlagFilter] = useState('');
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
 
   if (currentUser?.role !== 'Management') {
     return (
@@ -137,6 +167,76 @@ const TaskWorkDashboard: React.FC = () => {
     const mins = Math.round(minutes % 60);
     return `${hrs} HRS ${mins} MINS`;
   }, []);
+
+  const fetchAgentTasks = useCallback(async (agentId: number, flagFilter?: string) => {
+    setAgentTasksLoading(true);
+    try {
+      const params = flagFilter ? `?flagFilter=${flagFilter}` : '';
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/agent-tasks/${agentId}${params}`);
+      const data = await res.json();
+      setAgentTasks(data.tasks || []);
+    } catch (err) {
+      console.error('Failed to fetch agent tasks:', err);
+    } finally {
+      setAgentTasksLoading(false);
+    }
+  }, []);
+
+  const openAgentModal = useCallback((agent: AgentStatus) => {
+    setSelectedAgent(agent);
+    setAgentFlagFilter('');
+    setSelectedTaskIds(new Set());
+    fetchAgentTasks(agent.id);
+  }, [fetchAgentTasks]);
+
+  const handleAgentFlagFilterChange = useCallback((filter: string) => {
+    setAgentFlagFilter(filter);
+    if (selectedAgent) {
+      fetchAgentTasks(selectedAgent.id, filter);
+      setSelectedTaskIds(new Set());
+    }
+  }, [selectedAgent, fetchAgentTasks]);
+
+  const handleBulkReassign = useCallback(async () => {
+    if (selectedTaskIds.size === 0 || !selectedAgent) return;
+    const priyanshu = agents.find(a => a.name === 'Priyanshu Srivastava');
+    if (!priyanshu) {
+      console.error('Priyanshu Srivastava not found in agents list');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claimIds: Array.from(selectedTaskIds), adminId: priyanshu.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchAgentTasks(selectedAgent.id, agentFlagFilter);
+        setSelectedTaskIds(new Set());
+        fetchAll(true);
+      }
+    } catch (err) {
+      console.error('Failed to bulk reassign:', err);
+    }
+  }, [selectedTaskIds, selectedAgent, agents, agentFlagFilter, fetchAgentTasks, fetchAll]);
+
+  const handleTaskSelect = useCallback((taskId: number) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllTasks = useCallback(() => {
+    if (selectedTaskIds.size === agentTasks.length) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(agentTasks.map(t => t.id)));
+    }
+  }, [agentTasks, selectedTaskIds]);
 
   const periodButtons: { value: Period; label: string }[] = [
     { value: 'day', label: 'Day' },
@@ -358,7 +458,7 @@ const TaskWorkDashboard: React.FC = () => {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {agents.map(agent => (
-            <div key={agent.id} className="flex flex-col items-center p-4 rounded-xl bg-gray-50 dark:bg-surface-900 border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 transition-all">
+            <div key={agent.id} onClick={() => openAgentModal(agent)} className="flex flex-col items-center p-4 rounded-xl bg-gray-50 dark:bg-surface-900 border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 transition-all cursor-pointer">
               {/* Avatar with online indicator */}
               <div className="relative mb-2">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold bg-gradient-to-br ${getAvatarColor(agent.name)}`}>
@@ -422,6 +522,145 @@ const TaskWorkDashboard: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Agent Tasks Drill-Down Modal */}
+      {selectedAgent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedAgent(null)}>
+          <div className="bg-white dark:bg-surface-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 w-[90vw] max-w-5xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold bg-gradient-to-br ${getAvatarColor(selectedAgent.name)}`}>
+                  {getInitials(selectedAgent.name)}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">{selectedAgent.name}</h2>
+                  <p className="text-xs text-gray-400">{selectedAgent.role} &middot; {agentTasks.length} tasks</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Bulk Reassign Button */}
+                {selectedTaskIds.size > 0 && (
+                  <button
+                    onClick={handleBulkReassign}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-all"
+                  >
+                    <UserCheck size={14} />
+                    Reassign {selectedTaskIds.size} to Priyanshu
+                  </button>
+                )}
+                <button onClick={() => setSelectedAgent(null)} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-all">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-200 dark:border-white/10 shrink-0">
+              {(['', 'completed', 'red_flagged'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => handleAgentFlagFilterChange(f)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    agentFlagFilter === f
+                      ? f === 'completed' ? 'bg-green-500/10 text-green-500 border border-green-500/30'
+                        : f === 'red_flagged' ? 'bg-red-500/10 text-red-500 border border-red-500/30'
+                        : 'bg-brand-orange/10 text-brand-orange border border-brand-orange/30'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  {f === '' ? 'All' : f === 'completed' ? 'Task Completed' : 'Red Flagged'}
+                </button>
+              ))}
+            </div>
+
+            {/* Tasks Table */}
+            <div className="flex-1 overflow-auto">
+              {agentTasksLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="w-8 h-8 border-3 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin" />
+                </div>
+              ) : agentTasks.length === 0 ? (
+                <div className="text-center py-20 text-gray-400 text-sm">No tasks found</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-gray-50 dark:bg-surface-900 z-10">
+                    <tr className="border-b border-gray-200 dark:border-white/5">
+                      <th className="w-10 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={agentTasks.length > 0 && selectedTaskIds.size === agentTasks.length}
+                          onChange={handleSelectAllTasks}
+                          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-brand-orange focus:ring-brand-orange/50 cursor-pointer"
+                        />
+                      </th>
+                      <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Contact</th>
+                      <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Lender</th>
+                      <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Status</th>
+                      <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3">Assigned To</th>
+                      <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-4 py-3 min-w-[200px]">Flag Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentTasks.map(task => (
+                      <tr key={task.id} className={`border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-all ${selectedTaskIds.has(task.id) ? 'bg-brand-orange/5' : ''}`}>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedTaskIds.has(task.id)}
+                            onChange={() => handleTaskSelect(task.id)}
+                            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-brand-orange focus:ring-brand-orange/50 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{task.contact_name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{task.email}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{task.lender || '-'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-600 dark:text-gray-300">{task.status || '-'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{task.assigned_to_name || '-'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            {task.tw_completed ? (
+                              <div className="flex items-center gap-1.5">
+                                <CheckCircle size={12} className="text-green-500 shrink-0" />
+                                <span className="text-[11px] text-green-500 font-medium">Task Completed by {task.completed_by_name || 'Unknown'}</span>
+                              </div>
+                            ) : task.tw_red_flag ? (
+                              <>
+                                <div className="flex items-center gap-1.5">
+                                  <Flag size={12} className="text-red-500 shrink-0" />
+                                  <span className="text-[11px] text-red-500 font-medium">Red Flagged by {task.flagged_by_name || 'Unknown'}</span>
+                                </div>
+                                {task.originally_assigned_to_name && (
+                                  <span className="text-[10px] text-gray-400 pl-[18px]">Assigned to: {task.originally_assigned_to_name}</span>
+                                )}
+                                {task.assigned_to_name && (
+                                  <span className="text-[10px] text-blue-400 pl-[18px]">Now with: {task.assigned_to_name}</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

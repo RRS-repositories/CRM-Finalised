@@ -295,6 +295,9 @@ crmEvents.init(pool);
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_red_flag_by') THEN
                         ALTER TABLE cases ADD COLUMN tw_red_flag_by INTEGER;
                     END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='tw_originally_assigned_to') THEN
+                        ALTER TABLE cases ADD COLUMN tw_originally_assigned_to INTEGER;
+                    END IF;
 
                     -- User activity tracking: last_active_at on users table
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_active_at') THEN
@@ -17492,6 +17495,7 @@ app.get('/api/task-work/claims', async (req, res) => {
         const assignedTo = req.query.assignedTo || '';
         const dateFrom = req.query.dateFrom || '';
         const dateTo = req.query.dateTo || '';
+        const flagFilter = req.query.flagFilter || '';
 
         const conditions = [];
         const params = [];
@@ -17534,19 +17538,32 @@ app.get('/api/task-work/claims', async (req, res) => {
             paramIdx++;
         }
 
+        if (flagFilter === 'completed') {
+            conditions.push(`cs.tw_completed = true`);
+        } else if (flagFilter === 'red_flagged') {
+            conditions.push(`cs.tw_red_flag = true AND cs.tw_completed = false`);
+        }
+
         const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
         const [claimsResult, totalResult] = await Promise.all([
             pool.query(`
                 SELECT cs.id, cs.contact_id, cs.lender, cs.status, cs.claim_value, cs.created_at,
                        cs.tw_assigned_to, cs.tw_assigned_at,
-                       cs.tw_completed, cs.tw_completed_at,
-                       cs.tw_red_flag, cs.tw_red_flag_at,
+                       cs.tw_completed, cs.tw_completed_at, cs.tw_completed_by,
+                       cs.tw_red_flag, cs.tw_red_flag_at, cs.tw_red_flag_by,
+                       cs.tw_originally_assigned_to,
                        ct.full_name as contact_name, ct.first_name, ct.last_name, ct.email, ct.phone,
-                       u.full_name as assigned_to_name
+                       u.full_name as assigned_to_name,
+                       uc.full_name as completed_by_name,
+                       uf.full_name as flagged_by_name,
+                       uo.full_name as originally_assigned_to_name
                 FROM cases cs
                 JOIN contacts ct ON cs.contact_id = ct.id
                 LEFT JOIN users u ON cs.tw_assigned_to = u.id
+                LEFT JOIN users uc ON cs.tw_completed_by = uc.id
+                LEFT JOIN users uf ON cs.tw_red_flag_by = uf.id
+                LEFT JOIN users uo ON cs.tw_originally_assigned_to = uo.id
                 ${whereClause}
                 ORDER BY cs.tw_assigned_to IS NOT NULL ASC, cs.updated_at DESC
                 LIMIT ${limit} OFFSET ${offset}
@@ -17648,7 +17665,7 @@ app.post('/api/task-work/complete', async (req, res) => {
             return res.status(400).json({ error: 'claimId and userId are required' });
         }
         await pool.query(
-            `UPDATE cases SET tw_completed = true, tw_completed_at = NOW(), tw_completed_by = $1 WHERE id = $2`,
+            `UPDATE cases SET tw_completed = true, tw_completed_at = NOW(), tw_completed_by = $1, tw_red_flag = false, tw_red_flag_at = NULL, tw_red_flag_by = NULL WHERE id = $2`,
             [userId, claimId]
         );
         // Log the action
@@ -17665,26 +17682,76 @@ app.post('/api/task-work/complete', async (req, res) => {
     }
 });
 
-// Mark claim task as red flagged
+// Mark claim task as red flagged and auto-reassign to Priyanshu Srivastava (Management)
 app.post('/api/task-work/red-flag', async (req, res) => {
     try {
         const { claimId, userId } = req.body;
         if (!claimId || !userId) {
             return res.status(400).json({ error: 'claimId and userId are required' });
         }
-        await pool.query(
-            `UPDATE cases SET tw_red_flag = true, tw_red_flag_at = NOW(), tw_red_flag_by = $1 WHERE id = $2`,
-            [userId, claimId]
-        );
+
+        // Look up Priyanshu Srivastava's ID for auto-reassignment
+        const priyanshu = (await pool.query(
+            "SELECT id FROM users WHERE full_name = 'Priyanshu Srivastava' AND role = 'Management' LIMIT 1"
+        )).rows[0];
+
+        if (priyanshu) {
+            // Store original assignee, flag, and reassign to Priyanshu
+            await pool.query(
+                `UPDATE cases SET tw_red_flag = true, tw_red_flag_at = NOW(), tw_red_flag_by = $1,
+                 tw_originally_assigned_to = tw_assigned_to,
+                 tw_assigned_to = $3, tw_assigned_at = NOW()
+                 WHERE id = $2`,
+                [userId, claimId, priyanshu.id]
+            );
+        } else {
+            // Priyanshu not found — flag but skip reassignment
+            console.warn('Priyanshu Srivastava (Management) not found in users table, skipping auto-reassignment');
+            await pool.query(
+                `UPDATE cases SET tw_red_flag = true, tw_red_flag_at = NOW(), tw_red_flag_by = $1 WHERE id = $2`,
+                [userId, claimId]
+            );
+        }
+
         const user = (await pool.query('SELECT full_name FROM users WHERE id = $1', [userId])).rows[0];
         await pool.query(
             `INSERT INTO action_logs (action_type, action_category, actor_type, actor_id, actor_name, client_id, description, metadata, timestamp)
-             VALUES ('task_red_flagged', 'claims', 'agent', $1, $2, (SELECT contact_id FROM cases WHERE id = $3), 'Task red flagged', $4, NOW())`,
-            [String(userId), user?.full_name || 'Unknown', claimId, JSON.stringify({ case_id: claimId })]
+             VALUES ('task_red_flagged', 'claims', 'agent', $1, $2, (SELECT contact_id FROM cases WHERE id = $3), $4, $5, NOW())`,
+            [String(userId), user?.full_name || 'Unknown', claimId,
+             priyanshu ? 'Task red flagged and reassigned to Priyanshu Srivastava' : 'Task red flagged',
+             JSON.stringify({ case_id: claimId, reassigned_to: priyanshu?.id || null })]
         );
         res.json({ success: true });
     } catch (err) {
         console.error('Error red flagging task:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Unflag red-flagged task(s) (Management only) — supports single claimId or bulk claimIds
+app.post('/api/task-work/unflag', async (req, res) => {
+    try {
+        const { claimId, claimIds, userId } = req.body;
+        const ids = claimIds || (claimId ? [claimId] : []);
+        if (ids.length === 0 || !userId) {
+            return res.status(400).json({ error: 'claimId(s) and userId are required' });
+        }
+        const placeholders = ids.map((_: number, i: number) => `$${i + 1}`).join(',');
+        await pool.query(
+            `UPDATE cases SET tw_red_flag = false, tw_red_flag_at = NULL, tw_red_flag_by = NULL WHERE id IN (${placeholders})`,
+            ids
+        );
+        const user = (await pool.query('SELECT full_name FROM users WHERE id = $1', [userId])).rows[0];
+        for (const id of ids) {
+            await pool.query(
+                `INSERT INTO action_logs (action_type, action_category, actor_type, actor_id, actor_name, client_id, description, metadata, timestamp)
+                 VALUES ('task_unflagged', 'claims', 'agent', $1, $2, (SELECT contact_id FROM cases WHERE id = $3), 'Task unflagged', $4, NOW())`,
+                [String(userId), user?.full_name || 'Unknown', id, JSON.stringify({ case_id: id })]
+            );
+        }
+        res.json({ success: true, unflagged: ids.length });
+    } catch (err) {
+        console.error('Error unflagging task:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -17904,7 +17971,7 @@ app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
             SELECT u.id, u.full_name as name, u.role,
                    (SELECT COUNT(*) FROM cases c2 WHERE c2.tw_assigned_to = u.id) as tasks_allocated,
                    (SELECT COUNT(*) FROM cases c3 WHERE c3.tw_assigned_to = u.id AND c3.tw_completed = true) as tasks_completed,
-                   (SELECT COUNT(*) FROM cases c4 WHERE c4.tw_assigned_to = u.id AND c4.tw_red_flag = true) as tasks_flagged,
+                   (SELECT COUNT(*) FROM cases c4 WHERE c4.tw_red_flag = true AND (c4.tw_originally_assigned_to = u.id OR (c4.tw_assigned_to = u.id AND c4.tw_originally_assigned_to IS NULL))) as tasks_flagged,
                    CASE WHEN COALESCE(u.last_active_at, u.last_login) >= NOW() - INTERVAL '3 minutes'
                         THEN true ELSE false END as is_online,
                    COALESCE(u.last_active_at, u.last_login) as last_active_at,
@@ -17920,6 +17987,45 @@ app.get('/api/task-work/dashboard/agent-status', async (req, res) => {
         res.json({ agents: rows });
     } catch (err) {
         console.error('Error fetching agent status:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get tasks assigned to a specific agent (for dashboard drill-down modal)
+app.get('/api/task-work/agent-tasks/:agentId', async (req, res) => {
+    try {
+        const agentId = parseInt(req.params.agentId);
+        if (!agentId) return res.status(400).json({ error: 'agentId is required' });
+
+        const flagFilter = req.query.flagFilter || '';
+        let flagCondition = '';
+        if (flagFilter === 'completed') flagCondition = 'AND cs.tw_completed = true';
+        else if (flagFilter === 'red_flagged') flagCondition = 'AND cs.tw_red_flag = true AND cs.tw_completed = false';
+
+        const { rows } = await pool.query(`
+            SELECT cs.id, cs.contact_id, cs.lender, cs.status, cs.claim_value,
+                   cs.tw_completed, cs.tw_completed_at, cs.tw_completed_by,
+                   cs.tw_red_flag, cs.tw_red_flag_at, cs.tw_red_flag_by,
+                   cs.tw_assigned_to, cs.tw_originally_assigned_to,
+                   ct.full_name as contact_name, ct.email, ct.phone,
+                   u.full_name as assigned_to_name,
+                   uf.full_name as flagged_by_name,
+                   uc.full_name as completed_by_name,
+                   uo.full_name as originally_assigned_to_name
+            FROM cases cs
+            JOIN contacts ct ON cs.contact_id = ct.id
+            LEFT JOIN users u ON cs.tw_assigned_to = u.id
+            LEFT JOIN users uf ON cs.tw_red_flag_by = uf.id
+            LEFT JOIN users uc ON cs.tw_completed_by = uc.id
+            LEFT JOIN users uo ON cs.tw_originally_assigned_to = uo.id
+            WHERE (cs.tw_assigned_to = $1 OR cs.tw_originally_assigned_to = $1)
+            ${flagCondition}
+            ORDER BY cs.tw_red_flag DESC, cs.tw_completed DESC, cs.updated_at DESC
+        `, [agentId]);
+
+        res.json({ tasks: rows });
+    } catch (err) {
+        console.error('Error fetching agent tasks:', err);
         res.status(500).json({ error: err.message });
     }
 });

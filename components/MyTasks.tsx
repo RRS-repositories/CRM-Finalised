@@ -163,7 +163,7 @@ const MyTasks: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        addNotification('info', 'Task red flagged');
+        addNotification('info', 'Task red flagged and reassigned to management');
         fetchMyTasks();
       } else addNotification('error', data.error || 'Failed to red flag task');
     } catch { addNotification('error', 'Failed to red flag task'); }
