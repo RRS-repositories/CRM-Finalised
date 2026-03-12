@@ -2765,6 +2765,9 @@ app.post('/api/submit-page1', async (req, res) => {
                     ]
                 );
 
+                // Queue onboarding workflow emails (intake source — extra lender already sent above)
+                clientWorkflow.queueOnboardingEmails(contactId, { skipIdUpload: false, source: 'intake' }).catch(e => console.error('[Workflow] Queue error:', e.message));
+
                 console.log(`[Background] ✅ ALL TASKS COMPLETED for contact ${contactId}`);
 
             } catch (err) {
