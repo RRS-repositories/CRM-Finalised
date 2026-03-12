@@ -3092,6 +3092,19 @@ app.post('/api/submit-page1', async (req, res) => {
                     }
                 }
 
+                // Generate Client Care Letter (once per contact)
+                try {
+                    const cclContact = { id: contactId, first_name, last_name, email, phone, address_line_1: finalAddressLine1, address_line_2: finalAddressLine2, city: finalCity, state_county: finalState, postal_code };
+                    const cclResult = await generateClientCareLetter(cclContact, pool);
+                    if (cclResult.skipped) {
+                        console.log(`[Background] Client Care Letter already generated for contact ${contactId}, skipped`);
+                    } else {
+                        console.log(`[Background] ✅ Client Care Letter generated for contact ${contactId}`);
+                    }
+                } catch (cclErr) {
+                    console.error(`[Background] Client Care Letter generation failed for contact ${contactId}:`, cclErr.message);
+                }
+
                 // Create action log entry for contact creation via intake form
                 await pool.query(
                     `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata)
