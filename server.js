@@ -4924,7 +4924,7 @@ app.post('/api/contacts', async (req, res) => {
 
         // Queue onboarding workflow emails (fire-and-forget)
         const checklist = rows[0].document_checklist || {};
-        clientWorkflow.queueOnboardingEmails(rows[0].id, { skipIdUpload: checklist.identification === true }).catch(e => console.error('[Workflow] Queue error:', e.message));
+        clientWorkflow.queueOnboardingEmails(rows[0].id, { skipIdUpload: checklist.identification === true, source: 'intake' }).catch(e => console.error('[Workflow] Queue error:', e.message));
 
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
