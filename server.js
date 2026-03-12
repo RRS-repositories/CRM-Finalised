@@ -8937,19 +8937,18 @@ app.get('/api/previous-address-token/:token/validate', async (req, res) => {
             return res.status(410).json({ success: false, message: 'Token expired' });
         }
 
-        // Also fetch from previous_addresses table
+        // Fetch from previous_addresses table (authoritative source)
         const prevRes = await pool.query(
             'SELECT address_line_1, address_line_2, city, county, postal_code FROM previous_addresses WHERE contact_id = $1 ORDER BY id',
             [row.cid]
         );
 
-        // Merge: JSONB previous_addresses + previous_addresses table rows
+        // Use table rows if available, otherwise fall back to JSONB
         let allPrev = [];
-        if (row.previous_addresses && Array.isArray(row.previous_addresses)) {
-            allPrev = row.previous_addresses;
-        }
         if (prevRes.rows.length > 0) {
-            allPrev = allPrev.concat(prevRes.rows);
+            allPrev = prevRes.rows;
+        } else if (row.previous_addresses && Array.isArray(row.previous_addresses)) {
+            allPrev = row.previous_addresses;
         }
 
         res.json({
