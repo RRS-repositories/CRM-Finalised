@@ -2951,114 +2951,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                         </button>
                      </div>
 
-                     {/* Gambling Q Link row */}
-                     {gamblingQLink && (
-                        <div className="flex items-center gap-2 p-2 bg-orange-50 border border-orange-200 rounded-lg">
-                           <span className="text-orange-700 text-xs font-medium whitespace-nowrap">Gambling Q:</span>
-                           <span className="text-xs text-slate-600 truncate flex-1">{gamblingQLink}</span>
-                           <button
-                              onClick={() => {
-                                 navigator.clipboard.writeText(gamblingQLink);
-                                 setCopiedGamblingQ(true);
-                                 setTimeout(() => setCopiedGamblingQ(false), 2000);
-                              }}
-                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedGamblingQ ? 'bg-green-600 text-white' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
-                           >
-                              {copiedGamblingQ ? '✓ Copied' : 'Copy'}
-                           </button>
-                        </div>
-                     )}
-
-                     {/* IRL Q Link row */}
-                     {irlQLink && (
-                        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                           <span className="text-blue-700 text-xs font-medium whitespace-nowrap">IRL Q:</span>
-                           <span className="text-xs text-slate-600 truncate flex-1">{irlQLink}</span>
-                           <button
-                              onClick={() => {
-                                 navigator.clipboard.writeText(irlQLink);
-                                 setCopiedIrlQ(true);
-                                 setTimeout(() => setCopiedIrlQ(false), 2000);
-                              }}
-                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIrlQ ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-                           >
-                              {copiedIrlQ ? '✓ Copied' : 'Copy'}
-                           </button>
-                        </div>
-                     )}
-
-                     {/* ID Upload Link row */}
-                     {idUploadLink && (
-                        <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                           <span className="text-emerald-700 text-xs font-medium whitespace-nowrap">ID Upload:</span>
-                           <span className="text-xs text-slate-600 truncate flex-1">{idUploadLink}</span>
-                           <button
-                              onClick={() => {
-                                 navigator.clipboard.writeText(idUploadLink);
-                                 setCopiedIdUpload(true);
-                                 setTimeout(() => setCopiedIdUpload(false), 2000);
-                              }}
-                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedIdUpload ? 'bg-green-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
-                           >
-                              {copiedIdUpload ? '✓ Copied' : 'Copy'}
-                           </button>
-                        </div>
-                     )}
-
-                     {/* Extra Lender Link row */}
-                     {loaLink && (
-                        <div className="flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
-                           <span className="text-purple-700 text-xs font-medium whitespace-nowrap">Extra Lender:</span>
-                           <span className="text-xs text-slate-600 truncate flex-1">{loaLink}</span>
-                           <button
-                              onClick={() => {
-                                 navigator.clipboard.writeText(loaLink);
-                                 setCopiedLoaLink(true);
-                                 setTimeout(() => setCopiedLoaLink(false), 2000);
-                              }}
-                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedLoaLink ? 'bg-green-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
-                           >
-                              {copiedLoaLink ? '✓ Copied' : 'Copy'}
-                           </button>
-                        </div>
-                     )}
-
-                     {/* Previous Address Link row */}
-                     {prevAddrLink && (
-                        <div className="flex items-center gap-2 p-2 bg-teal-50 border border-teal-200 rounded-lg">
-                           <span className="text-teal-700 text-xs font-medium whitespace-nowrap">Prev Address:</span>
-                           <span className="text-xs text-slate-600 truncate flex-1">{prevAddrLink}</span>
-                           <button
-                              onClick={() => {
-                                 navigator.clipboard.writeText(prevAddrLink);
-                                 setCopiedPrevAddr(true);
-                                 setTimeout(() => setCopiedPrevAddr(false), 2000);
-                              }}
-                              className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedPrevAddr ? 'bg-green-600 text-white' : 'bg-teal-600 hover:bg-teal-700 text-white'}`}
-                           >
-                              {copiedPrevAddr ? '✓ Copied' : 'Copy'}
-                           </button>
-                        </div>
-                     )}
-
-                     {/* Submission status */}
-                     <div className="flex items-center gap-2 flex-wrap">
-                        {contact.q1Submitted && (
-                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
-                              ✓ Gambling Q Submitted
-                           </span>
-                        )}
-                        {contact.q2Submitted && (
-                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
-                              ✓ IRL Q Submitted
-                           </span>
-                        )}
-                        {!contact.q1Submitted && !contact.q2Submitted && contact.questionnaireSubmitted && (
-                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
-                              ✓ Questionnaire Submitted
-                           </span>
-                        )}
-                     </div>
                   </div>
                </>
             )}
@@ -6136,23 +6028,23 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 
          {/* Unified Link Modal */}
          {showLinkModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg w-full max-w-lg p-6 border border-gray-200 dark:border-slate-700">
-                  <div className="flex items-center justify-between mb-4">
-                     <h3 className="font-bold text-lg text-navy-900 dark:text-white">{showLinkModal.title}</h3>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => { setShowLinkModal(null); setCopiedModalLink(false); }}>
+               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-0 border border-gray-200 dark:border-slate-700 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                  <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4 flex items-center justify-between">
+                     <h3 className="font-bold text-base text-white">{showLinkModal.title}</h3>
                      <button
                         onClick={() => { setShowLinkModal(null); setCopiedModalLink(false); }}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                        className="text-slate-400 hover:text-white transition-colors"
                      >
-                        <X size={20} />
+                        <X size={18} />
                      </button>
                   </div>
-                  <div className="mb-4">
-                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                  <div className="px-6 py-5">
+                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                         {showLinkModal.description}
                      </p>
-                     <div className="bg-gray-50 dark:bg-slate-700 p-3 rounded-lg border border-gray-200 dark:border-slate-600 flex items-center gap-2">
-                        <code className="flex-1 text-xs text-gray-800 dark:text-gray-200 break-all font-mono">
+                     <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-xl border border-slate-200 dark:border-slate-600">
+                        <code className="block text-xs text-gray-700 dark:text-gray-200 break-all font-mono mb-3 leading-relaxed">
                            {showLinkModal.link}
                         </code>
                         <button
@@ -6161,19 +6053,11 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               setCopiedModalLink(true);
                               setTimeout(() => setCopiedModalLink(false), 2000);
                            }}
-                           className={`px-3 py-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap ${copiedModalLink ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                           className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-all ${copiedModalLink ? 'bg-green-500 text-white shadow-green-500/25 shadow-lg' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/25 shadow-lg hover:shadow-xl'}`}
                         >
-                           {copiedModalLink ? '✓ Copied' : 'Copy'}
+                           {copiedModalLink ? '✓ Copied to Clipboard' : 'Copy Link'}
                         </button>
                      </div>
-                  </div>
-                  <div className="flex justify-end">
-                     <button
-                        onClick={() => { setShowLinkModal(null); setCopiedModalLink(false); }}
-                        className="px-4 py-2 bg-navy-700 hover:bg-navy-800 text-white rounded-lg text-sm font-medium"
-                     >
-                        Done
-                     </button>
                   </div>
                </div>
             </div>
