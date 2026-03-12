@@ -118,6 +118,7 @@ function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
         // Claim Details
         'claim.lender': caseData.lender || '',
         'claim.clientId': clientId,
+        'claim.id': String(caseData.id || ''),
         'claim.reference': fullReference,
         'claim.caseRef': fullReference,
         'claim.claimValue': caseData.claim_value ? `£${Number(caseData.claim_value).toLocaleString()}` : '',
@@ -151,6 +152,7 @@ function buildVariableMap(contact, caseData, lenderAddress, lenderEmail) {
         '{{address}}': clientAddress,
         '{{lender}}': caseData.lender || '',
         '{{clientId}}': clientId,
+        '{{claimId}}': String(caseData.id || ''),
         '{{reference}}': fullReference,
         '{{caseRef}}': fullReference,
         '{{today}}': today,

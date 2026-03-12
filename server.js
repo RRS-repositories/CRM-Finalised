@@ -15667,6 +15667,7 @@ crmRouter.post('/documents/generate', async (req, res) => {
                 'claim.creditLimitSchedule': _s(claim.credit_limit_increases),
                 'claim.complaintParagraph': _s(claim.complaint_paragraph),
                 'claim.clientId': _s(claim.contact_id),
+                'claim.id': String(claim.id || ''),
             });
         }
 

@@ -26,6 +26,7 @@ const DEFAULT_VARIABLES: TemplateVariable[] = [
   { id: 'var_102', name: 'Claim Value',      key: 'claim.claimValue',      category: 'claim', type: 'number' },
   { id: 'var_103', name: 'Case Reference',   key: 'claim.caseRef',         category: 'claim', type: 'text' },
   { id: 'var_104', name: 'Client ID',        key: 'claim.clientId',        category: 'claim', type: 'text' },
+  { id: 'var_111', name: 'Claim ID',         key: 'claim.id',              category: 'claim', type: 'text' },
   { id: 'var_105', name: 'Loan Amount',      key: 'claim.loan_amount',     category: 'claim', type: 'number' },
   { id: 'var_106', name: 'Loan Date',        key: 'claim.loan_date',       category: 'claim', type: 'date' },
   { id: 'var_107', name: 'Account Number',   key: 'claim.account_number',  category: 'claim', type: 'text' },

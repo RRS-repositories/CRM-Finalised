@@ -25,6 +25,7 @@ export const DEFAULT_CRM_VARIABLES: CRMVariable[] = [
   // Claim Details
   { key: 'claim.lender', label: 'Lender', category: 'Claim Details' },
   { key: 'claim.clientId', label: 'Client ID', category: 'Claim Details' },
+  { key: 'claim.id', label: 'Claim ID', category: 'Claim Details' },
   { key: 'claim.caseRef', label: 'Case Reference', category: 'Claim Details' },
   { key: 'claim.claimValue', label: 'Claim Value', category: 'Claim Details' },
 

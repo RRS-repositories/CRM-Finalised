@@ -242,6 +242,7 @@ export const TEMPLATE_VARIABLES: Array<{
         { key: '{{claimValue}}', label: 'Claim Value', contactField: 'claimValue' },
         { key: '{{caseRef}}', label: 'Case Reference', contactField: 'id' },
         { key: '{{clientId}}', label: 'Client ID', contactField: 'clientId' },
+        { key: '{{claimId}}', label: 'Claim ID', contactField: 'claimId' },
       ]
     },
     {
@@ -293,6 +294,7 @@ export const OO_MERGE_FIELDS: Array<{
     fields: [
       { key: 'claim.lender', label: 'Lender' },
       { key: 'claim.clientId', label: 'Client ID' },
+      { key: 'claim.id', label: 'Claim ID' },
       { key: 'claim.caseRef', label: 'Case Reference' },
       { key: 'claim.claimValue', label: 'Claim Value' },
     ],

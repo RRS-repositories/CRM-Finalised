@@ -132,6 +132,7 @@ export function buildVariableMap(contact, caseData, lenderAddress, lenderEmail, 
         // Claim Details
         'claim.lender': caseData.lender || '',
         'claim.clientId': clientId,
+        'claim.id': String(caseData.id || ''),
         'claim.reference': fullReference,
         'claim.caseRef': fullReference,
         'claim.refSpec': refSpec,
