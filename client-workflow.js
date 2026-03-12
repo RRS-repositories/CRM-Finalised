@@ -359,32 +359,62 @@ async function processQuestionnaire(queueId, contact, clientName, baseUrl) {
         return;
     }
 
-    const irlLink = `${baseUrl}/questionnaire/${contact.id}`;
     const hasGambling = contact.problematic_gambling === true;
 
-    const html = buildEmail(clientName,
-        'Complete Your Questionnaire',
+    // Generate tokenised IRL questionnaire link (type 2)
+    await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 2 AND submitted = false', [contact.id]);
+    const irlTokenRes = await _pool.query(
+        'INSERT INTO questionnaire_tokens (contact_id, questionnaire_type) VALUES ($1, 2) RETURNING token',
+        [contact.id]
+    );
+    const irlLink = `${baseUrl}/questionnaire/token/${irlTokenRes.rows[0].token}`;
+
+    // Generate tokenised Gambling questionnaire link (type 1) if applicable
+    let gamblingLink = null;
+    if (hasGambling) {
+        await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 1 AND submitted = false', [contact.id]);
+        const gamblingTokenRes = await _pool.query(
+            'INSERT INTO questionnaire_tokens (contact_id, questionnaire_type) VALUES ($1, 1) RETURNING token',
+            [contact.id]
+        );
+        gamblingLink = `${baseUrl}/questionnaire/token/${gamblingTokenRes.rows[0].token}`;
+    }
+
+    // Build CTA buttons
+    const ctaButtons = hasGambling
+        ? `<div class="btn-container">
+               <a href="${irlLink}" class="btn">Complete IRL Questionnaire</a>
+           </div>
+           <div class="btn-container" style="margin-top: 16px;">
+               <a href="${gamblingLink}" class="btn" style="background: linear-gradient(145deg, #8b5cf6 0%, #7c3aed 100%); box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);">Complete Gambling Questionnaire</a>
+           </div>`
+        : `<div class="btn-container">
+               <a href="${irlLink}" class="btn">Complete IRL Questionnaire</a>
+           </div>`;
+
+    const html = buildQuestionnaireEmail(clientName,
+        'Complete Your Questionnaire' + (hasGambling ? 's' : ''),
         'Help Us Build Your Case',
         `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire${hasGambling ? 's' : ''} to help strengthen your case.</p>
         <div class="highlight-box">
             <span class="highlight-text">Action Required: Complete Your Questionnaire${hasGambling ? 's' : ''}</span>
             <p>${hasGambling
-                ? 'We have prepared questionnaires based on your claim details. Completing these helps us build the strongest possible case for your compensation.'
+                ? 'We have prepared two questionnaires based on your claim details. Please complete both to help us build the strongest possible case.'
                 : 'This questionnaire covers your experience with irresponsible lending. Your answers help us build the strongest possible case.'
             }</p>
         </div>
         <div class="info-box">
             <p><strong>What happens next?</strong> Once we receive the lender's response to our DSAR, we will review it alongside your questionnaire answers and proceed with your claim.</p>
         </div>`,
-        'Complete Questionnaire', irlLink, null
+        ctaButtons
     );
 
     const result = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', html);
     if (!result.success) throw new Error(result.error);
 
-    await markStatus(queueId, 'sent', null, { irlLink, hasGambling });
+    await markStatus(queueId, 'sent', null, { irlLink, gamblingLink, hasGambling });
     await _pool.query(`UPDATE contacts SET workflow_step = 'questionnaire_sent', workflow_step_at = NOW() WHERE id = $1`, [contact.id]);
-    await logAction(contact.id, 'workflow_questionnaire_sent', `Questionnaire link emailed to ${contact.email} (gambling: ${hasGambling})`, { irlLink, hasGambling });
+    await logAction(contact.id, 'workflow_questionnaire_sent', `Questionnaire link(s) emailed to ${contact.email} (gambling: ${hasGambling})`, { irlLink, gamblingLink, hasGambling });
 }
 
 // ─── MARK STATUS ─────────────────────────────────────────────────────────────
@@ -450,6 +480,74 @@ function buildEmail(clientName, heading, subtitle, bodyHtml, ctaText, ctaLink, e
                     <a href="${ctaLink}" class="btn">${ctaText}</a>
                     ${expiryNote ? `<span class="expiry-note">${expiryNote}</span>` : ''}
                 </div>
+                <div class="divider"></div>
+                <p>If you have any questions, our dedicated team is here to assist you.</p>
+                <div class="signature">
+                    <p>Kind regards,</p>
+                    <p><strong>The Rowan Rose Solicitors Team</strong></p>
+                </div>
+            </div>
+            <div class="footer">
+                <p class="footer-brand">Rowan Rose Solicitors</p>
+                <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                <p><a href="tel:01615331706">0161 533 1706</a> &nbsp;|&nbsp; <a href="mailto:irl@rowanrose.co.uk">irl@rowanrose.co.uk</a></p>
+                <p class="footer-sra">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+// ─── QUESTIONNAIRE EMAIL TEMPLATE (supports multiple CTA buttons) ───────────
+
+function buildQuestionnaireEmail(clientName, heading, subtitle, bodyHtml, ctaButtonsHtml) {
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; }
+        .wrapper { width: 100%; table-layout: fixed; background-color: #f8fafc; padding: 40px 20px; }
+        .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 620px; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0; }
+        .header { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px; text-align: center; }
+        .logo-text { font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase; }
+        .content { padding: 48px 45px; background: #ffffff; }
+        h1 { color: #0f172a; font-size: 28px; margin-top: 0; margin-bottom: 6px; font-weight: 700; letter-spacing: -0.5px; }
+        .subtitle { color: #64748b; font-size: 16px; margin-bottom: 30px; font-weight: 500; }
+        p { font-size: 18px; line-height: 1.75; margin-bottom: 16px; color: #475569; }
+        .greeting { font-size: 20px; color: #1e293b; margin-bottom: 16px; }
+        .highlight-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 26px 30px; margin: 32px 0; border-radius: 0 14px 14px 0; }
+        .highlight-text { font-weight: 700; color: #b45309; margin: 0; display: block; font-size: 20px; letter-spacing: -0.3px; }
+        .highlight-box p { color: #92400e; margin-bottom: 0; margin-top: 12px; font-size: 17px; line-height: 1.6; }
+        .info-box { background: #f0f9ff; border: 1px solid #bae6fd; padding: 20px 24px; border-radius: 12px; margin: 24px 0; }
+        .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
+        .info-box strong { color: #075985; }
+        .btn-container { text-align: center; margin: 24px 0; }
+        .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+        .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
+        .signature { margin-top: 8px; }
+        .signature p { margin-bottom: 4px; font-size: 18px; }
+        .footer { background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 32px 40px; text-align: center; border-top: 1px solid #e2e8f0; }
+        .footer p { margin: 5px 0; font-size: 14px; color: #64748b; }
+        .footer-brand { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 8px !important; }
+        .footer a { color: #f97316; text-decoration: none; font-weight: 600; }
+        .footer-sra { font-size: 12px; color: #94a3b8; margin-top: 12px !important; }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="main">
+            <div class="header">
+                <p class="logo-text">Rowan Rose Solicitors</p>
+            </div>
+            <div class="content">
+                <h1>${heading}</h1>
+                <p class="subtitle">${subtitle}</p>
+                <p class="greeting">Dear ${clientName},</p>
+                ${bodyHtml}
+                ${ctaButtonsHtml}
                 <div class="divider"></div>
                 <p>If you have any questions, our dedicated team is here to assist you.</p>
                 <div class="signature">
