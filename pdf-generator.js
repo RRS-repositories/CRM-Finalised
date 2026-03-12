@@ -374,7 +374,7 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
     const signedUrl = await uploadToS3(pdfBuffer, s3Key);
 
     // 10. Insert document record
-    const category = documentType === 'LOA' ? 'LOA' : 'Cover Letter';
+    const category = documentType === 'LOA' ? 'Letter of Authority' : 'Cover Letter';
     const fileSize = `${(pdfBuffer.length / 1024).toFixed(1)} KB`;
     const tags = [caseData.lender, category, documentType, `Case: ${caseData.id}`];
     const insertQuery = `

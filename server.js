@@ -1214,10 +1214,10 @@ async function generateIrlMultipleLenderPdf({
             contactId,
             fileName,
             'pdf',
-            'Legal',
+            'Multiple Lender Form',
             downloadUrl,
             `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
-            ['IRL Multiple Lender Form', 'LOA Form', 'Generated']
+            ['Multiple Lender Form', 'Generated']
         ]
     );
 
@@ -8628,10 +8628,10 @@ app.post('/api/submit-questionnaire', async (req, res) => {
                                 contactId,
                                 pdfFileName,
                                 'pdf',
-                                'Legal',
+                                'Questionnaire',
                                 pdfDownloadUrl,
                                 `${(pdfBuffer.length / 1024).toFixed(1)} KB`,
-                                ['Combined Questionnaire', 'Generated']
+                                ['Questionnaire', 'Generated']
                             ]
                         );
 

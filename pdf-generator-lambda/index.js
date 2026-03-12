@@ -575,7 +575,7 @@ export const handler = async (event) => {
         const signedUrl = await uploadToS3(pdfBuffer, s3Key);
 
         // 9. Insert document record
-        const category = documentType === 'LOA' ? 'LOA' : 'Cover Letter';
+        const category = documentType === 'LOA' ? 'Letter of Authority' : 'Cover Letter';
         await upsertDocumentRecord(contact, fileName, signedUrl, category, caseData.lender);
 
         // 10. Update case status (skip if requested)

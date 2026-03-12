@@ -835,6 +835,7 @@ export const DOCUMENT_CATEGORIES = [
   'Cover Letter',
   'Complaint Letter',
   'Questionnaire',
+  'Multiple Lender Form',
   'Final Response Letter (FRL)',
   'Counter Response',
   'FOS Complaint Form',
