@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { CheckCircle, X } from 'lucide-react';
 import { EmailAccount, EmailFolder, Email } from '../../types';
 import { fetchEmailAccounts, fetchFolders, fetchEmails, fetchEmailDetail, markEmailRead, fetchThreadMessages, deleteEmail, toggleEmailFlag, moveEmail, markEmailUnread as apiMarkEmailUnread, createFolder, renameFolder, deleteFolder as apideleteFolder, searchAllEmails } from '../../services/emailApiService';
 import EmailAccountsSidebar from './EmailAccountsSidebar';
@@ -8,6 +9,13 @@ import EmailThreadViewer from './EmailThreadViewer';
 import ComposeEmailModal, { ComposeMode } from './ComposeEmailModal';
 
 const PAGE_SIZE = 50;
+
+// Toast notification for sent emails
+interface SentToast {
+  id: string;
+  message: string;
+  visible: boolean;
+}
 
 const EmailConversations: React.FC = () => {
   // Data state
@@ -52,9 +60,33 @@ const EmailConversations: React.FC = () => {
   // Cross-folder search state
   const [searchAllResults, setSearchAllResults] = useState<Email[] | null>(null);
   const [searchAllLoading, setSearchAllLoading] = useState(false);
+  const searchRequestIdRef = useRef(0);
+
+  // Sent toast notifications
+  const [sentToasts, setSentToasts] = useState<SentToast[]>([]);
 
   // Get selected folder object
   const selectedFolder = folders.find(f => f.id === selectedFolderId);
+
+  // Show sent toast
+  const showSentToast = (message: string) => {
+    const id = `toast_${Date.now()}`;
+    setSentToasts(prev => [...prev, { id, message, visible: true }]);
+    // Auto-dismiss after 5s
+    setTimeout(() => {
+      setSentToasts(prev => prev.map(t => t.id === id ? { ...t, visible: false } : t));
+      setTimeout(() => {
+        setSentToasts(prev => prev.filter(t => t.id !== id));
+      }, 300);
+    }, 5000);
+  };
+
+  const dismissToast = (id: string) => {
+    setSentToasts(prev => prev.map(t => t.id === id ? { ...t, visible: false } : t));
+    setTimeout(() => {
+      setSentToasts(prev => prev.filter(t => t.id !== id));
+    }, 300);
+  };
 
   // Load accounts on mount
   useEffect(() => {
@@ -105,6 +137,7 @@ const EmailConversations: React.FC = () => {
     setThreadEmails([]);
     setViewMode('single');
     setSelectedEmailIds(new Set());
+    prefetchCacheRef.current = null;
     try {
       const result = await fetchEmails(accountId, folderName, PAGE_SIZE, 0);
       setEmails(result.emails);
@@ -113,6 +146,10 @@ const EmailConversations: React.FC = () => {
       if (result.emails.length > 0) {
         setSelectedEmailId(result.emails[0].id);
         loadEmailDetail(accountId, result.emails[0].id);
+      }
+      // Pre-fetch the second page immediately so scrolling feels instant
+      if (result.hasMore && result.emails.length > 0) {
+        prefetchNextPage(result.emails.length);
       }
     } catch (err: any) {
       console.error('Failed to load emails:', err);
@@ -123,15 +160,47 @@ const EmailConversations: React.FC = () => {
     }
   }, []);
 
-  // Load more emails (infinite scroll)
+  // Pre-fetch cache for next page
+  const prefetchCacheRef = useRef<{ skip: number; folder: string; result: { emails: Email[]; hasMore: boolean; totalCount: number | null } } | null>(null);
+  const prefetchingRef = useRef(false);
+
+  // Pre-fetch next page in the background
+  const prefetchNextPage = useCallback(async (currentLength: number) => {
+    if (!selectedAccountId || !activeFolderName || prefetchingRef.current) return;
+    prefetchingRef.current = true;
+    try {
+      const result = await fetchEmails(selectedAccountId, activeFolderName, PAGE_SIZE, currentLength);
+      prefetchCacheRef.current = { skip: currentLength, folder: activeFolderName, result };
+    } catch {
+      // Prefetch failure is non-critical
+    } finally {
+      prefetchingRef.current = false;
+    }
+  }, [selectedAccountId, activeFolderName]);
+
+  // Load more emails (infinite scroll) — uses prefetch cache if available
   const loadMoreEmails = useCallback(async () => {
     if (!selectedAccountId || !activeFolderName || loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const result = await fetchEmails(selectedAccountId, activeFolderName, PAGE_SIZE, emails.length);
+      // Check if we have a prefetched result for this exact offset
+      const cache = prefetchCacheRef.current;
+      let result;
+      if (cache && cache.skip === emails.length && cache.folder === activeFolderName) {
+        result = cache.result;
+        prefetchCacheRef.current = null;
+      } else {
+        prefetchCacheRef.current = null;
+        result = await fetchEmails(selectedAccountId, activeFolderName, PAGE_SIZE, emails.length);
+      }
+      const newLength = emails.length + result.emails.length;
       setEmails(prev => [...prev, ...result.emails]);
       setHasMore(result.hasMore);
       if (result.totalCount !== null) setTotalCount(result.totalCount);
+      // Start prefetching the next page immediately
+      if (result.hasMore) {
+        prefetchNextPage(newLength);
+      }
     } catch (err: any) {
       console.error('Failed to load more emails:', err);
     } finally {
@@ -171,12 +240,10 @@ const EmailConversations: React.FC = () => {
   // Handle account click - toggle expand/collapse and load folders
   const handleAccountClick = async (accountId: string) => {
     if (expandedAccounts.has(accountId)) {
-      // Collapse this account
       const newExpanded = new Set(expandedAccounts);
       newExpanded.delete(accountId);
       setExpandedAccounts(newExpanded);
     } else {
-      // Collapse all others, expand only this one
       setExpandedAccounts(new Set([accountId]));
       const existingFolders = folders.filter(f => f.accountId === accountId);
       if (existingFolders.length === 0) {
@@ -213,20 +280,26 @@ const EmailConversations: React.FC = () => {
     loadThreadMessages(accountId, threadId);
   };
 
-  // Handle cross-folder search
-  const handleSearchAllFolders = async (query: string) => {
+  // Handle cross-folder search (keeps previous results visible while loading new ones)
+  const handleSearchAllFolders = useCallback(async (query: string) => {
     if (!selectedAccountId || !query) return;
+    const requestId = ++searchRequestIdRef.current;
     setSearchAllLoading(true);
     try {
       const result = await searchAllEmails(selectedAccountId, query);
+      // Ignore stale responses from earlier searches
+      if (requestId !== searchRequestIdRef.current) return;
       setSearchAllResults(result.emails);
     } catch (err) {
+      if (requestId !== searchRequestIdRef.current) return;
       console.error('Search all folders failed:', err);
       setSearchAllResults([]);
     } finally {
-      setSearchAllLoading(false);
+      if (requestId === searchRequestIdRef.current) {
+        setSearchAllLoading(false);
+      }
     }
-  };
+  }, [selectedAccountId]);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -265,7 +338,6 @@ const EmailConversations: React.FC = () => {
       }
       return filtered;
     });
-    // Remove from bulk selection
     setSelectedEmailIds(prev => {
       const next = new Set(prev);
       next.delete(emailId);
@@ -442,6 +514,20 @@ const EmailConversations: React.FC = () => {
       }
       handleDelete(composeOriginalEmail.id);
     }
+
+    // Show sent confirmation toast
+    const modeLabel = composeMode === 'reply' ? 'Reply' : composeMode === 'replyAll' ? 'Reply all' : composeMode === 'forward' ? 'Forwarded email' : 'Email';
+    showSentToast(`${modeLabel} sent successfully`);
+
+    // If replying within a thread, auto-refresh the thread to show the new message
+    if ((composeMode === 'reply' || composeMode === 'replyAll') && viewMode === 'thread' && selectedThreadId && selectedAccountId) {
+      // Small delay to let Graph API process the sent message
+      setTimeout(() => {
+        loadThreadMessages(selectedAccountId!, selectedThreadId!);
+      }, 2000);
+    }
+
+    // Refresh current folder (handles Sent Items folder refresh too)
     if (selectedAccountId && activeFolderName) {
       loadEmailsForFolder(selectedAccountId, activeFolderName);
     }
@@ -491,11 +577,9 @@ const EmailConversations: React.FC = () => {
   const handleDropOnFolder = async (emailIds: string[], targetAccountId: string, targetFolderId: string) => {
     if (!selectedAccountId) return;
     try {
-      // Extract actual Graph folder ID from our composite folder ID
       const graphFolderId = targetFolderId.replace(`${targetAccountId}-`, '');
       const actualFolderId = folders.find(f => f.id === targetFolderId)?.name || graphFolderId;
       await Promise.all(emailIds.map(id => moveEmail(selectedAccountId!, id, actualFolderId)));
-      // Remove moved emails from current view
       const movedSet = new Set(emailIds);
       setEmails(prev => prev.filter(e => !movedSet.has(e.id)));
       setSelectedEmailIds(prev => {
@@ -513,7 +597,7 @@ const EmailConversations: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full bg-white dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-full bg-white dark:bg-slate-900 overflow-hidden relative">
       <EmailAccountsSidebar
         accounts={accounts}
         folders={folders}
@@ -603,6 +687,27 @@ const EmailConversations: React.FC = () => {
           onSent={handleComposeSent}
         />
       )}
+
+      {/* Sent Confirmation Toasts */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2">
+        {sentToasts.map(toast => (
+          <div
+            key={toast.id}
+            className={`flex items-center gap-3 px-4 py-3 bg-green-600 text-white rounded-xl shadow-2xl transition-all duration-300 ${
+              toast.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+            }`}
+          >
+            <CheckCircle size={18} />
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              onClick={() => dismissToast(toast.id)}
+              className="p-0.5 hover:bg-white/20 rounded transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

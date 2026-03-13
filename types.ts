@@ -702,6 +702,7 @@ export interface Email {
   uid?: number;
   accountId: string;
   folderId: string;
+  folderName?: string;
   from: EmailAddress;
   to: EmailAddress[];
   cc?: EmailAddress[];

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff, Trash2, Archive, FolderOpen, Plus, MoreHorizontal, Edit3, FolderPlus, ArrowUp, ArrowDown, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Mail, Inbox, FileEdit, Send, Cloud, CloudOff, Trash2, Archive, FolderOpen, Plus, MoreHorizontal, Edit3, FolderPlus, ArrowUp, ArrowDown, Pencil, Search, X } from 'lucide-react';
 import { EmailAccount, EmailFolder } from '../../types';
 
 interface EmailAccountsSidebarProps {
@@ -47,6 +47,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [folderFilter, setFolderFilter] = useState('');
 
   // Custom folder order per account (stored in localStorage as { [accountId]: string[] })
   const [customFolderOrder, setCustomFolderOrder] = useState<Record<string, string[]>>(() => {
@@ -219,11 +220,30 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
         </div>
         <button
           onClick={onComposeNew}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors mb-2"
         >
           <Plus size={16} />
           <span>New Email</span>
         </button>
+        {/* Folder filter input */}
+        <div className="relative">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Filter folders..."
+            value={folderFilter}
+            onChange={e => setFolderFilter(e.target.value)}
+            className="w-full pl-7 pr-7 py-1.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-white placeholder:text-gray-400"
+          />
+          {folderFilter && (
+            <button
+              onClick={() => setFolderFilter('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Scrollable Account List */}
@@ -287,10 +307,19 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                   isExpanded ? 'max-h-none opacity-100' : 'max-h-0 opacity-0'
                 }`}
               >
-                {accountFolders.topLevel.map(folder => {
-                  const childFolders = getChildFolders(folder.name, account.id);
+                {accountFolders.topLevel
+                  .filter(folder => {
+                    if (!folderFilter) return true;
+                    const q = folderFilter.toLowerCase();
+                    const matchesSelf = folder.displayName.toLowerCase().includes(q);
+                    const matchesChild = getChildFolders(folder.name, account.id).some(c => c.displayName.toLowerCase().includes(q));
+                    return matchesSelf || matchesChild;
+                  })
+                  .map(folder => {
+                  const childFolders = getChildFolders(folder.name, account.id)
+                    .filter(c => !folderFilter || c.displayName.toLowerCase().includes(folderFilter.toLowerCase()));
                   const hasChildren = childFolders.length > 0;
-                  const isFolderExpanded = expandedFolders.has(folder.id);
+                  const isFolderExpanded = expandedFolders.has(folder.id) || !!folderFilter;
 
                   return (
                     <React.Fragment key={folder.id}>
@@ -329,16 +358,18 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                           <span className={`ml-2 text-sm flex-1 truncate ${
                             selectedFolderId === folder.id
                               ? 'font-medium text-blue-700 dark:text-blue-300'
-                              : 'text-gray-700 dark:text-gray-300'
+                              : folder.unreadCount > 0
+                                ? 'font-semibold text-gray-900 dark:text-white'
+                                : 'text-gray-700 dark:text-gray-300'
                           }`}>
                             {folder.displayName}
                           </span>
 
                           {folder.unreadCount > 0 && (
-                            <span className={`text-xs font-medium ml-2 ${
+                            <span className={`text-xs font-bold ml-2 px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
                               selectedFolderId === folder.id
-                                ? 'text-blue-600 dark:text-blue-300'
-                                : 'text-gray-500 dark:text-gray-400'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-brand-orange text-white'
                             }`}>
                               {folder.unreadCount}
                             </span>

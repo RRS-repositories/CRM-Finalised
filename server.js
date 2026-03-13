@@ -10837,7 +10837,7 @@ app.get('/api/email/accounts/:accountId/folders/:folderName/messages', async (re
 // --- SEARCH EMAILS ACROSS ALL FOLDERS ---
 app.get('/api/email/accounts/:accountId/search', async (req, res) => {
     const { accountId } = req.params;
-    const { q, limit = 50, skip = 0 } = req.query;
+    const { q, limit = 50 } = req.query;
     const config = EMAIL_ACCOUNTS_CONFIG.find(a => a.id === accountId);
     if (!config) return res.status(404).json({ success: false, error: 'Account not found' });
     if (!q) return res.json({ success: true, emails: [], hasMore: false, totalCount: 0 });
@@ -10846,15 +10846,28 @@ app.get('/api/email/accounts/:accountId/search', async (req, res) => {
         const data = await graphRequest(
             `/users/${config.email}/messages` +
             `?$search="${encodeURIComponent(q)}"` +
-            `&$top=${limit}&$skip=${skip}` +
-            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId`,
+            `&$top=${limit}` +
+            `&$select=id,subject,from,toRecipients,ccRecipients,bodyPreview,receivedDateTime,isRead,flag,isDraft,hasAttachments,conversationId,parentFolderId`,
             { headers: { 'ConsistencyLevel': 'eventual' } }
         );
+
+        // Resolve folder IDs to display names
+        const folderIds = [...new Set((data.value || []).map(m => m.parentFolderId).filter(Boolean))];
+        const folderNameMap = {};
+        // Well-known folder name mapping
+        const wellKnownMap = { 'inbox': 'Inbox', 'sentitems': 'Sent', 'drafts': 'Drafts', 'deleteditems': 'Deleted', 'archive': 'Archive', 'junkemail': 'Junk', 'outbox': 'Outbox' };
+        try {
+            const foldersData = await graphRequest(`/users/${config.email}/mailFolders?$top=100&$select=id,displayName`);
+            for (const f of (foldersData.value || [])) {
+                folderNameMap[f.id] = f.displayName;
+            }
+        } catch (e) { /* folder name resolution is optional */ }
 
         const emails = (data.value || []).map(msg => ({
             id: msg.id,
             accountId,
-            folderId: `${accountId}-search`,
+            folderId: msg.parentFolderId || `${accountId}-search`,
+            folderName: folderNameMap[msg.parentFolderId] || '',
             from: {
                 email: msg.from?.emailAddress?.address || '',
                 name: msg.from?.emailAddress?.name || null,

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Search, Star, Paperclip, RefreshCw, Filter, Mail, MessageSquare, Trash2, MailOpen, MailX, CheckSquare, Square, Loader2, GripVertical, X, SearchX } from 'lucide-react';
+import { Search, Star, Paperclip, RefreshCw, Filter, Mail, MessageSquare, Trash2, MailOpen, MailX, CheckSquare, Square, Loader2, GripVertical, X, ArrowUp, Calendar, User, FolderOpen } from 'lucide-react';
 import { Email, EmailFolder, EmailAccount } from '../../types';
 
 type FilterType = 'all' | 'unread' | 'flagged' | 'attachments';
@@ -73,12 +73,13 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [searchAllMode, setSearchAllMode] = useState(false);
+  // Default to all-folders search mode
+  const [searchAllMode, setSearchAllMode] = useState(true);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [draggedEmailIds, setDraggedEmailIds] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Group emails by threadId
   const threadGroups = useMemo(() => {
@@ -118,11 +119,11 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
     return result;
   }, [emails]);
 
-  // Filter threads by search query
+  // Filter threads by search query (local folder search when not in all-folders mode)
   const filteredThreads = useMemo(() => {
     let result = threadGroups;
 
-    // Apply text search (local folder only)
+    // Apply text search (local folder only when not in all mode)
     if (searchQuery && !searchAllMode) {
       const query = searchQuery.toLowerCase();
       result = result.filter(thread => {
@@ -146,17 +147,22 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
     return result;
   }, [threadGroups, searchQuery, searchAllMode, activeFilter]);
 
-  // Build thread groups from cross-folder search results
+  // Build thread groups from cross-folder search results (preserving relevance order from Graph API)
   const searchAllThreadGroups = useMemo(() => {
     if (!searchAllResults) return [];
     const groups = new Map<string, Email[]>();
+    const insertionOrder: string[] = [];
     for (const email of searchAllResults) {
       const key = email.threadId || email.id;
-      if (!groups.has(key)) groups.set(key, []);
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        insertionOrder.push(key);
+      }
       groups.get(key)!.push(email);
     }
     const result: ThreadGroup[] = [];
-    for (const [threadId, threadEmails] of groups) {
+    for (const threadId of insertionOrder) {
+      const threadEmails = groups.get(threadId)!;
       threadEmails.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
       const latestEmail = threadEmails[0];
       const participantSet = new Set<string>();
@@ -170,7 +176,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
         allEmailIds: threadEmails.map(e => e.id),
       });
     }
-    result.sort((a, b) => new Date(b.latestEmail.receivedAt).getTime() - new Date(a.latestEmail.receivedAt).getTime());
+    // Preserve Graph API relevance order — do NOT re-sort by date
     return result;
   }, [searchAllResults]);
 
@@ -187,31 +193,77 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Trigger cross-folder search when in searchAll mode
+  // Trigger cross-folder search when in searchAll mode (reduced debounce to 300ms)
   useEffect(() => {
     if (!searchAllMode || !onSearchAllFolders) return;
     const timeout = setTimeout(() => {
       if (searchQuery.trim().length >= 2) onSearchAllFolders(searchQuery.trim());
-    }, 400);
+    }, 300);
     return () => clearTimeout(timeout);
   }, [searchQuery, searchAllMode, onSearchAllFolders]);
 
-  // Infinite scroll - Intersection Observer
-  useEffect(() => {
-    if (!loadMoreTriggerRef.current || !hasMore || loadingMore) return;
+  // Infinite scroll - dual approach: IntersectionObserver + scroll event fallback
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  const onLoadMoreRef = useRef(onLoadMore);
+  hasMoreRef.current = hasMore;
+  loadingMoreRef.current = loadingMore;
+  onLoadMoreRef.current = onLoadMore;
 
-    const observer = new IntersectionObserver(
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const loadMoreCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+
+    observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          onLoadMore();
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+          onLoadMoreRef.current();
         }
       },
-      { root: scrollContainerRef.current, threshold: 0.1 }
+      {
+        root: scrollContainerRef.current,
+        threshold: 0.1,
+        rootMargin: '0px 0px 400px 0px',
+      }
     );
+    observerRef.current.observe(node);
+  }, []);
 
-    observer.observe(loadMoreTriggerRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loadingMore, onLoadMore]);
+  // Scroll-based fallback: triggers load when user is near the bottom
+  // This catches cases where IntersectionObserver doesn't re-fire after loading completes
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (!hasMoreRef.current || loadingMoreRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < 500) {
+        onLoadMoreRef.current();
+      }
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Track scroll position for "scroll to top" button
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      setShowScrollTop(container.scrollTop > 500);
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -245,6 +297,17 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
     return text.length > 100 ? text.substring(0, 100) + '...' : text;
   };
 
+  // Highlight search terms in text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query || query.length < 2) return text;
+    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === query.toLowerCase()
+        ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/50 rounded px-0.5">{part}</mark>
+        : part
+    );
+  };
+
   // Check if any thread's emails are selected
   const isThreadSelected = (thread: ThreadGroup) => {
     return thread.allEmailIds.some(id => selectedEmailIds.has(id));
@@ -270,14 +333,12 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
       : thread.allEmailIds;
     setDraggedEmailIds(ids);
 
-    // Set drag data
     e.dataTransfer.setData('application/json', JSON.stringify({
       emailIds: ids,
       accountId: thread.latestEmail.accountId,
     }));
     e.dataTransfer.effectAllowed = 'move';
 
-    // Custom drag image
     const dragEl = document.createElement('div');
     dragEl.className = 'bg-blue-600 text-white px-3 py-2 rounded-lg shadow-lg text-sm font-medium';
     dragEl.textContent = ids.length === 1 ? '1 email' : `${ids.length} emails`;
@@ -294,8 +355,31 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
 
   const hasSelection = selectedEmailIds.size > 0;
 
+  // Get folder display name for search results
+  const getFolderBadge = (email: Email) => {
+    if (!searchAllMode || !searchQuery) return null;
+    // Use the resolved folderName from the server
+    return email.folderName || null;
+  };
+
+  // Skeleton loading rows
+  const SkeletonRow = () => (
+    <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700 animate-pulse">
+      <div className="flex items-center gap-3">
+        <div className="w-full">
+          <div className="flex items-center justify-between mb-2">
+            <div className="h-3.5 bg-gray-200 dark:bg-slate-600 rounded w-32" />
+            <div className="h-3 bg-gray-200 dark:bg-slate-600 rounded w-16" />
+          </div>
+          <div className="h-3 bg-gray-200 dark:bg-slate-600 rounded w-48 mb-2" />
+          <div className="h-2.5 bg-gray-100 dark:bg-slate-700 rounded w-64" />
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="w-[320px] flex flex-col bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex-shrink-0">
+    <div className="w-[340px] flex flex-col bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex-shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <div className="flex items-center justify-between mb-3">
@@ -355,10 +439,10 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder={searchAllMode ? 'Search all folders...' : 'Search this folder...'}
+            placeholder="Search all emails..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white placeholder:text-gray-400"
+            className="w-full pl-9 pr-8 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white placeholder:text-gray-400"
           />
           {searchQuery && (
             <button
@@ -373,20 +457,30 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
         {/* Search scope toggle */}
         {onSearchAllFolders && (
           <div className="flex items-center justify-between mt-2">
-            <button
-              onClick={() => {
-                setSearchAllMode(v => !v);
-                if (searchAllMode) setSearchQuery('');
-              }}
-              className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
-                searchAllMode
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              <SearchX size={13} />
-              <span>{searchAllMode ? 'Searching all folders' : 'Search all folders'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSearchAllMode(true)}
+                className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors ${
+                  searchAllMode
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                <FolderOpen size={11} />
+                <span>All folders</span>
+              </button>
+              <button
+                onClick={() => setSearchAllMode(false)}
+                className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors ${
+                  !searchAllMode
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                <Mail size={11} />
+                <span>This folder</span>
+              </button>
+            </div>
             {activeFilter !== 'all' && (
               <button
                 onClick={() => setActiveFilter('all')}
@@ -444,29 +538,35 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
 
       {/* Select All Row (when no selection active) */}
       {!hasSelection && displayThreads.length > 0 && !loading && (
-        <div className="px-4 py-1.5 border-b border-gray-100 dark:border-slate-700 flex items-center gap-2 bg-gray-50 dark:bg-slate-800">
-          <button
-            onClick={handleSelectAllToggle}
-            className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-400 dark:text-gray-500"
-            title="Select all"
-          >
-            <Square size={14} />
-          </button>
-          <span className="text-xs text-gray-400 dark:text-gray-500">Select all</span>
+        <div className="px-4 py-1.5 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between bg-gray-50 dark:bg-slate-800">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSelectAllToggle}
+              className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-400 dark:text-gray-500"
+              title="Select all"
+            >
+              <Square size={14} />
+            </button>
+            <span className="text-xs text-gray-400 dark:text-gray-500">Select all</span>
+          </div>
+          {/* Show count */}
+          {totalCount !== null && !searchAllMode && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {emails.length} of {totalCount}
+            </span>
+          )}
         </div>
       )}
 
       {/* Email / Thread List */}
-      <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
+      <div className="flex-1 overflow-y-auto relative" ref={scrollContainerRef}>
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6">
-            <RefreshCw size={32} className="mb-4 animate-spin opacity-40" />
-            <p className="text-sm">Loading emails...</p>
+          <div className="flex flex-col">
+            {Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)}
           </div>
-        ) : searchAllMode && searchAllLoading ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6">
-            <Loader2 size={32} className="mb-4 animate-spin opacity-40" />
-            <p className="text-sm">Searching all folders...</p>
+        ) : searchAllMode && searchAllLoading && displayThreads.length === 0 ? (
+          <div className="flex flex-col">
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
           </div>
         ) : displayThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6">
@@ -474,9 +574,24 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
             <p className="text-sm">
               {searchQuery ? 'No emails match your search' : activeFilter !== 'all' ? `No ${activeFilter} emails` : 'No emails in this folder'}
             </p>
+            {searchQuery && !searchAllMode && (
+              <button
+                onClick={() => setSearchAllMode(true)}
+                className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Try searching all folders
+              </button>
+            )}
           </div>
         ) : (
           <>
+            {/* Subtle loading bar when refreshing search results */}
+            {searchAllMode && searchAllLoading && displayThreads.length > 0 && (
+              <div className="h-0.5 bg-blue-100 dark:bg-blue-900/30 overflow-hidden">
+                <div className="h-full bg-blue-500 animate-pulse w-full" />
+              </div>
+            )}
+
             {displayThreads.map(thread => {
               const email = thread.latestEmail;
               const isSelected = selectedThreadId === thread.threadId || selectedEmailId === email.id;
@@ -484,6 +599,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
               const isChecked = isThreadSelected(thread);
               const isHovered = hoveredThreadId === thread.threadId;
               const isDragging = draggedEmailIds.some(id => thread.allEmailIds.includes(id));
+              const folderBadge = getFolderBadge(email);
 
               return (
                 <div
@@ -519,7 +635,6 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Toggle all emails in this thread
                         thread.allEmailIds.forEach(id => onToggleSelectEmail(id));
                       }}
                     >
@@ -549,7 +664,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
                               ? 'font-semibold text-gray-900 dark:text-white'
                               : 'text-gray-700 dark:text-gray-300'
                           }`}>
-                            {email.from.name || email.from.email}
+                            {searchQuery ? highlightMatch(email.from.name || email.from.email, searchQuery) : (email.from.name || email.from.email)}
                           </span>
                         </div>
 
@@ -578,7 +693,7 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
                           ? 'font-medium text-gray-900 dark:text-white'
                           : 'text-gray-600 dark:text-gray-400'
                       }`}>
-                        {email.subject || '(No Subject)'}
+                        {searchQuery ? highlightMatch(email.subject || '(No Subject)', searchQuery) : (email.subject || '(No Subject)')}
                       </div>
 
                       {/* Preview */}
@@ -586,8 +701,18 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
                         {getPreviewText(email)}
                       </div>
 
+                      {/* Folder badge (for cross-folder search results) */}
+                      {folderBadge && (
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">
+                            <FolderOpen size={9} />
+                            {folderBadge}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Thread participants */}
-                      {isThread && thread.participants.length > 1 && (
+                      {isThread && thread.participants.length > 1 && !folderBadge && (
                         <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-400">
                           <span className="truncate">
                             {thread.participants.slice(0, 3).join(', ')}
@@ -608,35 +733,43 @@ const EmailMessageList: React.FC<EmailMessageListProps> = ({
               );
             })}
 
-            {/* Infinite scroll trigger */}
+            {/* Infinite scroll trigger - invisible sentinel that triggers loading */}
             {hasMore && (
-              <div ref={loadMoreTriggerRef} className="py-4 flex items-center justify-center">
-                {loadingMore ? (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <Loader2 size={16} className="animate-spin" />
-                    <span className="text-xs">Loading more emails...</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={onLoadMore}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Load more emails
-                  </button>
-                )}
+              <div ref={loadMoreCallbackRef} className="py-3 flex items-center justify-center">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span className="text-xs">Loading more emails...</span>
+                </div>
               </div>
             )}
           </>
+        )}
+
+        {/* Scroll to top button */}
+        {showScrollTop && (
+          <button
+            onClick={scrollToTop}
+            className="fixed-in-scroll absolute bottom-4 right-4 z-10 p-2 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-full shadow-lg hover:bg-gray-50 dark:hover:bg-slate-600 text-gray-500 dark:text-gray-400 transition-all"
+            title="Scroll to top"
+          >
+            <ArrowUp size={16} />
+          </button>
         )}
       </div>
 
       {/* Footer - Count */}
       <div className="p-3 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
         <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
-          {displayThreads.length} conversation{displayThreads.length !== 1 ? 's' : ''}
-          {!searchAllMode && totalCount !== null && ` of ${totalCount}`}
-          {searchQuery && ` matching "${searchQuery}"`}
-          {activeFilter !== 'all' && ` · ${activeFilter} filter`}
+          {searchAllMode && searchQuery
+            ? `${displayThreads.length} result${displayThreads.length !== 1 ? 's' : ''} for "${searchQuery}"`
+            : (
+              <>
+                {displayThreads.length} conversation{displayThreads.length !== 1 ? 's' : ''}
+                {totalCount !== null && ` of ${totalCount}`}
+                {activeFilter !== 'all' && ` · ${activeFilter} filter`}
+              </>
+            )
+          }
         </div>
       </div>
     </div>
