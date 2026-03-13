@@ -2537,7 +2537,7 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
                 .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
                 .info-box strong { color: #075985; }
                 .btn-container { text-align: center; margin: 40px 0 32px 0; }
-                .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+                .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; border: 3px solid #000000; }
                 .expiry-note { font-size: 14px; color: #ef4444; font-weight: 600; margin-top: 14px; display: block; }
                 .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
                 .signature { margin-top: 8px; }
@@ -2557,11 +2557,16 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
                         <p class="logo-text">Rowan Rose Solicitors</p>
                     </div>
                     <div class="content">
-                        <h1>Your Claim is Being Processed</h1>
+                        <h1>Complete Your Lender Selection</h1>
                         <p class="subtitle">Expert Legal Support for Your Financial Claims</p>
 
                         <p class="greeting">Dear ${clientName},</p>
-                        <p>Thank you for choosing Rowan Rose Solicitors. We are currently reviewing your initial information and preparing your case.</p>
+                        <p>Successful claims can pay out £1,000+. Take a look at the list of lenders we deal with in the link below. Click the button below and select any lenders you may have dealt with in the last 15 years.</p>
+
+                        <div class="btn-container">
+                            <a href="${loaLink}" class="btn">Click Here</a>
+                            <span class="expiry-note">This secure link expires in 7 days</span>
+                        </div>
 
                         <div class="highlight-box">
                             <span class="highlight-text">Action Required: Select Additional Lenders</span>
@@ -2570,11 +2575,6 @@ async function sendLOAEmail(toEmail, clientName, loaLink) {
 
                         <div class="info-box">
                             <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case and can increase your compensation.</p>
-                        </div>
-
-                        <div class="btn-container">
-                            <a href="${loaLink}" class="btn">Complete Lender Selection</a>
-                            <span class="expiry-note">This secure link expires in 7 days</span>
                         </div>
 
                         <div class="divider"></div>
