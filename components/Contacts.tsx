@@ -516,7 +516,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [viewingClaimId, setViewingClaimId] = useState<string | null>(null);
    const [claimFileData, setClaimFileData] = useState<any>(null);
    // Accordion state for claim sections (null = all collapsed, 'details' | 'payment' | 'paymentPlan')
-   const [expandedClaimSection, setExpandedClaimSection] = useState<'details' | 'payment' | 'paymentPlan' | null>('details');
+   const [expandedClaimSection, setExpandedClaimSection] = useState<'details' | 'payment' | 'paymentPlan' | null>(null);
    const [claimFileForm, setClaimFileForm] = useState({
       // Section 1: Claim Details
       lender: '',
@@ -3697,7 +3697,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              value={claimFileForm.creditLimitIncreases}
                                              onChange={(e) => setClaimFileForm({ ...claimFileForm, creditLimitIncreases: e.target.value })}
                                              rows={4}
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"
                                              placeholder="Enter credit limit history and any increases..."
                                           />
                                        </div>
@@ -3709,7 +3709,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              value={claimFileForm.dsarReview}
                                              onChange={(e) => setClaimFileForm({ ...claimFileForm, dsarReview: e.target.value })}
                                              rows={6}
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"
                                              placeholder="Enter DSAR analysis notes..."
                                           />
                                        </div>
@@ -3721,7 +3721,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              value={claimFileForm.complaintParagraph}
                                              onChange={(e) => setClaimFileForm({ ...claimFileForm, complaintParagraph: e.target.value })}
                                              rows={6}
-                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+                                             className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"
                                              placeholder="Enter complaint narrative..."
                                           />
                                        </div>

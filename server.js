@@ -245,6 +245,10 @@ crmEvents.init(pool);
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='overlimit_charges') THEN
                         ALTER TABLE cases ADD COLUMN overlimit_charges TEXT;
                     END IF;
+                    -- Convert late_payment_charges from DECIMAL to TEXT to support count/value format
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='late_payment_charges' AND data_type != 'text') THEN
+                        ALTER TABLE cases ALTER COLUMN late_payment_charges TYPE TEXT;
+                    END IF;
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='credit_limit_increases') THEN
                         ALTER TABLE cases ADD COLUMN credit_limit_increases TEXT;
                     END IF;
@@ -6158,8 +6162,8 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
 
         // List of numeric (DECIMAL) fields that cannot accept empty strings
         const numericFields = [
-            'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
-            'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+            'apr', 'outstanding_balance', 'offer_made', 'fee_percent',
+            'billed_finance_charges', 'credit_limit_increases',
             'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
             'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
             'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
@@ -6657,8 +6661,8 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
         let paramCount = 1;
 
         const numericFields = [
-            'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
-            'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+            'apr', 'outstanding_balance', 'offer_made', 'fee_percent',
+            'billed_finance_charges', 'credit_limit_increases',
             'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
             'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
             'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
@@ -16124,8 +16128,8 @@ crmRouter.patch('/cases/:id/extended', async (req, res) => {
     const { id } = req.params;
 
     const numericFields = [
-        'apr', 'outstanding_balance', 'offer_made', 'fee_percent', 'late_payment_charges',
-        'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',
+        'apr', 'outstanding_balance', 'offer_made', 'fee_percent',
+        'billed_finance_charges', 'credit_limit_increases',
         'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
         'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
         'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',

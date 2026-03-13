@@ -587,7 +587,7 @@ export interface ClaimExtended extends Claim {
   outstandingBalance?: number;
   // Section 1 additional fields
   billedInterestCharges?: string;
-  latePaymentCharges?: number;
+  latePaymentCharges?: string;
   overlimitCharges?: string;
   totalAmountOfDebt?: string;
   claimValue?: string;

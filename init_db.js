@@ -305,7 +305,7 @@ async function initDb() {
       ALTER TABLE cases ADD COLUMN IF NOT EXISTS offer_made DECIMAL(10, 2);
     `);
     await pool.query(`
-      ALTER TABLE cases ADD COLUMN IF NOT EXISTS late_payment_charges DECIMAL(10, 2);
+      ALTER TABLE cases ADD COLUMN IF NOT EXISTS late_payment_charges TEXT;
     `);
     await pool.query(`
       ALTER TABLE cases ADD COLUMN IF NOT EXISTS billed_finance_charges DECIMAL(10, 2);
