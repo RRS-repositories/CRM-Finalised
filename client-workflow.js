@@ -304,15 +304,15 @@ async function processExtraLender(queueId, contact, clientName, baseUrl) {
     const html = buildEmail(clientName,
         'Complete Your Lender Selection',
         'Expert Legal Support for Your Financial Claims',
-        `<p>Thank you for choosing Rowan Rose Solicitors. We are currently reviewing your initial information and preparing your case.</p>
-        <div class="highlight-box">
+        `<p>Successful claims can pay out £1,000+. Take a look at the list of lenders we deal with in the link below. Click the button below and select any lenders you may have dealt with in the last 15 years.</p>`,
+        'Click Here', link, 'This secure link expires in 7 days',
+        `<div class="highlight-box">
             <span class="highlight-text">Action Required: Select Additional Lenders</span>
             <p>To maximize your potential compensation, please tell us about any other lenders you have used in the last 15 years.</p>
         </div>
         <div class="info-box">
             <p><strong>Did you know?</strong> Establishing a pattern of irresponsible lending across multiple lenders significantly strengthens your case and can increase your compensation.</p>
-        </div>`,
-        'Complete Lender Selection', link, 'This secure link expires in 7 days'
+        </div>`
     );
 
     const result = await sendEmail(contact.email, 'Complete Your Lender Selection - Rowan Rose Solicitors', html);
@@ -434,7 +434,7 @@ async function markStatus(queueId, status, error = null, metadata = null) {
 
 // ─── EMAIL TEMPLATE ──────────────────────────────────────────────────────────
 
-function buildEmail(clientName, heading, subtitle, bodyHtml, ctaText, ctaLink, expiryNote) {
+function buildEmail(clientName, heading, subtitle, bodyHtml, ctaText, ctaLink, expiryNote, afterButtonHtml) {
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -458,7 +458,7 @@ function buildEmail(clientName, heading, subtitle, bodyHtml, ctaText, ctaLink, e
         .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
         .info-box strong { color: #075985; }
         .btn-container { text-align: center; margin: 40px 0 32px 0; }
-        .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+        .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; border: 3px solid #000000; }
         .expiry-note { font-size: 14px; color: #ef4444; font-weight: 600; margin-top: 14px; display: block; }
         .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
         .signature { margin-top: 8px; }
@@ -485,6 +485,7 @@ function buildEmail(clientName, heading, subtitle, bodyHtml, ctaText, ctaLink, e
                     <a href="${ctaLink}" class="btn">${ctaText}</a>
                     ${expiryNote ? `<span class="expiry-note">${expiryNote}</span>` : ''}
                 </div>
+                ${afterButtonHtml || ''}
                 <div class="divider"></div>
                 <p>If you have any questions, our dedicated team is here to assist you.</p>
                 <div class="signature">
@@ -530,7 +531,7 @@ function buildQuestionnaireEmail(clientName, heading, subtitle, bodyHtml, ctaBut
         .info-box p { color: #0369a1; margin: 0; font-size: 17px; }
         .info-box strong { color: #075985; }
         .btn-container { text-align: center; margin: 24px 0; }
-        .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; }
+        .btn { display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff !important; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); letter-spacing: 0.3px; border: 3px solid #000000; }
         .divider { height: 1px; background: linear-gradient(to right, transparent, #e2e8f0, transparent); margin: 28px 0; }
         .signature { margin-top: 8px; }
         .signature p { margin-bottom: 4px; font-size: 18px; }
