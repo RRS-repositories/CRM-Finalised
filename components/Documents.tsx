@@ -469,11 +469,30 @@ const DocumentsContent: React.FC = () => {
    const [statusCounts, setStatusCounts] = useState<Record<string, { total: number; today: number }>>({});
    const fetchStatusCounts = useCallback(async () => {
       try {
-         const res = await fetch(`${API_BASE_URL}/documents/status-counts`);
-         if (!res.ok) return;
-         const rows: { status: string; total: number; today: number }[] = await res.json();
+         const [docRes, commsRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/documents/status-counts`),
+            fetch(`${API_BASE_URL}/communications-tracking/status-counts`)
+         ]);
+
          const map: Record<string, { total: number; today: number }> = {};
-         for (const r of rows) map[r.status] = { total: r.total, today: r.today };
+
+         if (docRes.ok) {
+            const rows: { status: string; total: number; today: number }[] = await docRes.json();
+            for (const r of rows) map[r.status] = { total: r.total, today: r.today };
+         }
+
+         if (commsRes.ok) {
+            const comms: Record<string, { total: number; today: number }> = await commsRes.json();
+            for (const [status, counts] of Object.entries(comms)) {
+               if (map[status]) {
+                  map[status].total += counts.total;
+                  map[status].today += counts.today;
+               } else {
+                  map[status] = { total: counts.total, today: counts.today };
+               }
+            }
+         }
+
          setStatusCounts(map);
       } catch (err) { console.error('Status counts error:', err); }
    }, [API_BASE_URL]);
