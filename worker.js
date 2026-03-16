@@ -2473,6 +2473,142 @@ const processDocumentExpiry = async () => {
     }
 };
 
+// ============================================================================
+// RESEND LOA — Send resign signature email for cases with pending resign tokens
+// ============================================================================
+const processResendLOAEmails = async () => {
+    console.log('[Worker] Checking for pending Resend LOA emails...');
+    try {
+        const { rows } = await pool.query(`
+            SELECT c.id as case_id, c.lender, c.resign_token,
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email
+            FROM cases c
+            JOIN contacts cnt ON c.contact_id = cnt.id
+            WHERE c.resign_token IS NOT NULL
+              AND c.resign_email_sent = false
+              AND c.status = 'Resend LOA'
+            LIMIT 10
+        `);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No pending Resend LOA emails to send.');
+            return;
+        }
+
+        console.log(`[Worker] Found ${rows.length} pending Resend LOA email(s) to send.`);
+
+        const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+        const FRONTEND_URL = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
+
+        for (const record of rows) {
+            try {
+                if (!record.email) {
+                    console.log(`[Worker] ⚠️ No email for contact ${record.contact_id} — skipping Resend LOA`);
+                    await pool.query('UPDATE cases SET resign_email_sent = true WHERE id = $1', [record.case_id]);
+                    continue;
+                }
+
+                const resignLink = `${FRONTEND_URL}/resign/${record.resign_token}`;
+                const clientName = `${record.first_name} ${record.last_name}`;
+
+                const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px; text-align: center;">
+                            <h1 style="font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase;">Rowan Rose Solicitors</h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 48px 45px; background: #ffffff;">
+                            <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 6px; font-weight: 700;">Updated Signature Required</h2>
+                            <p style="color: #64748b; font-size: 16px; margin: 0 0 30px; font-weight: 500;">Action needed for your claim</p>
+
+                            <p style="font-size: 18px; color: #1e293b; margin-bottom: 16px;">Dear ${clientName},</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569; margin-bottom: 16px;">We are continuing to investigate your claim, however we need an updated document signing as the lender has said the signature does not exactly match.</p>
+
+                            <!-- Highlight Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+                                <tr>
+                                    <td style="background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 24px 28px; border-radius: 0 14px 14px 0;">
+                                        <p style="font-weight: 700; color: #b45309; margin: 0; font-size: 18px;">Important</p>
+                                        <p style="color: #92400e; margin: 10px 0 0; font-size: 16px; line-height: 1.6;">Please try to draw your next signature as close to the original as possible. This will help us progress your claim without further delays.</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 36px 0 28px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="${resignLink}" style="display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); border: 3px solid #000000;">Update Signature</a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center" style="padding-top: 14px;">
+                                        <span style="font-size: 14px; color: #ef4444; font-weight: 600;">This secure link expires in 7 days</span>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569;">If you have any questions, our dedicated team is here to assist you.</p>
+
+                            <!-- Signature -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 20px;">
+                                <tr><td><p style="font-size: 17px; color: #475569; margin: 0;">Kind regards,</p></td></tr>
+                                <tr><td><p style="font-size: 17px; color: #0f172a; font-weight: 700; margin: 4px 0 0;">The Rowan Rose Solicitors Team</p></td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 28px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <p style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 6px;">Rowan Rose Solicitors</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">0161 533 1706 | irl@rowanrose.co.uk</p>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 10px 0 0;">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+                await irlEmailTransporter.sendMail({
+                    from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+                    to: record.email,
+                    subject: 'Updated Signature Required - Rowan Rose Solicitors',
+                    html: emailHtml
+                });
+
+                // Mark email as sent
+                await pool.query('UPDATE cases SET resign_email_sent = true WHERE id = $1', [record.case_id]);
+
+                console.log(`[Worker] ✅ Resend LOA email sent to ${record.email} for case ${record.case_id} (resign link: ${resignLink})`);
+
+            } catch (emailErr) {
+                console.error(`[Worker] ❌ Failed to send Resend LOA email for case ${record.case_id}:`, emailErr.message);
+            }
+        }
+    } catch (err) {
+        console.error('[Worker] ❌ Error in processResendLOAEmails:', err.message);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -2488,6 +2624,8 @@ const runWorkerCycle = async () => {
     await processPendingCategory3Confirmations();
     // Process document expiry (30-day) and chase emails (Day 3, 10, 17, 24, 30)
     await processDocumentExpiry();
+    // Send resign signature emails for Resend LOA cases
+    await processResendLOAEmails();
 };
 
 // Run immediately on start (with small delay for DB migration)

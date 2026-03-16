@@ -6652,6 +6652,21 @@ app.patch('/api/cases/:id', async (req, res) => {
             });
         }
 
+        // If status = "Resend LOA", generate resign token for worker to pick up and email
+        if (status === 'Resend LOA') {
+            try {
+                const { randomUUID } = await import('crypto');
+                const resignToken = randomUUID();
+                await pool.query(
+                    'UPDATE cases SET resign_token = $1, resign_email_sent = false WHERE id = $2',
+                    [resignToken, id]
+                );
+                console.log(`🔄 Resend LOA: resign token generated for case ${id}, worker will send email`);
+            } catch (resignErr) {
+                console.error(`❌ Error generating resign token for case ${id}:`, resignErr);
+            }
+        }
+
         // Log status change to action_logs
         if (contactId && oldStatus !== status) {
             try {
@@ -10645,6 +10660,280 @@ app.get('/intake/sales/:token', async (req, res) => {
     } catch (error) {
         console.error('Error serving sales signature page:', error);
         res.status(500).send('Server error');
+    }
+});
+
+// ============================================================================
+// RESIGN SIGNATURE PAGE - Simple page with message + signature canvas
+// ============================================================================
+app.get('/resign/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT c.id as case_id, c.lender, c.resign_token,
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.resign_token = $1`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.send(renderAlreadySubmittedPage(
+                'Link Expired or Invalid',
+                'This signature link is no longer valid. It may have already been used or has expired. Please contact us if you need assistance.'
+            ));
+        }
+
+        const record = result.rows[0];
+        const clientName = `${record.first_name} ${record.last_name}`;
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Update Your Signature - Rowan Rose Solicitors</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { background: #fff; border-radius: 20px; box-shadow: 0 4px 24px rgba(15,23,42,0.08); border: 1px solid #e2e8f0; max-width: 620px; width: 100%; overflow: hidden; }
+        .header { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 35px 40px; text-align: center; }
+        .header h1 { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: 1.5px; text-transform: uppercase; }
+        .content { padding: 40px; }
+        .greeting { font-size: 18px; color: #1e293b; margin-bottom: 16px; }
+        .message-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 22px 26px; border-radius: 0 14px 14px 0; margin-bottom: 30px; }
+        .message-box p { color: #92400e; font-size: 16px; line-height: 1.65; margin: 0; }
+        .sig-label { font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 10px; }
+        .canvas-wrapper { border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; position: relative; margin-bottom: 12px; }
+        canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
+        .btn-row { display: flex; gap: 12px; margin-bottom: 24px; }
+        .btn-clear { flex: 1; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; color: #64748b; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .btn-clear:hover { background: #f1f5f9; }
+        .btn-submit { width: 100%; padding: 18px; border: 3px solid #000; border-radius: 12px; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #fff; font-size: 18px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(249,115,22,0.35); }
+        .btn-submit:hover { opacity: 0.95; }
+        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .footer { background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 24px 40px; text-align: center; border-top: 1px solid #e2e8f0; }
+        .footer p { font-size: 13px; color: #64748b; margin: 4px 0; }
+        .footer-brand { font-size: 15px; font-weight: 700; color: #0f172a; }
+        .success-msg { display: none; text-align: center; padding: 60px 40px; }
+        .success-msg h2 { color: #059669; font-size: 24px; margin-bottom: 12px; }
+        .success-msg p { color: #475569; font-size: 16px; }
+        .error-text { color: #ef4444; font-size: 14px; margin-top: 8px; display: none; }
+        .spinner { display: none; }
+        .spinner::after { content: ''; display: inline-block; width: 18px; height: 18px; border: 3px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-left: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Rowan Rose Solicitors</h1>
+        </div>
+
+        <div id="formContent" class="content">
+            <p class="greeting">Dear ${clientName},</p>
+            <div class="message-box">
+                <p>We are continuing to investigate your claim, however we need an updated document signing as the lender has said the signature does not exactly match. Please try to draw your next signature as close to the original.</p>
+            </div>
+
+            <p class="sig-label">Please draw your signature below:</p>
+            <div class="canvas-wrapper">
+                <canvas id="signatureCanvas" width="556" height="200"></canvas>
+            </div>
+            <div class="btn-row">
+                <button class="btn-clear" onclick="clearSignature()">Clear Signature</button>
+            </div>
+            <p id="errorText" class="error-text"></p>
+            <button id="submitBtn" class="btn-submit" onclick="submitSignature()">
+                <span id="submitText">Submit Signature</span>
+                <span id="submitSpinner" class="spinner"></span>
+            </button>
+        </div>
+
+        <div id="successMessage" class="success-msg">
+            <h2>Thank You!</h2>
+            <p>Your updated signature has been submitted successfully. You can close this page now.</p>
+        </div>
+
+        <div class="footer">
+            <p class="footer-brand">Rowan Rose Solicitors</p>
+            <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+            <p>0161 533 1706 | irl@rowanrose.co.uk</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('signatureCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let hasDrawn = false;
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            if (e.touches) {
+                return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+            }
+            return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+        }
+
+        function startDraw(e) { e.preventDefault(); isDrawing = true; hasDrawn = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+        function draw(e) { if (!isDrawing) return; e.preventDefault(); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+        function stopDraw() { isDrawing = false; }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDraw);
+        canvas.addEventListener('mouseleave', stopDraw);
+        canvas.addEventListener('touchstart', startDraw);
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', stopDraw);
+
+        function clearSignature() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasDrawn = false;
+        }
+
+        async function submitSignature() {
+            if (!hasDrawn) {
+                document.getElementById('errorText').textContent = 'Please draw your signature before submitting.';
+                document.getElementById('errorText').style.display = 'block';
+                return;
+            }
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            document.getElementById('submitText').textContent = 'Submitting...';
+            document.getElementById('submitSpinner').style.display = 'inline-block';
+            document.getElementById('errorText').style.display = 'none';
+
+            try {
+                const signatureData = canvas.toDataURL('image/png');
+                const resp = await fetch('/api/submit-resign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: '${token}', signatureData })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('formContent').style.display = 'none';
+                    document.getElementById('successMessage').style.display = 'block';
+                } else {
+                    throw new Error(data.message || 'Failed to submit');
+                }
+            } catch (err) {
+                document.getElementById('errorText').textContent = err.message;
+                document.getElementById('errorText').style.display = 'block';
+                btn.disabled = false;
+                document.getElementById('submitText').textContent = 'Submit Signature';
+                document.getElementById('submitSpinner').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>`);
+    } catch (err) {
+        console.error('[Resign] Error loading resign page:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// ============================================================================
+// SUBMIT RESIGN SIGNATURE - Save signature.png to S3 (same path as intake)
+// ============================================================================
+app.post('/api/submit-resign', async (req, res) => {
+    const { token, signatureData } = req.body;
+
+    if (!token || !signatureData) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        // Find case by resign token
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.resign_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const record = caseRes.rows[0];
+        const contactId = record.contact_id;
+        const actualCaseId = record.case_id;
+        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
+
+        // Add timestamp to signature
+        const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
+
+        // Upload to S3 as signature.png (same location as intake — overwrites existing)
+        const signatureKey = `${folderPath}Signatures/signature.png`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: signatureKey,
+            Body: signatureBufferWithTimestamp,
+            ContentType: 'image/png'
+        }));
+
+        console.log(`[Resign] Uploaded signature for contact ${contactId} (case ${actualCaseId}) to ${signatureKey}`);
+
+        // Generate presigned URL
+        const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
+
+        // Update contact with signature URL
+        await pool.query(
+            'UPDATE contacts SET signature_url = $1 WHERE id = $2',
+            [signatureUrl, contactId]
+        );
+
+        // Clear the resign token (one-time use)
+        await pool.query(
+            'UPDATE cases SET resign_token = NULL WHERE id = $1',
+            [actualCaseId]
+        );
+
+        // Save to documents table - check if signature.png already exists
+        const existingDoc = await pool.query(
+            'SELECT id FROM documents WHERE contact_id = $1 AND name = $2',
+            [contactId, 'signature.png']
+        );
+
+        if (existingDoc.rows.length > 0) {
+            await pool.query(
+                'UPDATE documents SET url = $1, updated_at = NOW() WHERE id = $2',
+                [signatureUrl, existingDoc.rows[0].id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [contactId, 'signature.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Resign']]
+            );
+        }
+
+        // Log the action
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'signature_resign', 'Document', `Updated signature captured via resign form for ${record.lender} claim`]
+        );
+
+        res.json({ success: true, message: 'Signature submitted successfully' });
+
+    } catch (error) {
+        console.error('[Resign] Error submitting signature:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
