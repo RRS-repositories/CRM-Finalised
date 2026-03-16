@@ -408,13 +408,21 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
         }
         console.log(`[PDF Generator] Status update skipped for case ${caseData.id}`);
     } else {
-        const newStatus = documentType === 'LOA' ? 'LOA Uploaded' : 'LOA Signed';
-        const updateQuery = `
-            UPDATE cases
-            SET status = $1, loa_generated = $2, updated_at = NOW()
-            WHERE id = $3
-        `;
-        await pool.query(updateQuery, [newStatus, documentType === 'LOA', caseData.id]);
+        // Only update status for LOA documents; cover letter should not change status to "LOA Signed"
+        if (documentType === 'LOA') {
+            const updateQuery = `
+                UPDATE cases
+                SET status = $1, loa_generated = $2, updated_at = NOW()
+                WHERE id = $3
+            `;
+            await pool.query(updateQuery, ['LOA Uploaded', true, caseData.id]);
+        } else {
+            // For non-LOA types (e.g. COVER_LETTER), only update timestamp
+            await pool.query(
+                `UPDATE cases SET updated_at = NOW() WHERE id = $1`,
+                [caseData.id]
+            );
+        }
     }
 
     console.log(`[PDF Generator] PDF generated successfully: ${fileName}`);

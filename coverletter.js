@@ -570,17 +570,17 @@ export async function generateCoverLetterFromTemplate(caseId, pool, s3Client) {
         console.warn('[CoverLetter] Could not log action:', logErr.message);
     }
 
-    // 11. Update case status to "LOA Signed"
-    try {
-        const updateRes = await pool.query('UPDATE cases SET status = $1 WHERE id = $2 RETURNING id, status', ['LOA Signed', caseId]);
-        if (updateRes.rowCount > 0) {
-            console.log(`[CoverLetter] Case ${caseId} status updated to "LOA Signed"`);
-        } else {
-            console.warn(`[CoverLetter] WARNING: Case ${caseId} status NOT updated (0 rows affected)`);
-        }
-    } catch (statusErr) {
-        console.error(`[CoverLetter] ERROR updating status for case ${caseId}:`, statusErr.message);
-    }
+    // 11. Status update to "LOA Signed" disabled — cover letter generates but status stays as-is
+    // try {
+    //     const updateRes = await pool.query('UPDATE cases SET status = $1 WHERE id = $2 RETURNING id, status', ['LOA Signed', caseId]);
+    //     if (updateRes.rowCount > 0) {
+    //         console.log(`[CoverLetter] Case ${caseId} status updated to "LOA Signed"`);
+    //     } else {
+    //         console.warn(`[CoverLetter] WARNING: Case ${caseId} status NOT updated (0 rows affected)`);
+    //     }
+    // } catch (statusErr) {
+    //     console.error(`[CoverLetter] ERROR updating status for case ${caseId}:`, statusErr.message);
+    // }
 
     console.log(`[CoverLetter] Cover letter generated and uploaded to S3: ${coverLetterKey}`);
 
