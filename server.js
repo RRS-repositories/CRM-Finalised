@@ -3244,6 +3244,61 @@ app.get('/api/documents', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- DOCUMENT STATUS COUNTS (lightweight dashboard endpoint) ---
+app.get('/api/documents/status-counts', async (req, res) => {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const { rows } = await pool.query(`
+            SELECT
+                COALESCE(document_status, 'Draft') AS status,
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE created_at::date = $1 OR updated_at::date = $1)::int AS today
+            FROM documents
+            GROUP BY COALESCE(document_status, 'Draft')
+        `, [today]);
+        res.json(rows);
+    } catch (err) {
+        console.error('[Documents] Status counts error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- DOCUMENTS BY STATUS (paginated drill-down) ---
+app.get('/api/documents/by-status', async (req, res) => {
+    try {
+        const { status, search, page = 1, limit = 200 } = req.query;
+        const conditions = [];
+        const params = [];
+
+        if (status) {
+            params.push(status);
+            conditions.push(`COALESCE(d.document_status, 'Draft') = $${params.length}`);
+        }
+
+        if (search) {
+            params.push(`%${search}%`);
+            conditions.push(`(d.name ILIKE $${params.length} OR c.full_name ILIKE $${params.length})`);
+        }
+
+        const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        const { rows } = await pool.query(`
+            SELECT d.*, c.full_name AS contact_name
+            FROM documents d
+            LEFT JOIN contacts c ON d.contact_id = c.id
+            ${where}
+            ORDER BY d.created_at DESC
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `, [...params, parseInt(limit), offset]);
+
+        res.json(rows);
+    } catch (err) {
+        console.error('[Documents] By-status error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Shared checklist computation helper ─────────────────────────────────────
 function computeChecklist(docs, extraLenders) {
     const twelveWeeksAgo = new Date();
@@ -4329,6 +4384,53 @@ app.get('/api/actions/documents', async (req, res) => {
         );
         res.json(rows);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- DOCUMENT JOURNEY TRACKING (all sent documents with their journey) ---
+app.get('/api/documents/journey', async (req, res) => {
+    try {
+        const { page = 1, limit = 100, search } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let where = "WHERE d.document_status != 'Draft'";
+        const params = [];
+        if (search) {
+            params.push(`%${search}%`);
+            where += ` AND (d.name ILIKE $${params.length} OR c.full_name ILIKE $${params.length})`;
+        }
+
+        const { rows } = await pool.query(`
+            SELECT
+                d.id, d.name, d.document_status, d.tracking_token,
+                d.sent_at, d.created_at, d.updated_at,
+                d.contact_id, d.category,
+                c.full_name AS contact_name,
+                c.email AS contact_email,
+                (SELECT json_agg(json_build_object(
+                    'event_type', dte.event_type,
+                    'occurred_at', dte.occurred_at,
+                    'ip_address', dte.ip_address
+                ) ORDER BY dte.occurred_at ASC)
+                FROM document_tracking_events dte WHERE dte.document_id = d.id
+                ) AS tracking_events
+            FROM documents d
+            LEFT JOIN contacts c ON d.contact_id = c.id
+            ${where}
+            ORDER BY COALESCE(d.sent_at, d.updated_at, d.created_at) DESC
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `, [...params, parseInt(limit), offset]);
+
+        // Also get total count
+        const countRes = await pool.query(
+            `SELECT COUNT(*)::int AS total FROM documents d LEFT JOIN contacts c ON d.contact_id = c.id ${where}`,
+            params
+        );
+
+        res.json({ documents: rows, total: countRes.rows[0].total });
+    } catch (err) {
+        console.error('[Documents] Journey error:', err);
         res.status(500).json({ error: err.message });
     }
 });

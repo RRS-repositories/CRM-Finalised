@@ -13,7 +13,7 @@ import { OOTemplateManager, OODocumentList } from './onlyoffice';
 import { DOCUMENT_STATUS_CONFIG } from '../constants';
 
 const Documents: React.FC = () => {
-   const [activeTab, setActiveTab] = useState<'documents' | 'templates' | 'editor'>('documents');
+   const [activeTab, setActiveTab] = useState<'documents' | 'templates' | 'editor' | 'tracking'>('documents');
 
    return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors">
@@ -33,6 +33,12 @@ const Documents: React.FC = () => {
                   Template Library
                </button>
                <button
+                  onClick={() => setActiveTab('tracking')}
+                  className={`pb-4 text-sm font-bold border-b-2 transition-colors px-2 ${activeTab === 'tracking' ? 'border-brand-orange text-navy-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-200'}`}
+               >
+                  Document Tracking
+               </button>
+               <button
                   onClick={() => setActiveTab('editor')}
                   className={`pb-4 text-sm font-bold border-b-2 transition-colors px-2 ${activeTab === 'editor' ? 'border-brand-orange text-navy-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-200'}`}
                >
@@ -47,10 +53,303 @@ const Documents: React.FC = () => {
                <DocumentsContent />
             ) : activeTab === 'templates' ? (
                <Templates />
+            ) : activeTab === 'tracking' ? (
+               <DocumentJourney />
             ) : (
                <TemplateEditorTab />
             )}
          </div>
+      </div>
+   );
+};
+
+// --- Sub-Component: Document Journey Tracking ---
+interface JourneyDoc {
+   id: number;
+   name: string;
+   document_status: string;
+   tracking_token: string | null;
+   sent_at: string | null;
+   created_at: string;
+   updated_at: string | null;
+   contact_id: number | null;
+   category: string | null;
+   contact_name: string | null;
+   contact_email: string | null;
+   tracking_events: { event_type: string; occurred_at: string; ip_address: string | null }[] | null;
+}
+
+const JOURNEY_STEPS = ['Sent', 'Viewed', 'Completed'] as const;
+
+const journeyStepColor = (step: string, reached: boolean) => {
+   if (!reached) return 'bg-gray-200 dark:bg-slate-600 text-gray-400 dark:text-slate-500';
+   switch (step) {
+      case 'Sent': return 'bg-blue-500 text-white';
+      case 'Viewed': return 'bg-amber-500 text-white';
+      case 'Completed': return 'bg-emerald-500 text-white';
+      default: return 'bg-gray-400 text-white';
+   }
+};
+
+const journeyConnectorColor = (reached: boolean) =>
+   reached ? 'bg-emerald-400' : 'bg-gray-200 dark:bg-slate-600';
+
+function getJourneyStage(doc: JourneyDoc): number {
+   const status = doc.document_status;
+   if (status === 'Completed' || status === 'Paid') return 3;
+   if (status === 'Viewed') return 2;
+   if (status === 'Sent' || status === 'For Approval') return 1;
+   if (status === 'Declined' || status === 'Expired') return -1; // special
+   return 0;
+}
+
+const DocumentJourney: React.FC = () => {
+   const API_BASE_URL = API_ENDPOINTS.api;
+   const [docs, setDocs] = useState<JourneyDoc[]>([]);
+   const [total, setTotal] = useState(0);
+   const [loading, setLoading] = useState(true);
+   const [search, setSearch] = useState('');
+   const [page, setPage] = useState(1);
+   const [expandedId, setExpandedId] = useState<number | null>(null);
+   const [docTimeline, setDocTimeline] = useState<any>(null);
+   const [timelineLoading, setTimelineLoading] = useState(false);
+   const limit = 50;
+
+   const fetchJourney = useCallback(async () => {
+      setLoading(true);
+      try {
+         const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+         if (search) params.set('search', search);
+         const res = await fetch(`${API_BASE_URL}/documents/journey?${params}`);
+         if (!res.ok) throw new Error('Failed');
+         const data = await res.json();
+         setDocs(data.documents || []);
+         setTotal(data.total || 0);
+      } catch (err) {
+         console.error('Journey fetch error:', err);
+      } finally {
+         setLoading(false);
+      }
+   }, [API_BASE_URL, page, search]);
+
+   useEffect(() => { fetchJourney(); }, [fetchJourney]);
+
+   const handleExpand = async (docId: number) => {
+      if (expandedId === docId) { setExpandedId(null); return; }
+      setExpandedId(docId);
+      setTimelineLoading(true);
+      try {
+         const res = await fetch(`${API_BASE_URL}/documents/${docId}/timeline`);
+         if (res.ok) setDocTimeline(await res.json());
+      } catch { setDocTimeline(null); }
+      finally { setTimelineLoading(false); }
+   };
+
+   const totalPages = Math.ceil(total / limit);
+
+   const formatDate = (d: string | null) => {
+      if (!d) return '—';
+      const dt = new Date(d);
+      return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+         ' ' + dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+   };
+
+   return (
+      <div className="flex flex-col h-full">
+         {/* Header */}
+         <div className="h-14 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 bg-white dark:bg-slate-800 flex-shrink-0">
+            <div className="flex items-center gap-3">
+               <h2 className="text-base font-bold text-navy-900 dark:text-white">Document Journey Tracking</h2>
+               <span className="text-xs text-gray-400">{total} documents</span>
+            </div>
+            <div className="relative w-72">
+               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+               <input
+                  type="text"
+                  placeholder="Search by document or client name..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full pl-8 pr-4 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+               />
+            </div>
+         </div>
+
+         {/* Table */}
+         <div className="flex-1 overflow-y-auto">
+            {loading ? (
+               <div className="p-12 text-center text-gray-400">
+                  <Loader2 size={32} className="mx-auto mb-2 animate-spin opacity-40" />
+                  <p className="text-sm">Loading document journeys...</p>
+               </div>
+            ) : docs.length === 0 ? (
+               <div className="p-12 text-center text-gray-400">
+                  <FileText size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-sm">No sent documents found.</p>
+               </div>
+            ) : (
+               <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                     <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th className="px-6 py-3 font-semibold">Document</th>
+                        <th className="px-4 py-3 font-semibold">Client</th>
+                        <th className="px-4 py-3 font-semibold">Sent</th>
+                        <th className="px-4 py-3 font-semibold">Status</th>
+                        <th className="px-4 py-3 font-semibold min-w-[240px]">Journey</th>
+                        <th className="px-4 py-3 font-semibold w-8"></th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                     {docs.map(doc => {
+                        const stage = getJourneyStage(doc);
+                        const isDeclinedOrExpired = stage === -1;
+                        const isExpanded = expandedId === doc.id;
+                        return (
+                           <React.Fragment key={doc.id}>
+                              <tr
+                                 className="hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                                 onClick={() => handleExpand(doc.id)}
+                              >
+                                 <td className="px-6 py-3">
+                                    <div className="font-medium text-navy-900 dark:text-white truncate max-w-[200px]">{doc.name}</div>
+                                    <div className="text-[10px] text-gray-400">{doc.category || 'Uncategorized'}</div>
+                                 </td>
+                                 <td className="px-4 py-3">
+                                    <div className="text-gray-700 dark:text-gray-300">{doc.contact_name || '—'}</div>
+                                    <div className="text-[10px] text-gray-400">{doc.contact_email || ''}</div>
+                                 </td>
+                                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                                    {formatDate(doc.sent_at)}
+                                 </td>
+                                 <td className="px-4 py-3">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                       isDeclinedOrExpired
+                                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                          : doc.document_status === 'Completed' || doc.document_status === 'Paid'
+                                             ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                             : doc.document_status === 'Viewed'
+                                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                    }`}>
+                                       {doc.document_status}
+                                    </span>
+                                 </td>
+                                 <td className="px-4 py-3">
+                                    {isDeclinedOrExpired ? (
+                                       <span className="text-xs text-red-500 font-medium">{doc.document_status}</span>
+                                    ) : (
+                                       <div className="flex items-center gap-1">
+                                          {JOURNEY_STEPS.map((step, i) => (
+                                             <React.Fragment key={step}>
+                                                {i > 0 && (
+                                                   <div className={`h-0.5 w-6 rounded ${journeyConnectorColor(stage >= i + 1)}`} />
+                                                )}
+                                                <div className={`flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-bold ${journeyStepColor(step, stage >= i + 1)}`}
+                                                   title={step}
+                                                >
+                                                   {stage >= i + 1 ? '✓' : i + 1}
+                                                </div>
+                                                <span className={`text-[10px] ${stage >= i + 1 ? 'text-gray-700 dark:text-gray-300 font-medium' : 'text-gray-400'}`}>
+                                                   {step}
+                                                </span>
+                                             </React.Fragment>
+                                          ))}
+                                       </div>
+                                    )}
+                                 </td>
+                                 <td className="px-4 py-3">
+                                    <ChevronRight size={14} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                 </td>
+                              </tr>
+                              {/* Expanded timeline detail */}
+                              {isExpanded && (
+                                 <tr>
+                                    <td colSpan={6} className="bg-slate-50 dark:bg-slate-800/50 px-8 py-4">
+                                       {timelineLoading ? (
+                                          <div className="flex items-center gap-2 text-gray-400 text-xs">
+                                             <Loader2 size={14} className="animate-spin" /> Loading timeline...
+                                          </div>
+                                       ) : !docTimeline ? (
+                                          <p className="text-xs text-gray-400">No timeline data.</p>
+                                       ) : (
+                                          <div className="grid grid-cols-2 gap-6">
+                                             {/* Tracking events */}
+                                             <div>
+                                                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">Tracking Events</h4>
+                                                {(!docTimeline.tracking_events || docTimeline.tracking_events.length === 0) ? (
+                                                   <p className="text-xs text-gray-400">No tracking events yet.</p>
+                                                ) : (
+                                                   <div className="space-y-1.5">
+                                                      {docTimeline.tracking_events.map((ev: any, i: number) => (
+                                                         <div key={i} className="flex items-center gap-2 text-xs">
+                                                            <div className={`w-1.5 h-1.5 rounded-full ${
+                                                               ev.event_type === 'viewed' ? 'bg-amber-500' :
+                                                               ev.event_type === 'completed' || ev.event_type === 'signed' ? 'bg-emerald-500' :
+                                                               ev.event_type === 'declined' ? 'bg-red-500' : 'bg-blue-500'
+                                                            }`} />
+                                                            <span className="font-medium text-gray-700 dark:text-gray-300 capitalize">{ev.event_type}</span>
+                                                            <span className="text-gray-400">{formatDate(ev.timestamp || ev.occurred_at)}</span>
+                                                            {ev.ip_address && <span className="text-gray-300 dark:text-gray-600">({ev.ip_address})</span>}
+                                                         </div>
+                                                      ))}
+                                                   </div>
+                                                )}
+                                             </div>
+                                             {/* Action logs */}
+                                             <div>
+                                                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">Action Log</h4>
+                                                {(!docTimeline.action_logs || docTimeline.action_logs.length === 0) ? (
+                                                   <p className="text-xs text-gray-400">No action logs.</p>
+                                                ) : (
+                                                   <div className="space-y-1.5">
+                                                      {docTimeline.action_logs.map((log: any, i: number) => (
+                                                         <div key={i} className="flex items-start gap-2 text-xs">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1 flex-shrink-0" />
+                                                            <div>
+                                                               <span className="text-gray-700 dark:text-gray-300">{log.description}</span>
+                                                               <div className="text-gray-400">
+                                                                  {log.actor_name || log.actor_type} &middot; {formatDate(log.timestamp)}
+                                                               </div>
+                                                            </div>
+                                                         </div>
+                                                      ))}
+                                                   </div>
+                                                )}
+                                             </div>
+                                          </div>
+                                       )}
+                                    </td>
+                                 </tr>
+                              )}
+                           </React.Fragment>
+                        );
+                     })}
+                  </tbody>
+               </table>
+            )}
+         </div>
+
+         {/* Pagination */}
+         {totalPages > 1 && (
+            <div className="h-12 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 bg-white dark:bg-slate-800 flex-shrink-0">
+               <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>
+               <div className="flex gap-2">
+                  <button
+                     disabled={page <= 1}
+                     onClick={() => setPage(p => p - 1)}
+                     className="px-3 py-1 text-xs rounded border border-gray-200 dark:border-slate-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-slate-700"
+                  >
+                     Previous
+                  </button>
+                  <button
+                     disabled={page >= totalPages}
+                     onClick={() => setPage(p => p + 1)}
+                     className="px-3 py-1 text-xs rounded border border-gray-200 dark:border-slate-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-slate-700"
+                  >
+                     Next
+                  </button>
+               </div>
+            </div>
+         )}
       </div>
    );
 };
@@ -166,17 +465,28 @@ const DocumentsContent: React.FC = () => {
       }
    };
 
-   // --- Dashboard metrics ---
+   // --- Dashboard metrics (lightweight endpoint, not full doc list) ---
+   const [statusCounts, setStatusCounts] = useState<Record<string, { total: number; today: number }>>({});
+   const fetchStatusCounts = useCallback(async () => {
+      try {
+         const res = await fetch(`${API_BASE_URL}/documents/status-counts`);
+         if (!res.ok) return;
+         const rows: { status: string; total: number; today: number }[] = await res.json();
+         const map: Record<string, { total: number; today: number }> = {};
+         for (const r of rows) map[r.status] = { total: r.total, today: r.today };
+         setStatusCounts(map);
+      } catch (err) { console.error('Status counts error:', err); }
+   }, [API_BASE_URL]);
+
+   useEffect(() => { fetchStatusCounts(); }, [fetchStatusCounts]);
+
    const statusMetrics = useMemo(() => {
-      const today = new Date().toISOString().split('T')[0];
-      return DOCUMENT_STATUS_CONFIG.map(config => {
-         const statusDocs = visibleDocs.filter(d =>
-            (d.documentStatus || 'Draft') === config.status
-         );
-         const todayCount = statusDocs.filter(d => d.dateModified === today).length;
-         return { ...config, count: statusDocs.length, todayCount };
-      });
-   }, [visibleDocs]);
+      return DOCUMENT_STATUS_CONFIG.map(config => ({
+         ...config,
+         count: statusCounts[config.status]?.total || 0,
+         todayCount: statusCounts[config.status]?.today || 0,
+      }));
+   }, [statusCounts]);
 
    // --- Timeline: fetch real action_logs ---
    const fetchTimeline = useCallback(async () => {
@@ -205,26 +515,46 @@ const DocumentsContent: React.FC = () => {
       fetchTimeline();
    }, [fetchTimeline]);
 
-   // --- Drill-down: filtered + grouped ---
-   const groupedDocs = useMemo(() => {
-      let filtered = visibleDocs;
-      if (selectedStatus) {
-         filtered = filtered.filter(d => (d.documentStatus || 'Draft') === selectedStatus);
-      }
-      if (searchQuery) {
-         const q = searchQuery.toLowerCase();
-         filtered = filtered.filter(doc =>
-            doc.name.toLowerCase().includes(q) ||
-            getClientName(doc.associatedContactId).toLowerCase().includes(q) ||
-            getLenderFromDoc(doc).toLowerCase().includes(q)
-         );
-      }
+   // --- Drill-down: fetch docs by status from server ---
+   const [drillDownDocs, setDrillDownDocs] = useState<Document[]>([]);
+   const [drillDownLoading, setDrillDownLoading] = useState(false);
 
+   useEffect(() => {
+      if (view !== 'list' || !selectedStatus) return;
+      setDrillDownLoading(true);
+      const params = new URLSearchParams({ status: selectedStatus, limit: '200' });
+      if (searchQuery) params.set('search', searchQuery);
+      fetch(`${API_BASE_URL}/documents/by-status?${params}`)
+         .then(r => r.json())
+         .then((rows: any[]) => {
+            const mapped: Document[] = rows.map(d => ({
+               id: d.id.toString(),
+               name: d.name,
+               type: d.type,
+               category: d.category,
+               url: d.url,
+               size: d.size,
+               version: d.version,
+               tags: d.tags || [],
+               associatedContactId: d.contact_id?.toString(),
+               dateModified: d.created_at?.split('T')[0],
+               documentStatus: (d.document_status as DocumentStatus) || 'Draft',
+               trackingToken: d.tracking_token || null,
+               sentAt: d.sent_at || null,
+               _contactName: d.contact_name || '',
+            }));
+            setDrillDownDocs(mapped);
+         })
+         .catch(err => console.error('Drill-down fetch error:', err))
+         .finally(() => setDrillDownLoading(false));
+   }, [view, selectedStatus, searchQuery, API_BASE_URL]);
+
+   const groupedDocs = useMemo(() => {
       // Group by contact + lender
       const groups = new Map<string, { contactName: string; lender: string; docs: Document[] }>();
-      filtered.forEach(doc => {
+      drillDownDocs.forEach(doc => {
          const contactId = doc.associatedContactId || 'none';
-         const contactName = getClientName(doc.associatedContactId) || 'No Client';
+         const contactName = (doc as any)._contactName || getClientName(doc.associatedContactId) || 'No Client';
          const lender = getLenderFromDoc(doc) || 'No Lender';
          const key = `${contactId}_${lender}`;
          if (!groups.has(key)) {
@@ -236,7 +566,7 @@ const DocumentsContent: React.FC = () => {
       return Array.from(groups.values()).sort((a, b) =>
          a.contactName.localeCompare(b.contactName)
       );
-   }, [visibleDocs, selectedStatus, searchQuery, contacts]);
+   }, [drillDownDocs, contacts]);
 
    // --- Edit handlers ---
    const handleEditClick = (doc: Document) => {
@@ -259,7 +589,7 @@ const DocumentsContent: React.FC = () => {
       };
       updateDocument(updatedDoc);
       if (editStatus !== (editingDoc.documentStatus || 'Draft')) {
-         updateDocumentStatus(editingDoc.id, editStatus);
+         updateDocumentStatus(editingDoc.id, editStatus).then(() => fetchStatusCounts());
       }
       setEditingDoc(null);
    };
@@ -302,8 +632,8 @@ const DocumentsContent: React.FC = () => {
       try {
          const result = await sendDocument(doc.id);
          if (result) {
-            // Refresh timeline after sending
             fetchTimeline();
+            fetchStatusCounts();
          }
       } finally {
          setSendingDocId(null);
@@ -373,6 +703,7 @@ const DocumentsContent: React.FC = () => {
          setShowDeleteConfirm(false);
          setDocToDelete(null);
          setDeleteConfirmText('');
+         fetchStatusCounts();
       } catch (err: unknown) {
          clearInterval(progressInterval);
          const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
@@ -398,7 +729,7 @@ const DocumentsContent: React.FC = () => {
                {view === 'dashboard' ? (
                   <>
                      <h2 className="text-base font-bold text-navy-900 dark:text-white">Document Overview</h2>
-                     <span className="text-xs text-gray-400 dark:text-gray-500">{visibleDocs.length} total documents</span>
+                     <span className="text-xs text-gray-400 dark:text-gray-500">{statusMetrics.reduce((s, m) => s + m.count, 0)} total documents</span>
                   </>
                ) : (
                   <>
@@ -537,7 +868,12 @@ const DocumentsContent: React.FC = () => {
                ) : (
                   /* Drill-down List View */
                   <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900">
-                     {groupedDocs.length === 0 ? (
+                     {drillDownLoading ? (
+                        <div className="p-12 text-center text-gray-400 dark:text-gray-500">
+                           <Loader2 size={32} className="mx-auto mb-2 animate-spin opacity-40" />
+                           <p className="text-sm">Loading documents...</p>
+                        </div>
+                     ) : groupedDocs.length === 0 ? (
                         <div className="p-12 text-center text-gray-400 dark:text-gray-500">
                            <FileText size={48} className="mx-auto mb-4 opacity-20" />
                            <p className="text-sm">No documents found{selectedStatus ? ` with status "${selectedStatus}"` : ''}.</p>
