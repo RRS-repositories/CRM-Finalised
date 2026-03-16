@@ -10672,7 +10672,7 @@ app.get('/resign/:token', async (req, res) => {
         const result = await pool.query(
             `SELECT c.id as case_id, c.lender, c.resign_token,
                     cnt.id as contact_id, cnt.first_name, cnt.last_name,
-                    cnt.email, cnt.phone, cnt.date_of_birth
+                    cnt.email, cnt.phone, cnt.dob
              FROM cases c
              JOIN contacts cnt ON c.contact_id = cnt.id
              WHERE c.resign_token = $1`,
@@ -10690,7 +10690,7 @@ app.get('/resign/:token', async (req, res) => {
         const clientName = `${record.first_name} ${record.last_name}`;
         const clientEmail = record.email || '—';
         const clientPhone = record.phone || '—';
-        const clientDob = record.date_of_birth ? new Date(record.date_of_birth).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+        const clientDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
         const lenderName = record.lender || '—';
 
         res.send(`<!DOCTYPE html>
