@@ -4404,6 +4404,8 @@ app.get('/api/documents/track/:token/decline', async (req, res) => {
             );
         }
 
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
+
         res.send(`
             <html><body style="font-family:Arial;text-align:center;padding:60px;color:#333">
             <div style="max-width:500px;margin:0 auto;border:1px solid #ddd;border-radius:12px;padding:40px">
@@ -7647,6 +7649,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         );
 
         // --- IMMEDIATE RESPONSE ---
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [uniqueId]).catch(() => {});
         res.json({ success: true, message: 'Form submitted successfully' });
 
         // --- BACKGROUND PROCESSING ---
@@ -8577,6 +8580,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
         await pool.query('UPDATE questionnaire_tokens SET submitted = true WHERE token = $1', [token]);
 
         // --- IMMEDIATE RESPONSE ---
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
         res.json({ success: true, message: 'Questionnaire submitted successfully' });
 
         // --- BACKGROUND PROCESSING ---
@@ -9006,6 +9010,7 @@ app.post('/api/id-upload/:token', upload.single('document'), async (req, res) =>
         );
 
         console.log(`[ID Upload Token] "${originalName}" → "${key}" for contact ${contactId}, identification set to true`);
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
         res.json({ success: true, message: 'ID uploaded successfully' });
     } catch (error) {
         console.error('ID Upload Token Error:', error);
@@ -9209,6 +9214,7 @@ app.post('/api/previous-address/:token', async (req, res) => {
         );
 
         console.log(`[Previous Address] Contact ${contactId}: ${hasPreviousAddress ? addresses.length + ' address(es) added' : 'No previous addresses'}`);
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
         res.json({ success: true, message: 'Previous address submitted successfully' });
     } catch (error) {
         console.error('Previous Address Submit Error:', error);
@@ -11012,6 +11018,7 @@ app.post('/api/submit-resign', async (req, res) => {
             [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'signature_resign', 'Document', `Updated signature captured via resign form for ${record.lender} claim`]
         );
 
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
         res.json({ success: true, message: 'Signature submitted successfully' });
 
     } catch (error) {
@@ -14560,6 +14567,7 @@ app.get('/api/confirm-lender/:token', async (req, res) => {
             });
 
             console.log(`[Category 3] ✅ Client confirmed ${confirmation.lender}, case ${newCaseRes.rows[0].id} created`);
+            pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
             return res.send(renderConfirmationPage({
                 status: 'success',
