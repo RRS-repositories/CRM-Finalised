@@ -693,6 +693,26 @@ async function logAction({ clientId, claimId, actorType = 'system', actorId = 's
             `);
             console.log('✅ Document tracking schema ready');
 
+            // Client communications tracking table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS client_communications_tracking (
+                    id SERIAL PRIMARY KEY,
+                    client_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+                    claim_id INTEGER REFERENCES cases(id) ON DELETE SET NULL,
+                    type VARCHAR(50),
+                    status VARCHAR(20) DEFAULT 'Sent',
+                    token VARCHAR(255) UNIQUE,
+                    sent_at TIMESTAMP DEFAULT NOW(),
+                    first_viewed_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    email_address VARCHAR(255)
+                );
+                CREATE INDEX IF NOT EXISTS idx_cct_client_id ON client_communications_tracking(client_id);
+                CREATE INDEX IF NOT EXISTS idx_cct_token ON client_communications_tracking(token);
+                CREATE INDEX IF NOT EXISTS idx_cct_type ON client_communications_tracking(type);
+            `);
+            console.log('✅ Client communications tracking schema ready');
+
             // ============================================
             // AUTOMATION / WINDMILL INTEGRATION TABLES
             // ============================================
