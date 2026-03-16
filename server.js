@@ -224,6 +224,20 @@ pool.on('error', (err, client) => {
 
 // Initialise CRM event bus (Windmill automation dispatch)
 crmEvents.init(pool);
+
+// --- ACTIVITY LOG HELPER ---
+async function logAction({ clientId, claimId, actorType = 'system', actorId = 'system', actorName = 'System', actionType, actionCategory, description, metadata = {} }) {
+    try {
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, metadata, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+            [clientId || null, claimId || null, actorType, actorId, actorName, actionType, actionCategory, description, JSON.stringify(metadata)]
+        );
+    } catch (err) {
+        console.error(`[ActionLog] Failed to log ${actionType}:`, err.message);
+    }
+}
+
 // --- DATABASE INITIALIZATION & MIGRATIONS ---
 (async () => {
     try {
@@ -1925,6 +1939,19 @@ app.post('/send-email', async (req, res) => {
 
     try {
         const info = await transporter.sendMail(mailOptions);
+
+        // Log email sent to action_logs (best effort — find contact by email)
+        const contactRes = await pool.query('SELECT id FROM contacts WHERE email = $1', [to]).catch(() => ({ rows: [] }));
+        if (contactRes.rows.length > 0) {
+            logAction({
+                clientId: contactRes.rows[0].id,
+                actionType: 'email_sent',
+                actionCategory: 'communication',
+                description: `Email sent to ${to}: "${subject}"`,
+                metadata: { recipient: to, subject, channel: 'nodemailer', messageId: info.messageId }
+            });
+        }
+
         res.status(200).json({ success: true, messageId: info.messageId });
     } catch (error) {
         console.error('Email error:', error);
@@ -5880,14 +5907,17 @@ app.post('/api/communications', async (req, res) => {
                 call_duration_seconds || null, call_notes || null, agent_id || null, agent_name || null]
         );
 
-        // Also log to action_logs
-        await pool.query(
-            `INSERT INTO action_logs (client_id, actor_type, actor_id, actor_name, action_type, action_category, description)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [client_id, 'agent', agent_id || 'system', agent_name || 'System',
-                `${direction}_${channel}`, 'communication',
-                `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message`]
-        );
+        // Also log to action_logs (with metadata)
+        logAction({
+            clientId: client_id,
+            actorType: 'agent',
+            actorId: agent_id || 'system',
+            actorName: agent_name || 'System',
+            actionType: `${direction}_${channel}`,
+            actionCategory: 'communication',
+            description: `${direction === 'outbound' ? 'Sent' : 'Received'} ${channel} message${subject ? ': "' + subject + '"' : ''}`,
+            metadata: { channel, direction, subject, content: (content || '').substring(0, 200) }
+        });
 
         res.json({ success: true, communication: rows[0] });
     } catch (err) {
@@ -11396,6 +11426,22 @@ app.post('/api/email/accounts/:accountId/send', async (req, res) => {
             method: 'POST',
             body: JSON.stringify({ message, saveToSentItems: true }),
         });
+
+        // Log to action_logs (best effort — find contact by recipient email)
+        const recipients = to || [];
+        if (recipients.length > 0) {
+            const contactRes = await pool.query('SELECT id FROM contacts WHERE email = ANY($1)', [recipients]).catch(() => ({ rows: [] }));
+            for (const row of contactRes.rows) {
+                logAction({
+                    clientId: row.id,
+                    actionType: 'email_sent',
+                    actionCategory: 'communication',
+                    description: `Email sent via ${config.email}: "${subject || '(no subject)'}"`,
+                    metadata: { recipients, subject, channel: 'graph_api', from: config.email }
+                });
+            }
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error('Graph sendMail failed:', err.message);
@@ -11497,6 +11543,15 @@ app.post('/api/email/accounts/:accountId/messages/:messageId/reply', async (req,
                 body: JSON.stringify(body),
             });
         }
+        // Log reply
+        const replyTo = to || [];
+        if (replyTo.length > 0) {
+            const contactRes = await pool.query('SELECT id FROM contacts WHERE email = ANY($1)', [replyTo]).catch(() => ({ rows: [] }));
+            for (const row of contactRes.rows) {
+                logAction({ clientId: row.id, actionType: 'email_sent', actionCategory: 'communication', description: `Email reply sent via ${config.email}`, metadata: { recipients: replyTo, channel: 'graph_api', type: 'reply' } });
+            }
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error('Graph reply failed:', err.message);
@@ -11516,6 +11571,9 @@ app.post('/api/email/accounts/:accountId/messages/:messageId/replyAll', async (r
             method: 'POST',
             body: JSON.stringify({ comment: comment || '' }),
         });
+        // Log reply-all (no specific recipients available, log generically)
+        logAction({ actionType: 'email_sent', actionCategory: 'communication', description: `Reply-all sent via ${config.email}`, metadata: { channel: 'graph_api', type: 'reply_all', messageId } });
+
         res.json({ success: true });
     } catch (err) {
         console.error('Graph replyAll failed:', err.message);
@@ -11538,6 +11596,15 @@ app.post('/api/email/accounts/:accountId/messages/:messageId/forward', async (re
                 toRecipients: (to || []).map(addr => ({ emailAddress: { address: addr } })),
             }),
         });
+        // Log forward
+        const fwdTo = to || [];
+        if (fwdTo.length > 0) {
+            const contactRes = await pool.query('SELECT id FROM contacts WHERE email = ANY($1)', [fwdTo]).catch(() => ({ rows: [] }));
+            for (const row of contactRes.rows) {
+                logAction({ clientId: row.id, actionType: 'email_sent', actionCategory: 'communication', description: `Email forwarded via ${config.email}`, metadata: { recipients: fwdTo, channel: 'graph_api', type: 'forward' } });
+            }
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error('Graph forward failed:', err.message);
@@ -15306,6 +15373,19 @@ crmRouter.post('/email/send', async (req, res) => {
 
     try {
         const info = await transporter.sendMail(mailOptions);
+
+        // Log to action_logs
+        const contactRes = await pool.query('SELECT id FROM contacts WHERE email = $1', [to]).catch(() => ({ rows: [] }));
+        if (contactRes.rows.length > 0) {
+            logAction({
+                clientId: contactRes.rows[0].id,
+                actionType: 'email_sent',
+                actionCategory: 'communication',
+                description: `Email sent to ${to}: "${subject}"`,
+                metadata: { recipient: to, subject, channel: 'crm_api', messageId: info.messageId }
+            });
+        }
+
         res.json({ success: true, messageId: info.messageId });
     } catch (error) {
         console.error('[CRM API] Email error:', error.message);
@@ -17348,6 +17428,15 @@ app.post('/api/crm-webhooks/twilio/inbound', async (req, res) => {
                     parseInt(NumMedia) > 0 ? MediaContentType0 : null,
                     MessageSid || null, SmsStatus || 'received', 'bot']
             );
+
+            // Log to action_logs
+            logAction({
+                clientId: contactId,
+                actionType: `inbound_${commType}`,
+                actionCategory: 'communication',
+                description: `Inbound ${commType} received from ${phoneNumber}`,
+                metadata: { from: From, to: To, body: (Body || '').substring(0, 200), twilio_sid: MessageSid, channel: commType }
+            });
 
             // Update chase last_client_at timestamp
             await pool.query(
