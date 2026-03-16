@@ -10941,11 +10941,11 @@ app.post('/api/submit-resign', async (req, res) => {
             [signatureUrl, contactId]
         );
 
-        // Clear the resign token (one-time use)
-        await pool.query(
-            'UPDATE cases SET resign_token = NULL WHERE id = $1',
-            [actualCaseId]
-        );
+        // Keep resign token active — allow re-signing if needed
+        // await pool.query(
+        //     'UPDATE cases SET resign_token = NULL WHERE id = $1',
+        //     [actualCaseId]
+        // );
 
         // Save to documents table - check if signature.png already exists
         const existingDoc = await pool.query(
