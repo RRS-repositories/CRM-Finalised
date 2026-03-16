@@ -8,6 +8,7 @@ export enum ClaimStatus {
   LOA_SENT = "LOA Sent",
 
   // Category 2: Client Onboarding
+  RESEND_LOA = "Resend LOA",
   LOA_UPLOADED = "LOA Uploaded",
   LOA_SIGNED = "LOA Signed",
   ID_REQUEST_SENT = "ID Request Sent",

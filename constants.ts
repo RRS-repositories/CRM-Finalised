@@ -19,6 +19,7 @@ export const PIPELINE_CATEGORIES = [
     title: 'Client Onboarding',
     color: 'border-l-purple-500',
     statuses: [
+      ClaimStatus.RESEND_LOA,
       ClaimStatus.LOA_UPLOADED,
       ClaimStatus.LOA_SIGNED,
       ClaimStatus.ID_REQUEST_SENT,
@@ -451,7 +452,7 @@ export const getSpecStatusColor = (status: string): string => {
   }
 
   // Category 2: Client Onboarding - Purple (#9C27B0)
-  if (status === 'LOA Uploaded' || status === 'LOA Signed' || status === 'ID Request Sent' || status === 'ID Verification Pending' ||
+  if (status === 'Resend LOA' || status === 'LOA Uploaded' || status === 'LOA Signed' || status === 'ID Request Sent' || status === 'ID Verification Pending' ||
     status === 'POA Required' ||
     status === 'Extra Lender Selection Form Sent' || status === 'Extra Lender Selection Form Completed' ||
     status === 'Questionnaire Sent' || status === 'Questionnaire Completed' ||
