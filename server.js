@@ -4302,6 +4302,9 @@ app.get('/api/documents/track/:token/view', async (req, res) => {
 
         const doc = rows[0];
 
+        // Track viewed in client_communications_tracking
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
         // Only advance to Viewed if currently Sent (guard against regression)
         if (doc.document_status === 'Sent') {
             await pool.query(
@@ -7267,6 +7270,9 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         const contact = contactRes.rows[0];
         const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
 
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [uniqueId]).catch(() => {});
+
         // Filter out intake_lender from the list
         // Exception: DO NOT filter if the lender is 'GAMBLING'
         const intakeLenderToExclude = (contact.intake_lender && contact.intake_lender.toUpperCase() !== 'GAMBLING')
@@ -8503,6 +8509,9 @@ app.get('/questionnaire/token/:token', async (req, res) => {
         html = html.replace("contactId: '${contact.id}'", `contactId: '${token}', questionnaireType: ${qType}`);
         html = html.replace(/\$\{contact\.id\}/g, token);
 
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
         res.send(html);
     } catch (error) {
         console.error('Error serving questionnaire token:', error);
@@ -8854,6 +8863,9 @@ app.get('/id-upload/:token', async (req, res) => {
         if (new Date(row.expires_at) < new Date()) {
             return res.status(410).send('<h1>Link Expired</h1><p>This ID upload link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');
         }
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
         // Serve the iddocument.html page
         res.sendFile(path.join(__dirname, 'iddocument.html'));
     } catch (error) {
@@ -9068,6 +9080,9 @@ app.get('/previous-address/:token', async (req, res) => {
         if (new Date(row.expires_at) < new Date()) {
             return res.status(410).send('<h1>Link Expired</h1><p>This link has expired. Please contact Rowan Rose Solicitors for a new link.</p>');
         }
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
         res.sendFile(path.join(__dirname, 'previous-address.html'));
     } catch (error) {
         console.error('Serve previous address page error:', error);
@@ -10707,6 +10722,10 @@ app.get('/resign/:token', async (req, res) => {
         }
 
         const record = result.rows[0];
+
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
         const clientName = `${record.first_name} ${record.last_name}`;
         const clientEmail = record.email || '—';
         const clientPhone = record.phone || '—';
@@ -14501,6 +14520,9 @@ app.get('/api/confirm-lender/:token', async (req, res) => {
 
         const confirmation = confirmRes.rows[0];
         const isConfirm = confirmation.action === 'confirm';
+
+        // Track viewed (use the confirm token for this lender)
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
 
         // Mark token as used
         await pool.query(
