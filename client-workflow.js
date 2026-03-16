@@ -360,60 +360,59 @@ async function processQuestionnaire(queueId, contact, clientName, baseUrl) {
 
     const hasGambling = contact.problematic_gambling === true;
 
-    // Generate tokenised IRL questionnaire link (type 2)
-    await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 2 AND submitted = false', [contact.id]);
-    const irlTokenRes = await _pool.query(
-        'INSERT INTO questionnaire_tokens (contact_id, questionnaire_type) VALUES ($1, 2) RETURNING token',
-        [contact.id]
-    );
-    const irlLink = `${baseUrl}/questionnaire/token/${irlTokenRes.rows[0].token}`;
-
-    // Generate tokenised Gambling questionnaire link (type 1) if applicable
+    let irlLink = null;
     let gamblingLink = null;
+
     if (hasGambling) {
+        // Gambling claim: send ONLY gambling questionnaire (type 1)
         await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 1 AND submitted = false', [contact.id]);
         const gamblingTokenRes = await _pool.query(
             'INSERT INTO questionnaire_tokens (contact_id, questionnaire_type) VALUES ($1, 1) RETURNING token',
             [contact.id]
         );
         gamblingLink = `${baseUrl}/questionnaire/token/${gamblingTokenRes.rows[0].token}`;
-    }
 
-    // Send IRL questionnaire email (always)
-    const irlHtml = buildEmail(clientName,
-        'Complete Your Questionnaire',
-        'Help Us Build Your Case',
-        `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire to help strengthen your case.</p>
-        <div class="highlight-box">
-            <span class="highlight-text">Action Required: Complete Your Questionnaire</span>
-            <p>This questionnaire covers your experience with irresponsible lending. Your answers help us build the strongest possible case.</p>
-        </div>
-        <div class="info-box">
-            <p><strong>What happens next?</strong> Once we receive the lender's response to our DSAR, we will review it alongside your questionnaire answers and proceed with your claim.</p>
-        </div>`,
-        'Complete IRL Questionnaire', irlLink, null
-    );
-
-    const irlResult = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', irlHtml);
-    if (!irlResult.success) throw new Error(irlResult.error);
-
-    // Send separate gambling questionnaire email if applicable
-    if (hasGambling && gamblingLink) {
         const gamblingHtml = buildEmail(clientName,
             'Complete Your Gambling Questionnaire',
-            'Additional Questionnaire for Your Gambling Claim',
-            `<p>As part of your gambling-related claim, we need you to complete an additional questionnaire to help us understand your experience.</p>
+            'Help Us Build Your Case',
+            `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire to help strengthen your case.</p>
             <div class="highlight-box">
-                <span class="highlight-text">Action Required: Gambling Questionnaire</span>
+                <span class="highlight-text">Action Required: Complete Your Gambling Questionnaire</span>
                 <p>This questionnaire specifically covers your experience with gambling-related lending. Your detailed answers are crucial for building a strong case.</p>
             </div>
             <div class="info-box">
-                <p><strong>Why is this separate?</strong> Gambling claims require specific details about your experience. This helps us tailor your case for the best possible outcome.</p>
+                <p><strong>What happens next?</strong> Once we receive the lender's response to our DSAR, we will review it alongside your questionnaire answers and proceed with your claim.</p>
             </div>`,
             'Complete Gambling Questionnaire', gamblingLink, null
         );
 
-        await sendEmail(contact.email, 'Complete Your Gambling Questionnaire - Rowan Rose Solicitors', gamblingHtml);
+        const gamblingResult = await sendEmail(contact.email, 'Complete Your Gambling Questionnaire - Rowan Rose Solicitors', gamblingHtml);
+        if (!gamblingResult.success) throw new Error(gamblingResult.error);
+    } else {
+        // Non-gambling: send IRL questionnaire (type 2)
+        await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 2 AND submitted = false', [contact.id]);
+        const irlTokenRes = await _pool.query(
+            'INSERT INTO questionnaire_tokens (contact_id, questionnaire_type) VALUES ($1, 2) RETURNING token',
+            [contact.id]
+        );
+        irlLink = `${baseUrl}/questionnaire/token/${irlTokenRes.rows[0].token}`;
+
+        const irlHtml = buildEmail(clientName,
+            'Complete Your Questionnaire',
+            'Help Us Build Your Case',
+            `<p>Great news — your DSAR has been sent to your lender(s). While we wait for their response, please complete the following questionnaire to help strengthen your case.</p>
+            <div class="highlight-box">
+                <span class="highlight-text">Action Required: Complete Your Questionnaire</span>
+                <p>This questionnaire covers your experience with irresponsible lending. Your answers help us build the strongest possible case.</p>
+            </div>
+            <div class="info-box">
+                <p><strong>What happens next?</strong> Once we receive the lender's response to our DSAR, we will review it alongside your questionnaire answers and proceed with your claim.</p>
+            </div>`,
+            'Complete IRL Questionnaire', irlLink, null
+        );
+
+        const irlResult = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', irlHtml);
+        if (!irlResult.success) throw new Error(irlResult.error);
     }
 
     await markStatus(queueId, 'sent', null, { irlLink, gamblingLink, hasGambling });
