@@ -3310,6 +3310,40 @@ app.get('/api/documents/status-counts', async (req, res) => {
     }
 });
 
+// --- CLIENT COMMUNICATIONS TRACKING STATUS COUNTS ---
+app.get('/api/communications-tracking/status-counts', async (req, res) => {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const { rows } = await pool.query(`
+            SELECT
+                s.status,
+                COALESCE(c.total, 0)::int AS total,
+                COALESCE(c.today, 0)::int AS today
+            FROM (VALUES ('Sent'), ('Viewed'), ('Completed')) AS s(status)
+            LEFT JOIN (
+                SELECT status,
+                    COUNT(*)::int AS total,
+                    COUNT(*) FILTER (WHERE
+                        (status = 'Sent' AND sent_at::date = $1) OR
+                        (status = 'Viewed' AND first_viewed_at::date = $1) OR
+                        (status = 'Completed' AND completed_at::date = $1)
+                    )::int AS today
+                FROM client_communications_tracking
+                GROUP BY status
+            ) c ON c.status = s.status
+        `, [today]);
+
+        const result = {};
+        for (const row of rows) {
+            result[row.status] = { total: row.total, today: row.today };
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('[CommsTracking] Status counts error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- DOCUMENTS BY STATUS (paginated drill-down) ---
 app.get('/api/documents/by-status', async (req, res) => {
     try {
