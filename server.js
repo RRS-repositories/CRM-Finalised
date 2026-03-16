@@ -10671,7 +10671,8 @@ app.get('/resign/:token', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT c.id as case_id, c.lender, c.resign_token,
-                    cnt.id as contact_id, cnt.first_name, cnt.last_name
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name,
+                    cnt.email, cnt.phone, cnt.date_of_birth
              FROM cases c
              JOIN contacts cnt ON c.contact_id = cnt.id
              WHERE c.resign_token = $1`,
@@ -10687,6 +10688,10 @@ app.get('/resign/:token', async (req, res) => {
 
         const record = result.rows[0];
         const clientName = `${record.first_name} ${record.last_name}`;
+        const clientEmail = record.email || '—';
+        const clientPhone = record.phone || '—';
+        const clientDob = record.date_of_birth ? new Date(record.date_of_birth).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+        const lenderName = record.lender || '—';
 
         res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -10702,8 +10707,17 @@ app.get('/resign/:token', async (req, res) => {
         .header h1 { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: 1.5px; text-transform: uppercase; }
         .content { padding: 40px; }
         .greeting { font-size: 18px; color: #1e293b; margin-bottom: 16px; }
-        .message-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 22px 26px; border-radius: 0 14px 14px 0; margin-bottom: 30px; }
+        .message-box { background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 22px 26px; border-radius: 0 14px 14px 0; margin-bottom: 28px; }
         .message-box p { color: #92400e; font-size: 16px; line-height: 1.65; margin: 0; }
+        .details-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 24px 28px; margin-bottom: 28px; }
+        .details-card h3 { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+        .detail-item { display: flex; flex-direction: column; }
+        .detail-label { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .detail-value { font-size: 15px; font-weight: 600; color: #1e293b; word-break: break-word; }
+        .detail-lender { grid-column: 1 / -1; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 10px; padding: 14px 18px; margin-top: 4px; }
+        .detail-lender .detail-label { color: #3b82f6; }
+        .detail-lender .detail-value { font-size: 18px; color: #1e40af; }
         .sig-label { font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 10px; }
         .canvas-wrapper { border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; position: relative; margin-bottom: 12px; }
         canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
@@ -10723,6 +10737,10 @@ app.get('/resign/:token', async (req, res) => {
         .spinner { display: none; }
         .spinner::after { content: ''; display: inline-block; width: 18px; height: 18px; border: 3px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-left: 8px; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 480px) {
+            .details-grid { grid-template-columns: 1fr; gap: 12px; }
+            .content { padding: 28px 20px; }
+        }
     </style>
 </head>
 <body>
@@ -10735,6 +10753,32 @@ app.get('/resign/:token', async (req, res) => {
             <p class="greeting">Dear ${clientName},</p>
             <div class="message-box">
                 <p>We are continuing to investigate your claim, however we need an updated document signing as the lender has said the signature does not exactly match. Please try to draw your next signature as close to the original.</p>
+            </div>
+
+            <div class="details-card">
+                <h3>Your Details</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Full Name</span>
+                        <span class="detail-value">${clientName}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Date of Birth</span>
+                        <span class="detail-value">${clientDob}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Email</span>
+                        <span class="detail-value">${clientEmail}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Phone</span>
+                        <span class="detail-value">${clientPhone}</span>
+                    </div>
+                    <div class="detail-item detail-lender">
+                        <span class="detail-label">Claim Against</span>
+                        <span class="detail-value">${lenderName}</span>
+                    </div>
+                </div>
             </div>
 
             <p class="sig-label">Please draw your signature below:</p>
