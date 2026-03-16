@@ -2303,6 +2303,13 @@ const processPendingCategory3Confirmations = async () => {
 
                 console.log(`[Worker] ✅ Category 3 confirmation email sent to ${record.email} for ${lenderName}`);
 
+                // Track in client_communications_tracking
+                await pool.query(
+                    `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+                     VALUES ($1, 'lender_confirm', $2, $3) ON CONFLICT (token) DO NOTHING`,
+                    [record.contact_id, record.confirm_token, record.email]
+                );
+
                 // Mark email as sent for both confirm and reject tokens
                 await pool.query(
                     `UPDATE pending_lender_confirmations SET email_sent = true
@@ -2433,6 +2440,15 @@ const processDocumentExpiry = async () => {
                         `
                     });
                     console.log(`[Worker] Chase email sent (step ${step}/${chase.total_steps}) for doc ${chase.doc_id} to ${chase.email}`);
+
+                    // Track in client_communications_tracking (only on first chase, step 1)
+                    if (step === 1) {
+                        await pool.query(
+                            `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+                             VALUES ($1, 'document_chase', $2, $3) ON CONFLICT (token) DO NOTHING`,
+                            [chase.client_id, chase.tracking_token, chase.email]
+                        );
+                    }
                 } catch (emailErr) {
                     console.error(`[Worker] Chase email failed for doc ${chase.doc_id}:`, emailErr.message);
                 }
@@ -2597,6 +2613,13 @@ const processResendLOAEmails = async () => {
 
                 // Mark email as sent
                 await pool.query('UPDATE cases SET resign_email_sent = true WHERE id = $1', [record.case_id]);
+
+                // Track in client_communications_tracking
+                await pool.query(
+                    `INSERT INTO client_communications_tracking (client_id, claim_id, type, token, email_address)
+                     VALUES ($1, $2, 'resend_loa', $3, $4) ON CONFLICT (token) DO NOTHING`,
+                    [record.contact_id, record.case_id, record.resign_token, record.email]
+                );
 
                 console.log(`[Worker] ✅ Resend LOA email sent to ${record.email} for case ${record.case_id} (resign link: ${resignLink})`);
 

@@ -283,6 +283,12 @@ async function processIdUpload(queueId, contact, clientName, baseUrl) {
     const result = await sendEmail(contact.email, 'Upload Your Identification - Rowan Rose Solicitors', html);
     if (!result.success) throw new Error(result.error);
 
+    await _pool.query(
+        `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+         VALUES ($1, 'id_upload', $2, $3) ON CONFLICT (token) DO NOTHING`,
+        [contact.id, token, contact.email]
+    );
+
     await markStatus(queueId, 'sent', null, { token, link });
     await _pool.query(`UPDATE contacts SET workflow_step = 'id_upload_sent', workflow_step_at = NOW() WHERE id = $1`, [contact.id]);
     await logAction(contact.id, 'workflow_id_upload_sent', `ID upload link emailed to ${contact.email}`, { link });
@@ -317,6 +323,12 @@ async function processExtraLender(queueId, contact, clientName, baseUrl) {
     const result = await sendEmail(contact.email, 'Complete Your Lender Selection - Rowan Rose Solicitors', html);
     if (!result.success) throw new Error(result.error);
 
+    await _pool.query(
+        `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+         VALUES ($1, 'extra_lender', $2, $3) ON CONFLICT (token) DO NOTHING`,
+        [contact.id, uniqueId, contact.email]
+    );
+
     await markStatus(queueId, 'sent', null, { uniqueId, link });
     await _pool.query(`UPDATE contacts SET workflow_step = 'extra_lender_sent', workflow_step_at = NOW() WHERE id = $1`, [contact.id]);
     await logAction(contact.id, 'workflow_extra_lender_sent', `Extra Lender form link emailed to ${contact.email}`, { link });
@@ -345,6 +357,12 @@ async function processPreviousAddress(queueId, contact, clientName, baseUrl) {
 
     const result = await sendEmail(contact.email, 'Confirm Your Previous Addresses - Rowan Rose Solicitors', html);
     if (!result.success) throw new Error(result.error);
+
+    await _pool.query(
+        `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+         VALUES ($1, 'previous_address', $2, $3) ON CONFLICT (token) DO NOTHING`,
+        [contact.id, token, contact.email]
+    );
 
     await markStatus(queueId, 'sent', null, { token, link });
     await _pool.query(`UPDATE contacts SET workflow_step = 'previous_address_sent', workflow_step_at = NOW() WHERE id = $1`, [contact.id]);
@@ -388,6 +406,12 @@ async function processQuestionnaire(queueId, contact, clientName, baseUrl) {
 
         const gamblingResult = await sendEmail(contact.email, 'Complete Your Gambling Questionnaire - Rowan Rose Solicitors', gamblingHtml);
         if (!gamblingResult.success) throw new Error(gamblingResult.error);
+
+        await _pool.query(
+            `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+             VALUES ($1, 'questionnaire', $2, $3) ON CONFLICT (token) DO NOTHING`,
+            [contact.id, gamblingTokenRes.rows[0].token, contact.email]
+        );
     } else {
         // Non-gambling: send IRL questionnaire (type 2)
         await _pool.query('DELETE FROM questionnaire_tokens WHERE contact_id = $1 AND questionnaire_type = 2 AND submitted = false', [contact.id]);
@@ -413,6 +437,12 @@ async function processQuestionnaire(queueId, contact, clientName, baseUrl) {
 
         const irlResult = await sendEmail(contact.email, 'Complete Your Questionnaire - Rowan Rose Solicitors', irlHtml);
         if (!irlResult.success) throw new Error(irlResult.error);
+
+        await _pool.query(
+            `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+             VALUES ($1, 'questionnaire', $2, $3) ON CONFLICT (token) DO NOTHING`,
+            [contact.id, irlTokenRes.rows[0].token, contact.email]
+        );
     }
 
     await markStatus(queueId, 'sent', null, { irlLink, gamblingLink, hasGambling });
