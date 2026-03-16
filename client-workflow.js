@@ -68,8 +68,7 @@ function stop() {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 function getBaseUrl() {
-    const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
-    return isProduction ? 'https://rowanroseclaims.co.uk' : 'http://localhost:3000';
+    return process.env.BASE_URL || 'https://rowanroseclaims.co.uk';
 }
 
 async function sendEmail(to, subject, html) {
