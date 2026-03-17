@@ -2632,6 +2632,151 @@ const processResendLOAEmails = async () => {
     }
 };
 
+// ─── PROCESS OFFER RECEIVED EMAILS ──────────────────────────────────────────
+const processOfferReceivedEmails = async () => {
+    console.log('[Worker] Checking for pending Offer Received emails...');
+    try {
+        const { rows } = await pool.query(`
+            SELECT c.id as case_id, c.lender, c.offer_accept_token, c.offer_made,
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email
+            FROM cases c
+            JOIN contacts cnt ON c.contact_id = cnt.id
+            WHERE c.offer_accept_token IS NOT NULL
+              AND c.offer_accept_email_sent = false
+              AND c.status = 'Offer Received'
+            LIMIT 10
+        `);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No pending Offer Received emails to send.');
+            return;
+        }
+
+        console.log(`[Worker] Found ${rows.length} pending Offer Received email(s) to send.`);
+
+        const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+        const FRONTEND_URL = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
+
+        for (const record of rows) {
+            try {
+                if (!record.email) {
+                    console.log(`[Worker] ⚠️ No email for contact ${record.contact_id} — skipping Offer Received`);
+                    await pool.query('UPDATE cases SET offer_accept_email_sent = true WHERE id = $1', [record.case_id]);
+                    continue;
+                }
+
+                const offerLink = `${FRONTEND_URL}/offer-accept/${record.offer_accept_token}`;
+                const clientName = `${record.first_name} ${record.last_name}`;
+                const lenderName = record.lender || 'your lender';
+                const offerAmount = record.offer_made ? `\u00a3${parseFloat(record.offer_made).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '\u00a30.00';
+
+                const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px; text-align: center;">
+                            <h1 style="font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase;">Rowan Rose Solicitors</h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 48px 45px; background: #ffffff;">
+                            <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 6px; font-weight: 700;">Great News \u2014 Your Claim Has Been Upheld!</h2>
+                            <p style="color: #64748b; font-size: 16px; margin: 0 0 30px; font-weight: 500;">Action needed: Accept your offer</p>
+
+                            <p style="font-size: 18px; color: #1e293b; margin-bottom: 16px;">Dear ${clientName},</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569; margin-bottom: 16px;">We write in relation to the above-mentioned matter.</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569; margin-bottom: 16px;">We are pleased to confirm that after presenting all the required supporting evidence and completing a letter summarising the particulars of your complaint, your case has been upheld by <strong>${lenderName}</strong>.</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569; margin-bottom: 16px;">After reviewing our letter of complaint, they have agreed to offer you the sum of:</p>
+
+                            <!-- Offer Amount Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+                                <tr>
+                                    <td style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); border-radius: 16px; padding: 32px; text-align: center;">
+                                        <p style="font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px;">Settlement Offer</p>
+                                        <p style="font-size: 42px; font-weight: 800; color: #10b981; margin: 0; letter-spacing: -1px;">${offerAmount}</p>
+                                        <p style="font-size: 15px; color: #cbd5e1; margin: 8px 0 0;">from ${lenderName}</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 36px 0 28px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="${offerLink}" style="display: inline-block; background: linear-gradient(145deg, #10b981 0%, #059669 100%); color: #ffffff; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35); border: 3px solid #000000;">Accept Offer & Sign</a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569;">Please click the button above to review and accept the offer by providing your signature.</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569;">If you have any questions, our dedicated team is here to assist you.</p>
+
+                            <!-- Signature -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 20px;">
+                                <tr><td><p style="font-size: 17px; color: #475569; margin: 0;">Kind regards,</p></td></tr>
+                                <tr><td><p style="font-size: 17px; color: #0f172a; font-weight: 700; margin: 4px 0 0;">The Rowan Rose Solicitors Team</p></td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 28px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <p style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 6px;">Rowan Rose Solicitors</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">0161 533 1706 | irl@rowanrose.co.uk</p>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 10px 0 0;">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+                await irlEmailTransporter.sendMail({
+                    from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+                    to: record.email,
+                    subject: 'Your Claim Has Been Upheld - Accept Your Offer - Rowan Rose Solicitors',
+                    html: emailHtml
+                });
+
+                // Mark email as sent
+                await pool.query('UPDATE cases SET offer_accept_email_sent = true WHERE id = $1', [record.case_id]);
+
+                // Track in client_communications_tracking
+                await pool.query(
+                    `INSERT INTO client_communications_tracking (client_id, claim_id, type, token, email_address)
+                     VALUES ($1, $2, 'offer_acceptance', $3, $4) ON CONFLICT (token) DO NOTHING`,
+                    [record.contact_id, record.case_id, record.offer_accept_token, record.email]
+                );
+
+                console.log(`[Worker] ✅ Offer Received email sent to ${record.email} for case ${record.case_id} (offer link: ${offerLink})`);
+
+            } catch (emailErr) {
+                console.error(`[Worker] ❌ Failed to send Offer Received email for case ${record.case_id}:`, emailErr.message);
+            }
+        }
+    } catch (err) {
+        console.error('[Worker] ❌ Error in processOfferReceivedEmails:', err.message);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -2649,6 +2794,8 @@ const runWorkerCycle = async () => {
     await processDocumentExpiry();
     // Send resign signature emails for Resend LOA cases
     await processResendLOAEmails();
+    // Send offer acceptance emails for Offer Received cases
+    await processOfferReceivedEmails();
 };
 
 // Run immediately on start (with small delay for DB migration)

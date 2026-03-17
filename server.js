@@ -693,6 +693,13 @@ async function logAction({ clientId, claimId, actorType = 'system', actorId = 's
             `);
             console.log('✅ Document tracking schema ready');
 
+            // Offer acceptance columns on cases
+            await client.query(`
+                ALTER TABLE cases ADD COLUMN IF NOT EXISTS offer_accept_token UUID DEFAULT NULL;
+                ALTER TABLE cases ADD COLUMN IF NOT EXISTS offer_accept_email_sent BOOLEAN DEFAULT FALSE;
+            `);
+            console.log('✅ Offer acceptance columns ready');
+
             // Client communications tracking table
             await client.query(`
                 CREATE TABLE IF NOT EXISTS client_communications_tracking (
@@ -6751,6 +6758,21 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
+        // If status = "Offer Received", generate offer acceptance token for worker to pick up and email
+        if (status === 'Offer Received') {
+            try {
+                const { randomUUID } = await import('crypto');
+                const offerToken = randomUUID();
+                await pool.query(
+                    'UPDATE cases SET offer_accept_token = $1, offer_accept_email_sent = false WHERE id = $2',
+                    [offerToken, id]
+                );
+                console.log(`🔄 Offer Received: offer acceptance token generated for case ${id}, worker will send email`);
+            } catch (offerErr) {
+                console.error(`❌ Error generating offer acceptance token for case ${id}:`, offerErr);
+            }
+        }
+
         // Log status change to action_logs
         if (contactId && oldStatus !== status) {
             try {
@@ -11082,6 +11104,328 @@ app.post('/api/submit-resign', async (req, res) => {
 
     } catch (error) {
         console.error('[Resign] Error submitting signature:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================================================
+// OFFER ACCEPTANCE - Show form with client details + offer amount, sign to accept
+// ============================================================================
+app.get('/offer-accept/:token', async (req, res) => {
+    const { token } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT c.id as case_id, c.lender, c.offer_accept_token, c.offer_made,
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name,
+                    cnt.email, cnt.phone, cnt.dob
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.offer_accept_token = $1`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.send(renderAlreadySubmittedPage(
+                'Link Expired or Invalid',
+                'This offer acceptance link is no longer valid. It may have already been used or has expired. Please contact us if you need assistance.'
+            ));
+        }
+
+        const record = result.rows[0];
+        const clientName = `${record.first_name} ${record.last_name}`;
+        const clientEmail = record.email || '\u2014';
+        const clientPhone = record.phone || '\u2014';
+        const clientDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '\u2014';
+        const lenderName = record.lender || '\u2014';
+        const offerAmount = record.offer_made ? `\u00a3${parseFloat(record.offer_made).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '\u00a30.00';
+
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accept Your Offer - Rowan Rose Solicitors</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { background: #fff; border-radius: 20px; box-shadow: 0 4px 24px rgba(15,23,42,0.08); border: 1px solid #e2e8f0; max-width: 620px; width: 100%; overflow: hidden; }
+        .header { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 35px 40px; text-align: center; }
+        .header h1 { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: 1.5px; text-transform: uppercase; }
+        .content { padding: 40px; }
+        .greeting { font-size: 18px; color: #1e293b; margin-bottom: 16px; }
+        .message-box { background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-left: 5px solid #10b981; padding: 22px 26px; border-radius: 0 14px 14px 0; margin-bottom: 28px; }
+        .message-box p { color: #065f46; font-size: 16px; line-height: 1.65; margin: 0; }
+        .offer-card { background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); border-radius: 16px; padding: 32px; text-align: center; margin-bottom: 28px; }
+        .offer-label { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .offer-amount { font-size: 42px; font-weight: 800; color: #10b981; letter-spacing: -1px; }
+        .offer-lender { font-size: 15px; color: #cbd5e1; margin-top: 8px; }
+        .details-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 24px 28px; margin-bottom: 28px; }
+        .details-card h3 { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+        .detail-item { display: flex; flex-direction: column; }
+        .detail-label { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .detail-value { font-size: 15px; font-weight: 600; color: #1e293b; word-break: break-word; }
+        .sig-label { font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 10px; }
+        .canvas-wrapper { border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; position: relative; margin-bottom: 12px; }
+        canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
+        .btn-row { display: flex; gap: 12px; margin-bottom: 24px; }
+        .btn-clear { flex: 1; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; color: #64748b; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .btn-clear:hover { background: #f1f5f9; }
+        .btn-submit { width: 100%; padding: 18px; border: 3px solid #000; border-radius: 12px; background: linear-gradient(145deg, #10b981 0%, #059669 100%); color: #fff; font-size: 18px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(16,185,129,0.35); }
+        .btn-submit:hover { opacity: 0.95; }
+        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .footer { background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 24px 40px; text-align: center; border-top: 1px solid #e2e8f0; }
+        .footer p { font-size: 13px; color: #64748b; margin: 4px 0; }
+        .footer-brand { font-size: 15px; font-weight: 700; color: #0f172a; }
+        .success-msg { display: none; text-align: center; padding: 60px 40px; }
+        .success-msg h2 { color: #059669; font-size: 24px; margin-bottom: 12px; }
+        .success-msg p { color: #475569; font-size: 16px; }
+        .error-text { color: #ef4444; font-size: 14px; margin-top: 8px; display: none; }
+        .spinner { display: none; }
+        .spinner::after { content: ''; display: inline-block; width: 18px; height: 18px; border: 3px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-left: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 480px) {
+            .details-grid { grid-template-columns: 1fr; gap: 12px; }
+            .content { padding: 28px 20px; }
+            .offer-amount { font-size: 32px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Rowan Rose Solicitors</h1>
+        </div>
+
+        <div id="formContent" class="content">
+            <p class="greeting">Dear ${clientName},</p>
+            <div class="message-box">
+                <p>We write in relation to the above-mentioned matter.</p>
+                <p style="margin-top: 12px;">We are pleased to confirm that after presenting all the required supporting evidence and completing a letter summarising the particulars of your complaint, your case has been upheld by <strong>${lenderName}</strong>.</p>
+                <p style="margin-top: 12px;">After reviewing our letter of complaint, they have agreed to offer you the sum of:</p>
+            </div>
+
+            <div class="offer-card">
+                <div class="offer-label">Settlement Offer</div>
+                <div class="offer-amount">${offerAmount}</div>
+                <div class="offer-lender">from ${lenderName}</div>
+            </div>
+
+            <div class="details-card">
+                <h3>Your Details</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Full Name</span>
+                        <span class="detail-value">${clientName}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Date of Birth</span>
+                        <span class="detail-value">${clientDob}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Email</span>
+                        <span class="detail-value">${clientEmail}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Phone</span>
+                        <span class="detail-value">${clientPhone}</span>
+                    </div>
+                </div>
+            </div>
+
+            <p class="sig-label">Please sign below to accept this offer:</p>
+            <div class="canvas-wrapper">
+                <canvas id="signatureCanvas" width="556" height="200"></canvas>
+            </div>
+            <div class="btn-row">
+                <button class="btn-clear" onclick="clearSignature()">Clear Signature</button>
+            </div>
+            <p id="errorText" class="error-text"></p>
+            <button id="submitBtn" class="btn-submit" onclick="submitSignature()">
+                <span id="submitText">Accept Offer & Sign</span>
+                <span id="submitSpinner" class="spinner"></span>
+            </button>
+        </div>
+
+        <div id="successMessage" class="success-msg">
+            <h2>Offer Accepted!</h2>
+            <p>Your signature has been submitted and the offer has been accepted. Our team will be in touch with the next steps. You can close this page now.</p>
+        </div>
+
+        <div class="footer">
+            <p class="footer-brand">Rowan Rose Solicitors</p>
+            <p>1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+            <p>0161 533 1706 | irl@rowanrose.co.uk</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('signatureCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let hasDrawn = false;
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            if (e.touches) {
+                return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+            }
+            return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+        }
+
+        function startDraw(e) { e.preventDefault(); isDrawing = true; hasDrawn = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+        function draw(e) { if (!isDrawing) return; e.preventDefault(); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+        function stopDraw() { isDrawing = false; }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDraw);
+        canvas.addEventListener('mouseleave', stopDraw);
+        canvas.addEventListener('touchstart', startDraw);
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', stopDraw);
+
+        function clearSignature() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasDrawn = false;
+        }
+
+        async function submitSignature() {
+            if (!hasDrawn) {
+                document.getElementById('errorText').textContent = 'Please draw your signature before submitting.';
+                document.getElementById('errorText').style.display = 'block';
+                return;
+            }
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            document.getElementById('submitText').textContent = 'Submitting...';
+            document.getElementById('submitSpinner').style.display = 'inline-block';
+            document.getElementById('errorText').style.display = 'none';
+
+            try {
+                const signatureData = canvas.toDataURL('image/png');
+                const resp = await fetch('/api/submit-offer-accept', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: '${token}', signatureData })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('formContent').style.display = 'none';
+                    document.getElementById('successMessage').style.display = 'block';
+                } else {
+                    throw new Error(data.message || 'Failed to submit');
+                }
+            } catch (err) {
+                document.getElementById('errorText').textContent = err.message;
+                document.getElementById('errorText').style.display = 'block';
+                btn.disabled = false;
+                document.getElementById('submitText').textContent = 'Accept Offer & Sign';
+                document.getElementById('submitSpinner').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>`);
+    } catch (err) {
+        console.error('[OfferAccept] Error loading offer acceptance page:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// ============================================================================
+// SUBMIT OFFER ACCEPTANCE SIGNATURE
+// ============================================================================
+app.post('/api/submit-offer-accept', async (req, res) => {
+    const { token, signatureData } = req.body;
+
+    if (!token || !signatureData) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.offer_accept_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const record = caseRes.rows[0];
+        const contactId = record.contact_id;
+        const actualCaseId = record.case_id;
+        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
+
+        // Add timestamp to signature
+        const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
+
+        // Upload to S3 as signature_acceptance_form.png
+        const signatureKey = `${folderPath}Signatures/signature_acceptance_form.png`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: signatureKey,
+            Body: signatureBufferWithTimestamp,
+            ContentType: 'image/png'
+        }));
+
+        console.log(`[OfferAccept] Uploaded signature_acceptance_form.png for contact ${contactId} (case ${actualCaseId}) to ${signatureKey}`);
+
+        // Generate presigned URL
+        const signatureUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: signatureKey }), { expiresIn: 604800 });
+
+        // Update case status to "Offer Accepted"
+        await pool.query('UPDATE cases SET status = $1, updated_at = NOW() WHERE id = $2', ['Offer Accepted', actualCaseId]);
+        console.log(`[OfferAccept] Case ${actualCaseId} status updated to "Offer Accepted"`);
+
+        // Save to documents table
+        const existingDoc = await pool.query(
+            'SELECT id FROM documents WHERE contact_id = $1 AND name = $2',
+            [contactId, 'signature_acceptance_form.png']
+        );
+
+        if (existingDoc.rows.length > 0) {
+            await pool.query(
+                'UPDATE documents SET url = $1, updated_at = NOW() WHERE id = $2',
+                [signatureUrl, existingDoc.rows[0].id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO documents (contact_id, name, type, category, url, size, tags)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [contactId, 'signature_acceptance_form.png', 'image', 'Legal', signatureUrl, 'Auto-generated', ['Signature', 'Offer Acceptance']]
+            );
+        }
+
+        // Log the action
+        await pool.query(
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            [contactId, actualCaseId, 'client', contactId, `${record.first_name} ${record.last_name}`, 'offer_accepted', 'Document', `Offer acceptance signature captured for ${record.lender} claim`]
+        );
+
+        // Track completion
+        pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
+
+        res.json({ success: true, message: 'Offer accepted successfully' });
+
+    } catch (error) {
+        console.error('[OfferAccept] Error submitting offer acceptance:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
