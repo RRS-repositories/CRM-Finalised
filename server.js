@@ -6499,6 +6499,31 @@ app.get('/api/cases', async (req, res) => {
     }
 });
 
+// Get claims filtered by status with pagination
+app.get('/api/crm/claims', async (req, res) => {
+    try {
+        const { status, limit = 100, offset = 0 } = req.query;
+        if (!status) return res.status(400).json({ error: 'status query parameter is required' });
+
+        const { rows } = await pool.query(
+            `SELECT c.id as claim_id, c.contact_id, c.lender, c.status, c.product_type,
+                    c.account_number, c.created_at, c.updated_at,
+                    con.first_name, con.last_name, con.full_name, con.email
+             FROM cases c
+             LEFT JOIN contacts con ON c.contact_id = con.id
+             WHERE c.status = $1
+             ORDER BY c.id ASC
+             LIMIT $2 OFFSET $3`,
+            [status, parseInt(limit), parseInt(offset)]
+        );
+
+        const countRes = await pool.query('SELECT COUNT(*) FROM cases WHERE status = $1', [status]);
+        res.json({ total: parseInt(countRes.rows[0].count), limit: parseInt(limit), offset: parseInt(offset), claims: rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get single case with all extended fields
 app.get('/api/cases/:id/full', async (req, res) => {
     try {
