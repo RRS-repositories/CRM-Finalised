@@ -840,13 +840,13 @@ const DocumentsContent: React.FC = () => {
 
          const commsMapped: Document[] = ((commsData?.items) || []).map((c: any) => ({
             id: `comms-${c.id}`,
-            name: COMMS_LABELS[c.type] || c.type,
+            name: `${COMMS_LABELS[c.type] || c.type}${c.lender ? ` — ${c.lender}` : ''}`,
             type: 'email',
             category: 'Client Communication',
             url: '',
             size: '',
             version: 1,
-            tags: [c.type, c.lender || ''].filter(Boolean),
+            tags: [c.lender || '', COMMS_LABELS[c.type] || c.type].filter(Boolean),
             associatedContactId: c.client_id?.toString(),
             dateModified: (c.sent_at || '')?.split('T')[0],
             documentStatus: (selectedStatus as DocumentStatus) || 'Sent',
