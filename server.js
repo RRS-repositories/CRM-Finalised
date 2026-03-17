@@ -2830,6 +2830,12 @@ app.post('/api/submit-page1', async (req, res) => {
                     try {
                         await sendLOAEmail(email, fullName, uniqueLink);
                         console.log(`[Background] ✅ Sent LOA email to ${email} with link: ${uniqueLink}`);
+                        // Track in client_communications_tracking
+                        pool.query(
+                            `INSERT INTO client_communications_tracking (client_id, type, token, email_address)
+                             VALUES ($1, 'extra_lender', $2, $3) ON CONFLICT (token) DO NOTHING`,
+                            [contactId, token, email]
+                        ).catch(() => {});
                     } catch (emailError) {
                         console.error('[Background] ⚠️  Email failed:', emailError.message);
                     }
