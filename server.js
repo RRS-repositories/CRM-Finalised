@@ -3351,6 +3351,90 @@ app.get('/api/communications-tracking/status-counts', async (req, res) => {
     }
 });
 
+// --- COMMUNICATIONS TRACKING LIST (Sent/Viewed/Completed drill-down) ---
+app.get('/api/communications-tracking/list', async (req, res) => {
+    try {
+        const { status, search, limit = 200, offset = 0 } = req.query;
+        if (!status) return res.status(400).json({ error: 'status is required' });
+
+        const allowedTypes = ['id_upload', 'questionnaire', 'extra_lender', 'previous_address', 'sale_signature'];
+
+        let query = `
+            SELECT cct.id, cct.client_id, cct.claim_id, cct.type, cct.status, cct.token,
+                   cct.sent_at, cct.first_viewed_at, cct.completed_at, cct.email_address,
+                   cnt.first_name, cnt.last_name, cnt.full_name,
+                   c.lender
+            FROM client_communications_tracking cct
+            LEFT JOIN contacts cnt ON cct.client_id = cnt.id
+            LEFT JOIN cases c ON cct.claim_id = c.id
+            WHERE cct.status = $1
+              AND cct.type = ANY($2)
+        `;
+        const params = [status, allowedTypes];
+        let paramIdx = 3;
+
+        if (search) {
+            query += ` AND (cnt.first_name ILIKE $${paramIdx} OR cnt.last_name ILIKE $${paramIdx} OR cnt.full_name ILIKE $${paramIdx} OR cct.type ILIKE $${paramIdx})`;
+            params.push(`%${search}%`);
+            paramIdx++;
+        }
+
+        query += ` ORDER BY cct.sent_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+        params.push(parseInt(limit), parseInt(offset));
+
+        const { rows } = await pool.query(query, params);
+
+        // For Completed items, fetch associated documents from S3
+        if (status === 'Completed') {
+            for (const row of rows) {
+                row.documents = [];
+                if (!row.client_id) continue;
+
+                try {
+                    // Fetch documents from documents table for this contact
+                    const docQuery = `
+                        SELECT id, name, type, category, url, tags
+                        FROM documents
+                        WHERE contact_id = $1
+                        AND (
+                            ($2 = 'id_upload' AND (category = 'Identification' OR tags @> ARRAY['ID']::text[]))
+                            OR ($2 = 'questionnaire' AND (name ILIKE '%questionnaire%' OR tags @> ARRAY['Questionnaire']::text[]))
+                            OR ($2 = 'extra_lender' AND (category = 'Letter of Authority' OR name ILIKE '%LOA%' OR name ILIKE '%loa_form%'))
+                            OR ($2 = 'sale_signature' AND (name ILIKE '%signature%' AND category = 'Legal'))
+                        )
+                        ORDER BY created_at DESC
+                        LIMIT 5
+                    `;
+                    const docRes = await pool.query(docQuery, [row.client_id, row.type]);
+                    row.documents = docRes.rows;
+                } catch (docErr) {
+                    // Silently skip document fetch errors
+                }
+            }
+        }
+
+        // Count total
+        let countQuery = `
+            SELECT COUNT(*)::int AS total
+            FROM client_communications_tracking cct
+            LEFT JOIN contacts cnt ON cct.client_id = cnt.id
+            WHERE cct.status = $1 AND cct.type = ANY($2)
+        `;
+        const countParams = [status, allowedTypes];
+        if (search) {
+            countQuery += ` AND (cnt.first_name ILIKE $3 OR cnt.last_name ILIKE $3 OR cnt.full_name ILIKE $3 OR cct.type ILIKE $3)`;
+            countParams.push(`%${search}%`);
+        }
+
+        const countRes = await pool.query(countQuery, countParams);
+
+        res.json({ total: countRes.rows[0].total, items: rows });
+    } catch (err) {
+        console.error('[CommsTracking] List error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- DOCUMENTS BY STATUS (paginated drill-down) ---
 app.get('/api/documents/by-status', async (req, res) => {
     try {

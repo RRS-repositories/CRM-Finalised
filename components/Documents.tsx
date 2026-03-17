@@ -13,7 +13,7 @@ import { OOTemplateManager, OODocumentList } from './onlyoffice';
 import { DOCUMENT_STATUS_CONFIG } from '../constants';
 
 const Documents: React.FC = () => {
-   const [activeTab, setActiveTab] = useState<'documents' | 'templates' | 'editor' | 'tracking'>('documents');
+   const [activeTab, setActiveTab] = useState<'documents' | 'templates' | 'editor' | 'tracking' | 'comms'>('documents');
 
    return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors">
@@ -25,6 +25,12 @@ const Documents: React.FC = () => {
                   className={`pb-4 text-sm font-bold border-b-2 transition-colors px-2 ${activeTab === 'documents' ? 'border-brand-orange text-navy-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-200'}`}
                >
                   Document Files
+               </button>
+               <button
+                  onClick={() => setActiveTab('comms')}
+                  className={`pb-4 text-sm font-bold border-b-2 transition-colors px-2 ${activeTab === 'comms' ? 'border-brand-orange text-navy-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-navy-700 dark:hover:text-gray-200'}`}
+               >
+                  Client Communications
                </button>
                <button
                   onClick={() => setActiveTab('templates')}
@@ -51,6 +57,8 @@ const Documents: React.FC = () => {
          <div className="flex-1 overflow-hidden relative">
             {activeTab === 'documents' ? (
                <DocumentsContent />
+            ) : activeTab === 'comms' ? (
+               <ClientCommsTracking />
             ) : activeTab === 'templates' ? (
                <Templates />
             ) : activeTab === 'tracking' ? (
@@ -58,6 +66,260 @@ const Documents: React.FC = () => {
             ) : (
                <TemplateEditorTab />
             )}
+         </div>
+      </div>
+   );
+};
+
+// --- Sub-Component: Client Communications Tracking ---
+const COMMS_TYPE_LABELS: Record<string, { label: string; color: string; bgColor: string }> = {
+   id_upload: { label: 'ID Request', color: 'text-purple-700 dark:text-purple-300', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
+   questionnaire: { label: 'Questionnaire', color: 'text-blue-700 dark:text-blue-300', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+   extra_lender: { label: 'Extra Lender Form', color: 'text-amber-700 dark:text-amber-300', bgColor: 'bg-amber-100 dark:bg-amber-900/30' },
+   previous_address: { label: 'Previous Address', color: 'text-teal-700 dark:text-teal-300', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
+   sale_signature: { label: 'Sale Signature', color: 'text-rose-700 dark:text-rose-300', bgColor: 'bg-rose-100 dark:bg-rose-900/30' },
+};
+
+const COMMS_STATUS_TABS = [
+   { key: 'Sent', label: 'Sent', icon: Send, color: 'text-blue-600', bgActive: 'bg-blue-50 dark:bg-blue-900/20 border-blue-500', ringColor: 'ring-blue-500' },
+   { key: 'Viewed', label: 'Viewed', icon: Eye, color: 'text-amber-600', bgActive: 'bg-amber-50 dark:bg-amber-900/20 border-amber-500', ringColor: 'ring-amber-500' },
+   { key: 'Completed', label: 'Completed', icon: CheckCircle, color: 'text-emerald-600', bgActive: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500', ringColor: 'ring-emerald-500' },
+] as const;
+
+interface CommsItem {
+   id: number;
+   client_id: number;
+   claim_id: number | null;
+   type: string;
+   status: string;
+   token: string;
+   sent_at: string;
+   first_viewed_at: string | null;
+   completed_at: string | null;
+   email_address: string;
+   first_name: string;
+   last_name: string;
+   full_name: string | null;
+   lender: string | null;
+   documents?: { id: number; name: string; type: string; category: string; url: string; tags: string[] }[];
+}
+
+const ClientCommsTracking: React.FC = () => {
+   const API_BASE_URL = API_ENDPOINTS.api;
+   const [activeStatus, setActiveStatus] = useState<string>('Sent');
+   const [items, setItems] = useState<CommsItem[]>([]);
+   const [total, setTotal] = useState(0);
+   const [loading, setLoading] = useState(true);
+   const [search, setSearch] = useState('');
+   const [counts, setCounts] = useState<Record<string, number>>({});
+
+   const fetchCounts = useCallback(async () => {
+      try {
+         const res = await fetch(`${API_BASE_URL}/communications-tracking/status-counts`);
+         if (res.ok) {
+            const data = await res.json();
+            const c: Record<string, number> = {};
+            for (const [status, val] of Object.entries(data as Record<string, { total: number }>)) {
+               c[status] = val.total;
+            }
+            setCounts(c);
+         }
+      } catch {}
+   }, [API_BASE_URL]);
+
+   const fetchItems = useCallback(async () => {
+      setLoading(true);
+      try {
+         const params = new URLSearchParams({ status: activeStatus, limit: '200' });
+         if (search) params.set('search', search);
+         const res = await fetch(`${API_BASE_URL}/communications-tracking/list?${params}`);
+         if (!res.ok) throw new Error('Failed');
+         const data = await res.json();
+         setItems(data.items || []);
+         setTotal(data.total || 0);
+      } catch (err) {
+         console.error('Comms tracking fetch error:', err);
+      } finally {
+         setLoading(false);
+      }
+   }, [API_BASE_URL, activeStatus, search]);
+
+   useEffect(() => { fetchCounts(); }, [fetchCounts]);
+   useEffect(() => { fetchItems(); }, [fetchItems]);
+
+   const formatDate = (d: string | null) => {
+      if (!d) return '\u2014';
+      const dt = new Date(d);
+      return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+         ' ' + dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+   };
+
+   const getLink = (item: CommsItem) => {
+      switch (item.type) {
+         case 'id_upload': return `/id-upload/${item.token}`;
+         case 'questionnaire': return `/questionnaire/token/${item.token}`;
+         case 'extra_lender': return `/loa-form/${item.token}`;
+         case 'previous_address': return `/previous-address/${item.token}`;
+         case 'sale_signature': return `/api/signature/${item.token}`;
+         default: return '#';
+      }
+   };
+
+   const handlePreviewDoc = async (url: string) => {
+      try {
+         const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+         });
+         const data = await res.json();
+         if (data.success && data.signedUrl) window.open(data.signedUrl, '_blank');
+      } catch {}
+   };
+
+   return (
+      <div className="flex flex-col h-full">
+         {/* Header with status tabs */}
+         <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-3 flex-shrink-0">
+            <div className="flex items-center justify-between mb-3">
+               <h2 className="text-base font-bold text-navy-900 dark:text-white flex items-center gap-2">
+                  <Mail size={16} className="text-brand-orange" />
+                  Client Communications
+               </h2>
+               <div className="relative w-72">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                     type="text"
+                     placeholder="Search by client name..."
+                     value={search}
+                     onChange={(e) => setSearch(e.target.value)}
+                     className="w-full pl-8 pr-4 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                  />
+               </div>
+            </div>
+            <div className="flex gap-2">
+               {COMMS_STATUS_TABS.map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = activeStatus === tab.key;
+                  return (
+                     <button
+                        key={tab.key}
+                        onClick={() => setActiveStatus(tab.key)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${
+                           isActive
+                              ? `${tab.bgActive} border-current ${tab.color}`
+                              : 'border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'
+                        }`}
+                     >
+                        <Icon size={14} />
+                        {tab.label}
+                        <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                           isActive ? 'bg-white/80 dark:bg-slate-700 text-gray-800 dark:text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'
+                        }`}>
+                           {counts[tab.key] || 0}
+                        </span>
+                     </button>
+                  );
+               })}
+            </div>
+         </div>
+
+         {/* Table */}
+         <div className="flex-1 overflow-y-auto">
+            {loading ? (
+               <div className="p-12 text-center text-gray-400">
+                  <Loader2 size={32} className="mx-auto mb-2 animate-spin opacity-40" />
+                  <p className="text-sm">Loading...</p>
+               </div>
+            ) : items.length === 0 ? (
+               <div className="p-12 text-center text-gray-400">
+                  <Mail size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-sm">No {activeStatus.toLowerCase()} communications found.</p>
+               </div>
+            ) : (
+               <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                     <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th className="px-6 py-3 font-semibold">Client</th>
+                        <th className="px-4 py-3 font-semibold">Type</th>
+                        <th className="px-4 py-3 font-semibold">Lender</th>
+                        <th className="px-4 py-3 font-semibold">
+                           {activeStatus === 'Sent' ? 'Sent At' : activeStatus === 'Viewed' ? 'Viewed At' : 'Completed At'}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">Link</th>
+                        {activeStatus === 'Completed' && <th className="px-4 py-3 font-semibold">Documents</th>}
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                     {items.map(item => {
+                        const typeInfo = COMMS_TYPE_LABELS[item.type] || { label: item.type, color: 'text-gray-700', bgColor: 'bg-gray-100' };
+                        const clientName = item.full_name || `${item.first_name || ''} ${item.last_name || ''}`.trim() || '\u2014';
+                        const dateVal = activeStatus === 'Sent' ? item.sent_at : activeStatus === 'Viewed' ? item.first_viewed_at : item.completed_at;
+
+                        return (
+                           <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                              <td className="px-6 py-3">
+                                 <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 rounded-full bg-navy-100 dark:bg-navy-800 flex items-center justify-center flex-shrink-0">
+                                       <User size={12} className="text-navy-600 dark:text-navy-300" />
+                                    </div>
+                                    <div>
+                                       <p className="font-semibold text-gray-900 dark:text-white text-xs">{clientName}</p>
+                                       <p className="text-[10px] text-gray-400">{item.email_address || ''}</p>
+                                    </div>
+                                 </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold ${typeInfo.bgColor} ${typeInfo.color}`}>
+                                    {typeInfo.label}
+                                 </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">{item.lender || '\u2014'}</td>
+                              <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{formatDate(dateVal)}</td>
+                              <td className="px-4 py-3">
+                                 <a
+                                    href={getLink(item)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                                 >
+                                    <ExternalLink size={12} /> Open
+                                 </a>
+                              </td>
+                              {activeStatus === 'Completed' && (
+                                 <td className="px-4 py-3">
+                                    {item.documents && item.documents.length > 0 ? (
+                                       <div className="flex flex-wrap gap-1.5">
+                                          {item.documents.map(doc => (
+                                             <button
+                                                key={doc.id}
+                                                onClick={() => handlePreviewDoc(doc.url)}
+                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-[10px] font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+                                                title={doc.name}
+                                             >
+                                                <FileText size={10} />
+                                                {doc.name.length > 20 ? doc.name.substring(0, 20) + '...' : doc.name}
+                                             </button>
+                                          ))}
+                                       </div>
+                                    ) : (
+                                       <span className="text-[10px] text-gray-400">\u2014</span>
+                                    )}
+                                 </td>
+                              )}
+                           </tr>
+                        );
+                     })}
+                  </tbody>
+               </table>
+            )}
+         </div>
+
+         {/* Footer with count */}
+         <div className="bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 px-6 py-2 flex-shrink-0">
+            <p className="text-xs text-gray-400">
+               Showing {items.length} of {total} {activeStatus.toLowerCase()} communications
+            </p>
          </div>
       </div>
    );
