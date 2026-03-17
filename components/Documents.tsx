@@ -805,29 +805,68 @@ const DocumentsContent: React.FC = () => {
       setDrillDownLoading(true);
       const params = new URLSearchParams({ status: selectedStatus, limit: '200' });
       if (searchQuery) params.set('search', searchQuery);
-      fetch(`${API_BASE_URL}/documents/by-status?${params}`)
-         .then(r => r.json())
-         .then((rows: any[]) => {
-            const mapped: Document[] = rows.map(d => ({
-               id: d.id.toString(),
-               name: d.name,
-               type: d.type,
-               category: d.category,
-               url: d.url,
-               size: d.size,
-               version: d.version,
-               tags: d.tags || [],
-               associatedContactId: d.contact_id?.toString(),
-               dateModified: d.created_at?.split('T')[0],
-               documentStatus: (d.document_status as DocumentStatus) || 'Draft',
-               trackingToken: d.tracking_token || null,
-               sentAt: d.sent_at || null,
-               _contactName: d.contact_name || '',
-            }));
-            setDrillDownDocs(mapped);
-         })
-         .catch(err => console.error('Drill-down fetch error:', err))
-         .finally(() => setDrillDownLoading(false));
+
+      const commsParams = new URLSearchParams({ status: selectedStatus, limit: '200' });
+      if (searchQuery) commsParams.set('search', searchQuery);
+
+      Promise.all([
+         fetch(`${API_BASE_URL}/documents/by-status?${params}`).then(r => r.json()).catch(() => []),
+         fetch(`${API_BASE_URL}/communications-tracking/list?${commsParams}`).then(r => r.json()).catch(() => ({ items: [] }))
+      ]).then(([docRows, commsData]: [any[], any]) => {
+         const COMMS_LABELS: Record<string, string> = {
+            id_upload: 'ID Request',
+            questionnaire: 'Questionnaire',
+            extra_lender: 'Extra Lender Form',
+            previous_address: 'Previous Address',
+            sale_signature: 'Sale Signature',
+         };
+
+         const docsMapped: Document[] = (docRows || []).map((d: any) => ({
+            id: d.id.toString(),
+            name: d.name,
+            type: d.type,
+            category: d.category,
+            url: d.url,
+            size: d.size,
+            version: d.version,
+            tags: d.tags || [],
+            associatedContactId: d.contact_id?.toString(),
+            dateModified: d.created_at?.split('T')[0],
+            documentStatus: (d.document_status as DocumentStatus) || 'Draft',
+            trackingToken: d.tracking_token || null,
+            sentAt: d.sent_at || null,
+            _contactName: d.contact_name || '',
+         }));
+
+         const commsMapped: Document[] = ((commsData?.items) || []).map((c: any) => ({
+            id: `comms-${c.id}`,
+            name: COMMS_LABELS[c.type] || c.type,
+            type: 'email',
+            category: 'Client Communication',
+            url: '',
+            size: '',
+            version: 1,
+            tags: [c.type, c.lender || ''].filter(Boolean),
+            associatedContactId: c.client_id?.toString(),
+            dateModified: (c.sent_at || '')?.split('T')[0],
+            documentStatus: (selectedStatus as DocumentStatus) || 'Sent',
+            trackingToken: c.token || null,
+            sentAt: c.sent_at || null,
+            _contactName: c.full_name || `${c.first_name || ''} ${c.last_name || ''}`.trim(),
+            _commsToken: c.token,
+            _commsType: c.type,
+            _commsLink: c.type === 'id_upload' ? `/id-upload/${c.token}` :
+                        c.type === 'questionnaire' ? `/questionnaire/token/${c.token}` :
+                        c.type === 'extra_lender' ? `/loa-form/${c.token}` :
+                        c.type === 'previous_address' ? `/previous-address/${c.token}` :
+                        c.type === 'sale_signature' ? `/api/signature/${c.token}` : '',
+            _commsDocuments: c.documents || [],
+         }));
+
+         setDrillDownDocs([...docsMapped, ...commsMapped]);
+      })
+      .catch(err => console.error('Drill-down fetch error:', err))
+      .finally(() => setDrillDownLoading(false));
    }, [view, selectedStatus, searchQuery, API_BASE_URL]);
 
    const groupedDocs = useMemo(() => {
