@@ -7,6 +7,7 @@ import {
 import ExcelJS from 'exceljs';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus } from '../types';
+import { toTitleCase } from '../constants';
 import { API_ENDPOINTS } from '../src/config';
 
 // Types for bulk import
@@ -1234,7 +1235,7 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onComplete }) => {
                     <td className="px-4 py-3 font-medium text-navy-900 dark:text-white">{contact.fullName || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{contact.email || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{contact.phone || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{contact.lender || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{contact.lender ? toTitleCase(contact.lender) : '—'}</td>
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => removeFromPreview(contact.id)}

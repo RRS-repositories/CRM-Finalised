@@ -6,7 +6,7 @@ import {
   FileText, Mic, Check, CheckCheck, RefreshCw, X, Facebook,
   ExternalLink, Calendar, DollarSign, Building2, Tag, Link as LinkIcon
 } from 'lucide-react';
-import { MOCK_CONVERSATIONS } from '../constants';
+import { MOCK_CONVERSATIONS, toTitleCase } from '../constants';
 import { Platform, Conversation, Message, MessageAttachment } from '../types';
 import { useCRM } from '../context/CRMContext';
 
@@ -345,7 +345,7 @@ const Conversations: React.FC<ConversationsProps> = ({ platformFilter = 'all' })
                     </div>
                     <div className="flex justify-between items-center text-xs">
                         <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1"><Building2 size={12}/> Lender:</span>
-                        <span className="font-medium text-navy-900 dark:text-white">{relatedContact.lender}</span>
+                        <span className="font-medium text-navy-900 dark:text-white">{toTitleCase(relatedContact.lender)}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                         <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1"><DollarSign size={12}/> Value:</span>

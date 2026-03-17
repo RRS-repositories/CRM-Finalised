@@ -327,7 +327,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                         onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                         onDragLeave={handleFolderDragLeave}
                         onDrop={(e) => handleFolderDrop(e, account.id, folder.id)}
-                        onContextMenu={(e) => handleFolderContextMenu(e, folder.name, folder.displayName, account.id)}
+                        onContextMenu={(e) => handleFolderContextMenu(e, folder.id, folder.displayName, account.id)}
                         className={`group/folder flex items-center pl-8 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                           selectedFolderId === folder.id
                             ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
@@ -378,7 +378,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
 
                         {/* Folder actions button (visible on hover) */}
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, folder.name, folder.displayName, account.id); }}
+                          onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, folder.id, folder.displayName, account.id); }}
                           className="ml-1 p-0.5 rounded opacity-0 group-hover/folder:opacity-100 hover:bg-gray-200 dark:hover:bg-slate-600 transition-opacity text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                           title="Folder options"
                         >
@@ -393,7 +393,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
                           onDragOver={(e) => handleFolderDragOver(e, child.id)}
                           onDragLeave={handleFolderDragLeave}
                           onDrop={(e) => handleFolderDrop(e, account.id, child.id)}
-                          onContextMenu={(e) => handleFolderContextMenu(e, child.name, child.displayName, account.id)}
+                          onContextMenu={(e) => handleFolderContextMenu(e, child.id, child.displayName, account.id)}
                           className={`group/childfolder flex items-center pl-14 pr-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
                             selectedFolderId === child.id
                               ? 'bg-blue-100 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
@@ -426,7 +426,7 @@ const EmailAccountsSidebar: React.FC<EmailAccountsSidebarProps> = ({
 
                           {/* Child folder actions button */}
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, child.name, child.displayName, account.id); }}
+                            onClick={(e) => { e.stopPropagation(); handleFolderContextMenu(e, child.id, child.displayName, account.id); }}
                             className="ml-1 p-0.5 rounded opacity-0 group-hover/childfolder:opacity-100 hover:bg-gray-200 dark:hover:bg-slate-600 transition-opacity text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                             title="Folder options"
                           >

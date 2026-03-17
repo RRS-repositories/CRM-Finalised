@@ -527,7 +527,6 @@ export const getSpecStatusColor = (status: string): string => {
 
 // Lenders from Specification (all separate entries, no grouped "/" format)
 export const SPEC_LENDERS = [
-  '118 LOANS',
   '118 MONEY',
   '1PLUS1LOANS',
   '247 MONEYBOX',
@@ -808,6 +807,34 @@ export const SPEC_LENDERS = [
   'TEST',
   'Other (specify)'
 ];
+
+/** Convert an ALL-CAPS lender name to Title Case for display */
+export function toTitleCase(str: string): string {
+  if (!str) return str;
+  const upper = str.toUpperCase();
+  const keepUppercase: Record<string, string> = {
+    'MBNA': 'MBNA',
+    'HSBC': 'HSBC',
+    'TSB': 'TSB',
+    'RBS': 'RBS',
+    'HCCC (HIGH COST CONSUMER CREDIT)': 'HCCC (High Cost Consumer Credit)',
+    'JD WILLIAMS': 'JD Williams',
+    'RCI FINANCIAL': 'RCI Financial',
+    'PSA FINANCE': 'PSA Finance',
+    '1PLUS1LOANS': '1Plus1Loans',
+    '247 MONEYBOX': '247 Moneybox',
+    'OTHER (SPECIFY)': 'Other (Specify)',
+    'LOANS2GO': 'Loans2Go',
+    'H&T PAWNBROKERS': 'H&T Pawnbrokers',
+    'TM ADVANCES': 'TM Advances',
+    '118 MONEY': '118 Money',
+    '118 118 MONEY': '118 118 Money',
+  };
+  if (keepUppercase[upper]) return keepUppercase[upper];
+  return str
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
 
 // Finance Types from Specification
 export const FINANCE_TYPES = [
@@ -1170,19 +1197,19 @@ export const LENDER_CATEGORIES: LenderCategory[] = [
   {
     title: 'TICK THE CREDIT CARDS WHICH APPLY TO YOU :',
     lenders: [
-      'Aqua',
-      'Bip Credit Card',
-      'Fluid',
-      'Vanquis',
-      'Luma',
-      'Marbles',
+      'AQUA',
+      'BIP CREDIT CARD',
+      'FLUID',
+      'VANQUIS',
+      'LUMA',
+      'MARBLES',
       'MBNA',
-      'Ocean',
-      'Revolut Credit Card',
-      'Wave',
-      'Zable',
-      'ZilCH',
-      '118 118 Money'
+      'OCEAN',
+      'REVOLUT CREDIT CARD',
+      'WAVE',
+      'ZABLE',
+      'ZILCH',
+      '118 118 MONEY'
     ]
   },
   {
@@ -1209,11 +1236,11 @@ export const LENDER_CATEGORIES: LenderCategory[] = [
       'FLURO',
       'KOYO LOANS',
       'LIKELY LOANS',
-      'Loans 2 Go',
+      'LOANS 2 GO',
       'LOANS BY MAL',
       'LOGBOOK LENDING',
       'LOGBOOK MONEY',
-      'Lending Stream',
+      'LENDING STREAM',
       'LENDABLE',
       'LIFE STYLE LOANS',
       'MY COMMUNITY FINANCE',
@@ -1243,7 +1270,6 @@ export const LENDER_CATEGORIES: LenderCategory[] = [
       'THE ONE STOP MONEY SHOP',
       'TM ADVANCES',
       'TANDEM',
-      '118 LOANS',
       'WAGESTREAM',
       'CONSOLADATION LOAN'
     ]

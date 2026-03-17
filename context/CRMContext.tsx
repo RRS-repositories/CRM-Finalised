@@ -244,6 +244,7 @@ interface CRMContextType {
   };
   loadMoreContacts: (search?: string) => Promise<void>;
   fetchContactsPage: (page: number, limit: number, filters?: {
+    search?: string;
     firstName?: string;
     lastName?: string;
     fullName?: string;
@@ -706,6 +707,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Server-side paginated fetch (replaces contacts in state)
   const fetchContactsPage = useCallback(async (page: number, limit: number, filters?: {
+    search?: string;
     fullName?: string;
     email?: string;
     phone?: string;
@@ -715,6 +717,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setContactsPagination(prev => ({ ...prev, isLoadingMore: true }));
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (filters?.search) params.set('search', filters.search);
       if (filters?.fullName) params.set('fullName', filters.fullName);
       if (filters?.email) params.set('email', filters.email);
       if (filters?.phone) params.set('phone', filters.phone);

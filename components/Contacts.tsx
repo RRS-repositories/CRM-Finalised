@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
-import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES, PIPELINE_CATEGORIES } from '../constants';
+import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES, PIPELINE_CATEGORIES, toTitleCase } from '../constants';
 import { API_BASE_URL, API_ENDPOINTS } from '../src/config';
 import BulkImport from './BulkImport';
 
@@ -3009,7 +3009,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              onClick={() => handleOpenClaimFile(claim.id)}
                                              className="font-semibold text-navy-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer transition-colors text-left"
                                           >
-                                             {claim.lender}
+                                             {toTitleCase(claim.lender)}
                                           </button>
                                        </div>
                                        <div className="col-span-2">
@@ -3311,7 +3311,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
                               <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Lender</label>
                               <div className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-slate-600 text-gray-900 dark:text-white flex items-center justify-between">
-                                 <span>{claimFileForm.lender || 'No Lender'}</span>
+                                 <span>{claimFileForm.lender ? toTitleCase(claimFileForm.lender) : 'No Lender'}</span>
                                  <Lock size={14} className="text-gray-400" />
                               </div>
                            </div>
@@ -3356,7 +3356,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        </label>
                                        <select
                                           value={actualClaimStatus}
-                                          onChange={(e) => {
+                                          onChange={async (e) => {
                                              const newStatus = e.target.value;
                                              // Update local state immediately (optimistic update)
                                              if (claimFileData) {
@@ -3368,11 +3368,36 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              }
                                              // Save to database in background
                                              if (viewingClaimId) {
-                                                fetch(`/api/cases/${viewingClaimId}`, {
-                                                   method: 'PATCH',
-                                                   headers: { 'Content-Type': 'application/json' },
-                                                   body: JSON.stringify({ status: newStatus })
-                                                }).catch(err => console.error('Failed to save status:', err));
+                                                try {
+                                                   // For statuses that trigger emails (e.g. Offer Received),
+                                                   // save payment fields FIRST so the worker has the latest data
+                                                   if (newStatus === 'Offer Received') {
+                                                      await fetch(`/api/cases/${viewingClaimId}/extended`, {
+                                                         method: 'PATCH',
+                                                         headers: { 'Content-Type': 'application/json' },
+                                                         body: JSON.stringify({
+                                                            offer_made: claimFileForm.offerMade || '',
+                                                            fee_percent: claimFileForm.feePercent || '',
+                                                            total_refund: claimFileForm.totalRefund || '',
+                                                            total_debt: claimFileForm.totalAmountOfDebt || claimFileForm.totalDebt || '',
+                                                            balance_due_to_client: claimFileForm.balanceDueToClient || '',
+                                                            our_fees_plus_vat: claimFileForm.ourFeesPlusVat || '',
+                                                            our_fees_minus_vat: claimFileForm.ourFeesMinusVat || '',
+                                                            vat_amount: claimFileForm.vatAmount || '',
+                                                            total_fee: claimFileForm.totalFee || '',
+                                                            outstanding_debt: claimFileForm.outstandingDebt || '',
+                                                         })
+                                                      });
+                                                   }
+                                                   // Now update status (this triggers token generation + worker email)
+                                                   await fetch(`/api/cases/${viewingClaimId}`, {
+                                                      method: 'PATCH',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({ status: newStatus })
+                                                   });
+                                                } catch (err) {
+                                                   console.error('Failed to save status:', err);
+                                                }
                                              }
                                           }}
                                           className="w-full px-3 py-2.5 border-2 border-gray-300 dark:border-slate-500 rounded-lg text-sm font-semibold bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
@@ -3393,6 +3418,40 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        <p className="text-[10px] text-gray-400 mt-1">
                                           Showing all {pipelineStages.reduce((sum, stage) => sum + stage.statuses.length, 0)} statuses
                                        </p>
+                                       {/* Resend Offer Email & SMS button when status is Offer Received */}
+                                       {actualClaimStatus === 'Offer Received' && (
+                                          <button
+                                             onClick={async () => {
+                                                if (!viewingClaimId) return;
+                                                try {
+                                                   // Save payment fields first so the email has the latest offer_made
+                                                   await fetch(`/api/cases/${viewingClaimId}/extended`, {
+                                                      method: 'PATCH',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({
+                                                         offer_made: claimFileForm.offerMade || '',
+                                                         fee_percent: claimFileForm.feePercent || '',
+                                                         total_refund: claimFileForm.totalRefund || '',
+                                                      })
+                                                   });
+                                                   // Trigger resend
+                                                   const res = await fetch(`/api/cases/${viewingClaimId}/resend-offer-email`, { method: 'POST' });
+                                                   if (res.ok) {
+                                                      alert('Offer email & SMS queued for resend. It will be sent within 2 minutes.');
+                                                   } else {
+                                                      alert('Failed to resend offer email.');
+                                                   }
+                                                } catch (err) {
+                                                   console.error('Resend offer email error:', err);
+                                                   alert('Error resending offer email.');
+                                                }
+                                             }}
+                                             className="mt-2 w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                                          >
+                                             <MailIcon size={14} />
+                                             Resend Offer Email & SMS
+                                          </button>
+                                       )}
                                     </>
                                  );
                               })()}
@@ -4892,7 +4951,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          className={`w-full text-left px-3 py-2 text-xs hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors ${getLenderFromDoc(doc) === lender ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}
                                                          onClick={() => handleDocLenderSave(doc.id, lender)}
                                                       >
-                                                         {lender}
+                                                         {toTitleCase(lender)}
                                                       </button>
                                                    ))}
                                                    {COMMON_LENDERS.filter(l =>
@@ -5504,7 +5563,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           <div className={`w-4 h-4 border rounded flex items-center justify-center ${selectedLenders.includes(l) ? 'bg-navy-600 border-navy-600 text-white' : 'border-gray-300 dark:border-slate-500'}`}>
                                              {selectedLenders.includes(l) && <Check size={10} />}
                                           </div>
-                                          {l}
+                                          {toTitleCase(l)}
                                        </div>
                                     ))}
                                  {COMMON_LENDERS.filter(l => l.toLowerCase().includes(lenderSearchQuery.toLowerCase())).length === 0 && (
@@ -6237,12 +6296,8 @@ const Contacts: React.FC = () => {
       }
    }, [pendingContactNavigation, clearContactNavigation, navigate]);
 
-   // Individual search fields
-   const [searchFullName, setSearchFullName] = useState('');
-   const [searchEmail, setSearchEmail] = useState('');
-   const [searchPhone, setSearchPhone] = useState('');
-   const [searchPostcode, setSearchPostcode] = useState('');
-   const [searchClientId, setSearchClientId] = useState('');
+   // Unified search field
+   const [searchTerm, setSearchTerm] = useState('');
 
    // Pagination State
    const [contactsPerPage, setContactsPerPage] = useState(50);
@@ -6252,20 +6307,16 @@ const Contacts: React.FC = () => {
    useEffect(() => {
       const timer = setTimeout(() => {
          fetchContactsPage(currentContactsPage, contactsPerPage, {
-            fullName: searchFullName || undefined,
-            email: searchEmail || undefined,
-            phone: searchPhone || undefined,
-            postcode: searchPostcode || undefined,
-            clientId: searchClientId || undefined,
+            search: searchTerm || undefined,
          });
       }, 400);
       return () => clearTimeout(timer);
-   }, [searchFullName, searchEmail, searchPhone, searchPostcode, searchClientId, contactsPerPage, currentContactsPage]);
+   }, [searchTerm, contactsPerPage, currentContactsPage]);
 
    // Reset to page 1 when filters or per-page changes
    useEffect(() => {
       setCurrentContactsPage(1);
-   }, [searchFullName, searchEmail, searchPhone, searchPostcode, searchClientId, contactsPerPage]);
+   }, [searchTerm, contactsPerPage]);
 
    // Action Menu & Delete Logic
    const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -6404,77 +6455,39 @@ const Contacts: React.FC = () => {
                </div>
             </div>
 
-            {/* Search Filters Panel - Always visible */}
+            {/* Unified Search Bar */}
             <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
-                  <div className="grid grid-cols-5 gap-4">
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Client ID / Reference</label>
-                        <input
-                           type="text"
-                           placeholder="Search ID or reference..."
-                           value={searchClientId}
-                           onChange={(e) => setSearchClientId(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Full Name</label>
-                        <input
-                           type="text"
-                           placeholder="Search full name..."
-                           value={searchFullName}
-                           onChange={(e) => setSearchFullName(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Email</label>
-                        <input
-                           type="text"
-                           placeholder="Search email..."
-                           value={searchEmail}
-                           onChange={(e) => setSearchEmail(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Contact Number</label>
-                        <input
-                           type="text"
-                           placeholder="Search phone..."
-                           value={searchPhone}
-                           onChange={(e) => setSearchPhone(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Post Code</label>
-                        <input
-                           type="text"
-                           placeholder="Search postcode..."
-                           value={searchPostcode}
-                           onChange={(e) => setSearchPostcode(e.target.value)}
-                           className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                        />
-                     </div>
+                  <div className="relative">
+                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                     <input
+                        type="text"
+                        placeholder="Search by name, email, phone, postcode, or client ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-10 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                     />
+                     {searchTerm && (
+                        <button
+                           onClick={() => setSearchTerm('')}
+                           className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                        >
+                           <X size={16} />
+                        </button>
+                     )}
                   </div>
-                  <div className="flex justify-between items-center mt-4">
+                  <div className="flex justify-between items-center mt-3">
                      <span className="text-sm text-gray-500 dark:text-gray-400">
                         {contactsPagination.total} contacts
                      </span>
-                     <button
-                        onClick={() => {
-                           setSearchFullName('');
-                           setSearchEmail('');
-                           setSearchPhone('');
-                           setSearchPostcode('');
-                           setSearchClientId('');
-                        }}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                     >
-                        <RotateCcw size={14} />
-                        Clear Filters
-                     </button>
+                     {searchTerm && (
+                        <button
+                           onClick={() => setSearchTerm('')}
+                           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg transition-colors"
+                        >
+                           <RotateCcw size={14} />
+                           Clear Search
+                        </button>
+                     )}
                   </div>
                </div>
          </div>

@@ -17,9 +17,16 @@ import { createCanvas, loadImage } from 'canvas';
 import nodemailer from 'nodemailer';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { ClientSecretCredential } from '@azure/identity';
+import twilio from 'twilio';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize Twilio client for SMS (optional — only sends if credentials are configured)
+const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
 
 // Load lender details for cover letter generation
 // Replace NaN with null since NaN is not valid JSON
@@ -201,7 +208,7 @@ async function insertErrorNotification(contactId, contactName, description) {
 
 // Category 1: Standard lenders - NO ID required (only LOA, Cover Letter, Previous Address if available)
 const CATEGORY_1_NO_ID_LENDERS = new Set([
-    '118 LOANS', '118 MONEY', '1PLUS 1 LOANS', '1PLUS1LOANS', '247 MONEYBOX', 'ADMIRAL LOAN', 'ADMIRAL LOANS', 'AMERICAN EXPRESS', 'AQUA', 'ARGOS', 'ASDA',
+    '118 MONEY', '1PLUS 1 LOANS', '1PLUS1LOANS', '247 MONEYBOX', 'ADMIRAL LOAN', 'ADMIRAL LOANS', 'AMERICAN EXPRESS', 'AQUA', 'ARGOS', 'ASDA',
     'AVANT', 'BAMBOO LOANS', 'BAMBOO', 'BANK OF SCOTLAND', 'BARCLAYS / MONUMENT', 'BARCLAYS', 'MONUMENT', 'BARCLAYS CREDIT CARD', 'BARCLAYS OVERDRAFT',
     'BETTER BORROW', 'BIP CREDIT CARD', 'CABOT', 'CABOT FINANCIAL', 'CAPITAL ONE', 'CAPQUEST/ ARROW', 'CAPQUEST', 'ARROW', 'CAR CASH POINT', 'CASHFLOAT',
     'CASH ASAP', 'CASHASAP', 'CASH CONVERTERS', 'CASH PLUS', 'CASTLE COMMUNITY BANK', 'CITI BANK', 'CLC FINANCE',
@@ -2638,7 +2645,7 @@ const processOfferReceivedEmails = async () => {
     try {
         const { rows } = await pool.query(`
             SELECT c.id as case_id, c.lender, c.offer_accept_token, c.offer_made,
-                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email, cnt.phone
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
             WHERE c.offer_accept_token IS NOT NULL
@@ -2767,6 +2774,31 @@ const processOfferReceivedEmails = async () => {
                 );
 
                 console.log(`[Worker] ✅ Offer Received email sent to ${record.email} for case ${record.case_id} (offer link: ${offerLink})`);
+
+                // Also send SMS if Twilio is configured and phone number exists
+                if (twilioClient && TWILIO_FROM_NUMBER && record.phone) {
+                    try {
+                        const smsBody = `Hi ${record.first_name}, great news! Your claim against ${lenderName} has been upheld with an offer of ${offerAmount}. Please review and accept your offer here: ${offerLink} - Rowan Rose Solicitors`;
+                        const phoneNumber = record.phone.startsWith('+') ? record.phone : `+44${record.phone.replace(/^0/, '')}`;
+                        await twilioClient.messages.create({
+                            body: smsBody,
+                            from: TWILIO_FROM_NUMBER,
+                            to: phoneNumber
+                        });
+                        // Log SMS to communications table
+                        await pool.query(
+                            `INSERT INTO communications (client_id, channel, type, direction, content, "from", "to", status, sent_by)
+                             VALUES ($1, 'sms', 'sms', 'outbound', $2, $3, $4, 'sent', 'system')`,
+                            [record.contact_id, smsBody, TWILIO_FROM_NUMBER, phoneNumber]
+                        );
+                        console.log(`[Worker] 📱 Offer SMS sent to ${phoneNumber} for case ${record.case_id}`);
+                    } catch (smsErr) {
+                        console.error(`[Worker] ⚠️ Failed to send Offer SMS for case ${record.case_id}:`, smsErr.message);
+                        // Don't fail the whole process if SMS fails — email was already sent
+                    }
+                } else if (!twilioClient) {
+                    console.log(`[Worker] ℹ️ Twilio not configured — skipping SMS for case ${record.case_id}`);
+                }
 
             } catch (emailErr) {
                 console.error(`[Worker] ❌ Failed to send Offer Received email for case ${record.case_id}:`, emailErr.message);

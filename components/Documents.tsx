@@ -10,7 +10,7 @@ import { Document, OOTemplate, DocumentStatus } from '../types';
 import Templates from './Templates';
 import { API_ENDPOINTS } from '../src/config';
 import { OOTemplateManager, OODocumentList } from './onlyoffice';
-import { DOCUMENT_STATUS_CONFIG } from '../constants';
+import { DOCUMENT_STATUS_CONFIG, toTitleCase } from '../constants';
 
 const Documents: React.FC = () => {
    const [activeTab, setActiveTab] = useState<'documents' | 'templates' | 'editor'>('documents');
@@ -282,13 +282,13 @@ const DocumentsContent: React.FC = () => {
 
          const commsMapped: Document[] = ((commsData?.items) || []).map((c: any) => ({
             id: `comms-${c.id}`,
-            name: `${COMMS_LABELS[c.type] || c.type}${c.lender ? ` — ${c.lender}` : ''}`,
+            name: `${COMMS_LABELS[c.type] || c.type}${c.lender ? ` — ${toTitleCase(c.lender)}` : ''}`,
             type: 'email',
             category: 'Client Communication',
             url: '',
             size: '',
             version: 1,
-            tags: [c.lender || '', COMMS_LABELS[c.type] || c.type].filter(Boolean),
+            tags: [c.lender ? toTitleCase(c.lender) : '', COMMS_LABELS[c.type] || c.type].filter(Boolean),
             associatedContactId: c.client_id?.toString(),
             dateModified: (c.sent_at || '')?.split('T')[0],
             documentStatus: (selectedStatus as DocumentStatus) || 'Sent',

@@ -71,6 +71,7 @@
     "server": "^0.0.3",
     "tailwind-merge": "2.2.1",
     "tippy.js": "^6.3.7",
+    "twilio": "^5.13.0",
     "zustand": "4.5.0"
   },
   "overrides": {

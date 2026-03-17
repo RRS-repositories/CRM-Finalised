@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 
-import { PIPELINE_CATEGORIES, SPEC_LENDERS } from '../constants';
+import { PIPELINE_CATEGORIES, SPEC_LENDERS, toTitleCase } from '../constants';
 import { ClaimStatus, Claim, Contact } from '../types';
-import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 
 // === PERFORMANCE: Debounce hook to prevent re-render on every keystroke ===
@@ -229,7 +229,7 @@ const KanbanCard = memo<{
       <div className="p-2.5 pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-gray-900 dark:text-white text-xs line-clamp-1">{claim.lender}</h4>
+            <h4 className="font-semibold text-gray-900 dark:text-white text-xs line-clamp-1">{toTitleCase(claim.lender)}</h4>
             <div className="flex items-center mt-1 flex-wrap gap-1">
               <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded ${priorityStyle.bgColor} ${priorityStyle.color}`}>
                 <span className={`w-1 h-1 rounded-full mr-1 ${priorityStyle.color.replace('text-', 'bg-')}`}></span>
@@ -426,7 +426,12 @@ const Pipeline: React.FC = () => {
   const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
 
   // View toggle state
-  const [viewType, setViewType] = useState<ViewType>('kanban');
+  const [viewType, setViewType] = useState<ViewType>('list');
+
+  // Sort state for list view
+  type SortColumn = 'clientIdRef' | 'contactName' | 'lender' | 'status' | 'workflowStage' | 'createdAt';
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
 
   // Selection state for list view
   const [selectedClaims, setSelectedClaims] = useState<Set<string>>(new Set());
@@ -550,15 +555,28 @@ const Pipeline: React.FC = () => {
       });
     }
 
-    // Sort list view by date (newest first)
-    allFiltered.sort((a, b) => {
-      const dateA = new Date(a.createdAt || 0).getTime();
-      const dateB = new Date(b.createdAt || 0).getTime();
-      return dateB - dateA;
-    });
+    // Sort list view
+    if (sortColumn && sortDirection) {
+      const dir = sortDirection === 'asc' ? 1 : -1;
+      allFiltered.sort((a, b) => {
+        if (sortColumn === 'createdAt') {
+          return dir * (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        }
+        const valA = (a[sortColumn] || '').toString().toLowerCase();
+        const valB = (b[sortColumn] || '').toString().toLowerCase();
+        return dir * valA.localeCompare(valB);
+      });
+    } else {
+      // Default: newest first
+      allFiltered.sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+    }
 
     return { enrichedClaimsByCategory: buckets, allFilteredClaims: allFiltered };
-  }, [claims, contactMap, statusFilter, lenderFilter, dateRangeFilter, clientFilter, statusToCategoryMap]);
+  }, [claims, contactMap, statusFilter, lenderFilter, dateRangeFilter, clientFilter, statusToCategoryMap, sortColumn, sortDirection]);
 
   // Pagination calculations for list view
   const totalPages = Math.ceil(allFilteredClaims.length / claimsPerPage);
@@ -573,6 +591,24 @@ const Pipeline: React.FC = () => {
   React.useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter, claimsPerPage]);
+
+  // Sort column handler for list view
+  const handleSortColumn = useCallback((column: SortColumn) => {
+    if (sortColumn !== column) {
+      setSortColumn(column);
+      setSortDirection('asc');
+    } else if (sortDirection === 'asc') {
+      setSortDirection('desc');
+    } else {
+      setSortColumn(null);
+      setSortDirection(null);
+    }
+  }, [sortColumn, sortDirection]);
+
+  // Reset to page 1 when sort changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [sortColumn, sortDirection]);
 
   // Selection handlers for list view - wrapped in useCallback for stable references
   const toggleClaimSelection = useCallback((claimId: string) => {
@@ -875,7 +911,7 @@ const Pipeline: React.FC = () => {
                      }`}
                   >
                      <TrendingUp size={12} />
-                     <span className="max-w-[80px] truncate">{lenderFilter || 'Lender'}</span>
+                     <span className="max-w-[80px] truncate">{lenderFilter ? toTitleCase(lenderFilter) : 'Lender'}</span>
                      {lenderFilter ? (
                         <X
                            size={12}
@@ -923,9 +959,9 @@ const Pipeline: React.FC = () => {
                                     setLenderDropdownOpen(false);
                                     setLenderSearch('');
                                  }}
-                                 className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors uppercase ${lenderFilter === lender ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'text-gray-700 dark:text-gray-200'}`}
+                                 className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${lenderFilter === lender ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'text-gray-700 dark:text-gray-200'}`}
                               >
-                                 {lender}
+                                 {toTitleCase(lender)}
                               </button>
                            ))}
                         </div>
@@ -1000,24 +1036,29 @@ const Pipeline: React.FC = () => {
                               className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                            />
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Client ID / Reference
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Client Name
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Lender
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Status
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-slate-600">
-                           Workflow Stage
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                           Created
-                        </th>
+                        {([
+                           { column: 'clientIdRef' as SortColumn, label: 'Client ID / Reference', align: 'left' },
+                           { column: 'contactName' as SortColumn, label: 'Client Name', align: 'left' },
+                           { column: 'lender' as SortColumn, label: 'Lender', align: 'left' },
+                           { column: 'status' as SortColumn, label: 'Status', align: 'left' },
+                           { column: 'workflowStage' as SortColumn, label: 'Workflow Stage', align: 'left' },
+                           { column: 'createdAt' as SortColumn, label: 'Created', align: 'right' },
+                        ]).map(({ column, label, align }) => {
+                           const isActive = sortColumn === column;
+                           const SortIcon = isActive ? (sortDirection === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                           return (
+                              <th
+                                 key={column}
+                                 className={`px-4 py-3 text-${align} text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider ${column !== 'createdAt' ? 'border-r border-gray-200 dark:border-slate-600' : ''} cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-600/50 transition-colors`}
+                                 onClick={() => handleSortColumn(column)}
+                              >
+                                 <div className={`flex items-center gap-1.5 ${align === 'right' ? 'justify-end' : ''}`}>
+                                    {label}
+                                    <SortIcon size={14} className={isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-500'} />
+                                 </div>
+                              </th>
+                           );
+                        })}
                      </tr>
                   </thead>
                   {/* Table Body */}
@@ -1082,7 +1123,7 @@ const Pipeline: React.FC = () => {
                                  {/* Lender */}
                                  <td className="px-4 py-3 border-r border-gray-100 dark:border-slate-700">
                                     <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
-                                       {claim.lender}
+                                       {toTitleCase(claim.lender)}
                                     </span>
                                  </td>
                                  {/* Status - Clickable Dropdown */}

@@ -937,8 +937,7 @@ const IRL_LENDER_VARIABLES = {
     'ZOPA': 'zopa',
     '118 118 MONEY': 'money_118',
 
-    // ─── PAYDAY / SHORT-TERM LOANS (also includes 118 Loans) ───
-    '118 LOANS': 'loans_118',
+    // ─── PAYDAY / SHORT-TERM LOANS ───
     'ADMIRAL LOANS': 'admiral_loans',
     'ANICO FINANCE': 'anico_finance',
     'AVANT CREDIT': 'avant_credit',
@@ -2497,7 +2496,7 @@ function standardizeLender(lenderName) {
         'PRA', 'PRA GROUP',
         'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT',
         'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE', 'NEYBER', 'SNAP FINANCE', 'SHAWBROOK',
-        'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN',
+        'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', 'WAGESTREAM', 'CONSOLADATION LOAN',
         'GUARANTOR MY LOAN', 'HERO LOANS', 'JUO LOANS', 'SUCO', 'UK CREDIT', '1 PLUS 1',
         'CASH CONVERTERS', 'H&T PAWNBROKERS', 'FASHION WORLD', 'JD WILLIAMS', 'SIMPLY BE',
         'VERY CATALOGUE', 'ADVANTAGE FINANCE', 'AUDI FINANCE', 'VOLKSWAGEN FINANCE', 'SKODA FINANCE',
@@ -5083,7 +5082,7 @@ app.get('/api/contacts/paginated', async (req, res) => {
         let paramIdx = 1;
 
         if (search) {
-            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx})`);
+            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx} OR c.postal_code ILIKE $${paramIdx} OR c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx})`);
             params.push(`%${search}%`);
             paramIdx++;
         }
@@ -5108,8 +5107,8 @@ app.get('/api/contacts/paginated', async (req, res) => {
             paramIdx++;
         }
         if (clientId) {
-            // Search in client_id, id, and reference (comma-separated references)
-            conditions.push(`(c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx} OR c.reference ILIKE $${paramIdx})`);
+            // Search in client_id and id only (not reference, which contains claim refs)
+            conditions.push(`(c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx})`);
             params.push(`%${clientId}%`);
             paramIdx++;
         }
@@ -6899,6 +6898,27 @@ app.patch('/api/cases/:id', async (req, res) => {
     }
 });
 
+// Resend Offer Acceptance Email (+ SMS) — works even when status is already "Offer Received"
+app.post('/api/cases/:id/resend-offer-email', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const { randomUUID } = await import('crypto');
+        const offerToken = randomUUID();
+        const result = await pool.query(
+            'UPDATE cases SET offer_accept_token = $1, offer_accept_email_sent = false WHERE id = $2 RETURNING *',
+            [offerToken, id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        console.log(`🔄 Resend Offer Email: new token generated for case ${id}, worker will pick up`);
+        res.json({ success: true, message: 'Offer email queued for resend' });
+    } catch (error) {
+        console.error(`❌ Error resending offer email for case ${id}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- CREATE CLAIM via /api/contacts/:id/claims ---
 app.post('/api/contacts/:id/claims', async (req, res) => {
     const { lender, status, claim_value, product_type, account_number, start_date, case_number } = req.body;
@@ -7455,7 +7475,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         // Base categories definition
         const initialCategories = [
             { title: 'TICK THE CREDIT CARDS WHICH APPLY TO YOU :', lenders: ['AQUA', 'BIP CREDIT CARD', 'FLUID', 'VANQUIS', 'LUMA', 'MARBLES', 'MBNA', 'OCEAN', 'REVOLUT CREDIT CARD', 'WAVE', 'ZABLE', 'ZILCH', '118 118 MONEY'] },
-            { title: 'TICK THE PAYDAY LOANS / LOANS WHICH APPLY TO YOU :', lenders: ['ADMIRAL LOANS', 'ANICO FINANCE', 'AVANT CREDIT', 'BAMBOO', 'BETTER BORROW', 'CREDIT SPRING', 'CASH ASAP', 'CASH FLOAT', 'CAR CASH POINT', 'CREATION FINANCE', 'CASTLE COMMUNITY BANK', 'DRAFTY LOANS', 'EVOLUTION MONEY', 'EVERY DAY LENDING', 'FERNOVO', 'FAIR FINANCE', 'FINIO LOANS', 'FINTERN', 'FLURO', 'GAMBLING', 'KOYO LOANS', 'LIKELY LOANS', 'LOANS2GO', 'Loans 2 Go', 'LOANS BY MAL', 'LOGBOOK LENDING', 'LOGBOOK MONEY', 'LENDING STREAM', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT', 'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK', 'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY', 'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT', 'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE (NEYBER)', 'SNAP FINANCE', 'SHAWBROOK', 'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', '118 LOANS', 'WAGESTREAM', 'CONSOLADATION LOAN'] },
+            { title: 'TICK THE PAYDAY LOANS / LOANS WHICH APPLY TO YOU :', lenders: ['ADMIRAL LOANS', 'ANICO FINANCE', 'AVANT CREDIT', 'BAMBOO', 'BETTER BORROW', 'CREDIT SPRING', 'CASH ASAP', 'CASH FLOAT', 'CAR CASH POINT', 'CREATION FINANCE', 'CASTLE COMMUNITY BANK', 'DRAFTY LOANS', 'EVOLUTION MONEY', 'EVERY DAY LENDING', 'FERNOVO', 'FAIR FINANCE', 'FINIO LOANS', 'FINTERN', 'FLURO', 'GAMBLING', 'KOYO LOANS', 'LIKELY LOANS', 'LOANS2GO', 'Loans 2 Go', 'LOANS BY MAL', 'LOGBOOK LENDING', 'LOGBOOK MONEY', 'LENDING STREAM', 'LENDABLE', 'LIFE STYLE LOANS', 'MY COMMUNITY FINANCE', 'MY KREDIT', 'MY FINANCE CLUB', 'MONEY BOAT', 'MR LENDER', 'MONEY LINE', 'MY COMMUNITY BANK', 'MONTHLY ADVANCE LOANS', 'NOVUNA', 'OPOLO', 'PM LOANS', 'POLAR FINANCE', 'POST OFFICE MONEY', 'PROGRESSIVE MONEY', 'PLATA FINANCE', 'PLEND', 'QUID MARKET', 'QUICK LOANS', 'SKYLINE DIRECT', 'SALAD MONEY', 'SAVVY LOANS', 'SALARY FINANCE (NEYBER)', 'SNAP FINANCE', 'SHAWBROOK', 'THE ONE STOP MONEY SHOP', 'TM ADVANCES', 'TANDEM', 'WAGESTREAM', 'CONSOLADATION LOAN'] },
             { title: 'TICK THE GUARANTOR LOANS WHICH APPLY TO YOU :', lenders: ['GUARANTOR MY LOAN', 'HERO LOANS', 'JUO LOANS', 'SUCO', 'UK CREDIT', '1 PLUS 1'] },
             { title: 'TICK THE LOGBOOK LOANS / PAWNBROKERS WHICH APPLY TO YOU :', lenders: ['CASH CONVERTERS', 'H&T PAWNBROKERS'] },
             { title: 'TICK THE CATALOGUES WHICH APPLY TO YOU :', lenders: ['FASHION WORLD', 'JD WILLIAMS', 'SIMPLY BE', 'VERY CATALOGUE'] },
