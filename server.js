@@ -11886,8 +11886,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Name</div><div class="detail-value">${r.first_name} ${r.last_name}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">NO</div>
                 </div>
             </div>
             <div id="nameEdit" class="edit-field">
@@ -11901,8 +11901,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Date of Birth</div><div class="detail-value">${dobFormatted}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">NO</div>
                 </div>
             </div>
             <div id="dobEdit" class="edit-field">
@@ -11913,8 +11913,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Current Address</div><div class="detail-value">${[r.address_line_1, r.address_line_2, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">NO</div>
                 </div>
             </div>
             <div id="addressEdit" class="edit-field">
@@ -11951,6 +11951,18 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         </div>
 
         <!-- Submit -->
+        <!-- Card 5: Signature -->
+        <div class="card">
+            <h2>Signature</h2>
+            <p class="subtitle">Please sign below to authorise Rowan Rose Solicitors to continue investigating your claim</p>
+            <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff;">
+                <canvas id="sigCanvas" width="660" height="180" style="width:100%; cursor:crosshair; touch-action:none;"></canvas>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                <button type="button" class="btn-secondary" onclick="clearSignature()">Clear Signature</button>
+            </div>
+        </div>
+
         <button class="btn-submit" id="submitBtn" onclick="submitForm()">Submit Details</button>
         </div>
 
@@ -11967,6 +11979,17 @@ const TOKEN = '${token}';
 let isOver10 = null;
 let uploadedFiles = [];
 let newAddressCount = 0;
+let sigDrawn = false;
+
+// Signature canvas
+const canvas = document.getElementById('sigCanvas');
+const ctx = canvas.getContext('2d');
+let drawing = false;
+canvas.addEventListener('pointerdown', function(e) { drawing = true; sigDrawn = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+canvas.addEventListener('pointermove', function(e) { if (!drawing) return; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); });
+canvas.addEventListener('pointerup', function() { drawing = false; });
+canvas.addEventListener('pointerleave', function() { drawing = false; });
+function clearSignature() { ctx.clearRect(0, 0, canvas.width, canvas.height); sigDrawn = false; }
 
 function setOver10(val) {
     isOver10 = val;
@@ -12160,6 +12183,7 @@ function renderFileList() {
 
 async function submitForm() {
     if (isOver10 === null) { alert('Please answer whether this finance is more than 10 years old.'); return; }
+    if (!isOver10 && !sigDrawn) { alert('Please draw your signature before submitting.'); return; }
 
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
@@ -12169,6 +12193,9 @@ async function submitForm() {
         const formData = new FormData();
         formData.append('token', TOKEN);
         formData.append('isOver10Years', isOver10);
+        if (sigDrawn) {
+            formData.append('signatureData', canvas.toDataURL('image/png'));
+        }
 
         // Name changes
         const nameEditVisible = document.getElementById('nameEdit').classList.contains('visible');
@@ -12246,7 +12273,7 @@ async function submitForm() {
 // POST /api/submit-unable-to-locate — Handle form submission
 app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (req, res) => {
     try {
-        const { token, isOver10Years, accountNumber, lenderName, agreementDate, amountBorrowed, otherRefs,
+        const { token, isOver10Years, signatureData,
                 nameChanged, newFirstName, newLastName,
                 dobChanged, newDob,
                 addressChanged, newAddr1, newAddr2, newCity, newCounty, newPostcode,
@@ -12374,6 +12401,36 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
                      VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed')`,
                     [contactId, file.originalname, file.mimetype.split('/')[1] || 'file', 'Unable to Locate',
                      docUrl, (file.size / 1024).toFixed(1) + ' KB', [record.lender, 'Unable to Locate', 'Client Upload']]
+                );
+            }
+        }
+
+        // Upload signature to S3
+        if (signatureData && signatureData.startsWith('data:image/png;base64,')) {
+            const base64 = signatureData.replace(/^data:image\/png;base64,/, '');
+            const sigBuffer = Buffer.from(base64, 'base64');
+            const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
+            const sigKey = folderPath + 'Signatures/signature_utl.png';
+
+            await s3Client.send(new PutObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: sigKey,
+                Body: sigBuffer,
+                ContentType: 'image/png'
+            }));
+
+            const sigUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: sigKey }), { expiresIn: 604800 });
+            noteLines.push('Signature captured: signature_utl.png');
+
+            // Save to documents table
+            const existingSig = await pool.query('SELECT id FROM documents WHERE contact_id = $1 AND name = $2', [contactId, 'signature_utl.png']);
+            if (existingSig.rows.length > 0) {
+                await pool.query('UPDATE documents SET url = $1, updated_at = NOW() WHERE id = $2', [sigUrl, existingSig.rows[0].id]);
+            } else {
+                await pool.query(
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags, document_status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed')`,
+                    [contactId, 'signature_utl.png', 'image', 'Legal', sigUrl, (sigBuffer.length / 1024).toFixed(1) + ' KB', ['Signature', 'Unable to Locate']]
                 );
             }
         }
