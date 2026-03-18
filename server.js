@@ -18992,7 +18992,7 @@ crmRouter.post('/workflows/id-chase/trigger', async (req, res) => {
     if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
 
     try {
-        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/sw1_id_chase_trigger';
+        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/id_chase_joseph?token=45wqwUNeFEONX7TJjh45N31b6jTYs0qS';
         const response = await fetch(windmillUrl, {
             method: 'POST',
             headers: {
