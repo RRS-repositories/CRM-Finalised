@@ -19158,21 +19158,21 @@ app.post('/api/crm-webhooks/twilio/inbound', async (req, res) => {
             );
         }
 
-        // Forward to Windmill for Nova processing
-        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run_wait_result/p/f/crm/sw1_id_chase_webhook';
-        fetch(windmillUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer HT6hP5T8dDOIS2HF0pvDCtzoJHs05iUQ'
-            },
-            body: JSON.stringify({
-                From, To, Body, MessageSid, NumMedia,
-                MediaUrl0: parseInt(NumMedia) > 0 ? MediaUrl0 : null,
-                MediaContentType0: parseInt(NumMedia) > 0 ? MediaContentType0 : null,
-                contact_id: contactId
-            })
-        }).catch(err => console.error('[Twilio Webhook] Windmill forward error:', err.message));
+        // TEMPORARILY DISABLED — testing if Windmill id_chase_joseph causes double-send
+        // const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/id_chase_joseph?token=45wqwUNeFEONX7TJjh45N31b6jTYs0qS';
+        // fetch(windmillUrl, {
+        //     method: 'POST',
+        //     headers: {
+        //         'Content-Type': 'application/json'
+        //     },
+        //     body: JSON.stringify({
+        //         From, To, Body, MessageSid, NumMedia,
+        //         MediaUrl0: parseInt(NumMedia) > 0 ? MediaUrl0 : null,
+        //         MediaContentType0: parseInt(NumMedia) > 0 ? MediaContentType0 : null,
+        //         contact_id: contactId
+        //     })
+        // }).catch(err => console.error('[Twilio Webhook] Windmill forward error:', err.message));
+        console.log('[Twilio Webhook] Windmill forward DISABLED for testing — inbound from:', From, 'body:', (Body || '').substring(0, 100));
 
         // Return empty TwiML response to Twilio
         res.type('text/xml').send('<Response></Response>');
