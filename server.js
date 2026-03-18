@@ -11818,6 +11818,12 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .success-msg h3 { font-size: 24px; color: #0f172a; margin-bottom: 8px; }
         .success-msg p { font-size: 16px; color: #64748b; }
 
+        .search-wrap { position: relative; }
+        .suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 2px solid #e2e8f0; border-top: none; border-radius: 0 0 10px 10px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
+        .suggestions.open { display: block; }
+        .suggestions div { padding: 10px 14px; font-size: 14px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+        .suggestions div:hover { background: #fff7ed; }
+
         @media (max-width: 600px) {
             .card { padding: 24px; }
             .prev-addr-add .addr-row { grid-template-columns: 1fr; }
@@ -11853,7 +11859,14 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         <div id="accountSection" class="section">
         <div class="card">
             <h2>Account Information</h2>
-            <p class="subtitle">Please provide any details to help us locate your account</p>
+            <p class="subtitle">We were unable to locate your account with <strong>${r.lender}</strong>. Please provide any account details or reference numbers to help us with our search.</p>
+
+            <p style="font-size: 16px; color: #334155; font-weight: 600; margin-bottom: 8px;">You can:</p>
+            <ul style="font-size: 15px; color: #475569; margin-bottom: 20px; padding-left: 20px; line-height: 2;">
+                <li>Upload your paperwork below</li>
+                <li>Send copies via email to <strong>irl@rowanrose.co.uk</strong></li>
+                <li>Take a picture of your documents</li>
+            </ul>
 
             <div class="file-upload" onclick="document.getElementById('fileInput').click()">
                 <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" onchange="handleFiles(this.files)">
@@ -11863,24 +11876,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div id="fileList" class="file-list"></div>
 
             <div class="input-group">
-                <label>Account Number</label>
-                <input type="text" id="accountNumber" placeholder="Enter account or reference number">
-            </div>
-            <div class="input-group">
-                <label>Lender Name</label>
-                <input type="text" id="lenderName" value="${r.lender}" placeholder="Lender name">
-            </div>
-            <div class="input-group">
-                <label>Approximate Date of Agreement</label>
-                <input type="text" id="agreementDate" placeholder="e.g. March 2019">
-            </div>
-            <div class="input-group">
-                <label>Approximate Amount Borrowed</label>
-                <input type="text" id="amountBorrowed" placeholder="e.g. £2,000">
-            </div>
-            <div class="input-group">
-                <label>Any Other Reference Numbers</label>
-                <input type="text" id="otherRefs" placeholder="Optional">
+                <label>Account Number / Reference Number</label>
+                <input type="text" id="accountNumber" placeholder="Enter any account or reference number you have">
             </div>
         </div>
 
@@ -11893,8 +11890,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Name</div><div class="detail-value">${r.first_name} ${r.last_name}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">NO</div>
                 </div>
             </div>
             <div id="nameEdit" class="edit-field">
@@ -11908,8 +11905,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Date of Birth</div><div class="detail-value">${dobFormatted}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">NO</div>
                 </div>
             </div>
             <div id="dobEdit" class="edit-field">
@@ -11920,8 +11917,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Address</div><div class="detail-value">${[r.address_line_1, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">NO</div>
                 </div>
             </div>
             <div id="addressEdit" class="edit-field">
@@ -11978,11 +11975,11 @@ function setOver10(val) {
     document.getElementById('accountSection').className = val ? 'section' : 'section visible';
 }
 
-function toggleCorrect(field, isCorrect, btn) {
+function toggleCorrect(field, isNo, btn) {
     const row = btn.closest('.toggle-group');
     row.querySelectorAll('.toggle-btn').forEach(b => b.className = 'toggle-btn');
-    btn.className = 'toggle-btn ' + (isCorrect ? 'selected-yes' : 'selected-no');
-    document.getElementById(field + 'Edit').className = isCorrect ? 'edit-field' : 'edit-field visible';
+    btn.className = 'toggle-btn ' + (isNo ? 'selected-no' : 'selected-yes');
+    document.getElementById(field + 'Edit').className = isNo ? 'edit-field visible' : 'edit-field';
 }
 
 function toggleMoreAddresses(show, btn) {
@@ -11992,12 +11989,58 @@ function toggleMoreAddresses(show, btn) {
     if (show && newAddressCount === 0) addAddressRow();
 }
 
+const GEOAPIFY_KEY = '4ce7ddaeaf724f009a58ea42fde55199';
+let searchTimeouts = {};
+
+async function fetchSuggestions(query) {
+    try {
+        const res = await fetch('https://api.geoapify.com/v1/geocode/autocomplete?text=' + encodeURIComponent(query) + '&filter=countrycode:gb&format=json&apiKey=' + GEOAPIFY_KEY);
+        const data = await res.json();
+        return (data.results || []).slice(0, 5);
+    } catch (e) { return []; }
+}
+
+function handleAddrSearch(n, query) {
+    if (searchTimeouts[n]) clearTimeout(searchTimeouts[n]);
+    const dd = document.getElementById('na_suggestions_' + n);
+    if (query.length <= 2) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
+    searchTimeouts[n] = setTimeout(async () => {
+        const results = await fetchSuggestions(query);
+        if (results.length === 0) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
+        dd.innerHTML = results.map((r, i) => '<div onclick="selectAddr(' + n + ',' + i + ')" data-idx="' + i + '">' + (r.formatted || '') + '</div>').join('');
+        dd.className = 'suggestions open';
+        dd._results = results;
+    }, 300);
+}
+
+function selectAddr(n, i) {
+    const dd = document.getElementById('na_suggestions_' + n);
+    const r = dd._results?.[i];
+    if (!r) return;
+    const postcode = r.postcode || '';
+    const street = [r.housenumber, r.street].filter(Boolean).join(' ') || r.address_line1 || '';
+    const name = (r.name && r.name !== r.street) ? r.name : '';
+    document.getElementById('na_addr1_' + n).value = name || street;
+    document.getElementById('na_addr2_' + n).value = name ? street : '';
+    document.getElementById('na_city_' + n).value = r.city || r.town || r.village || '';
+    document.getElementById('na_postcode_' + n).value = postcode;
+    document.getElementById('na_search_' + n).value = r.formatted || '';
+    dd.className = 'suggestions';
+}
+
+document.addEventListener('click', function(e) {
+    document.querySelectorAll('.suggestions.open').forEach(function(d) {
+        if (!d.parentElement.contains(e.target)) d.className = 'suggestions';
+    });
+});
+
 function addAddressRow() {
     newAddressCount++;
     const n = newAddressCount;
     const div = document.createElement('div');
     div.className = 'prev-addr-add';
     div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address #' + n + '</p>' +
+        '<div class="input-group"><label>Search Address</label><div class="search-wrap"><input type="text" id="na_search_' + n + '" autocomplete="off" placeholder="Start typing an address..." oninput="handleAddrSearch(' + n + ', this.value)"><div id="na_suggestions_' + n + '" class="suggestions"></div></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
         '<div class="addr-row full"><div class="input-group"><label>Dates at this address (approx)</label><input type="text" id="na_dates_' + n + '" placeholder="e.g. 2015 - 2019"></div></div>';
@@ -12036,10 +12079,6 @@ async function submitForm() {
         formData.append('token', TOKEN);
         formData.append('isOver10Years', isOver10);
         formData.append('accountNumber', document.getElementById('accountNumber')?.value || '');
-        formData.append('lenderName', document.getElementById('lenderName')?.value || '');
-        formData.append('agreementDate', document.getElementById('agreementDate')?.value || '');
-        formData.append('amountBorrowed', document.getElementById('amountBorrowed')?.value || '');
-        formData.append('otherRefs', document.getElementById('otherRefs')?.value || '');
 
         // Name changes
         const nameEditVisible = document.getElementById('nameEdit').classList.contains('visible');
@@ -12143,7 +12182,6 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
 
         // If over 10 years — just log and close
         if (isOver10Years === 'true') {
-            await pool.query('UPDATE cases SET unable_to_locate_token = NULL WHERE id = $1', [caseId]);
             await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
             // Add note
@@ -12254,10 +12292,7 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
             [contactId, noteLines.join('\n')]
         );
 
-        // Clear token
-        await pool.query('UPDATE cases SET unable_to_locate_token = NULL WHERE id = $1', [caseId]);
-
-        // Track completed
+        // Track completed (keep token active for reuse)
         await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
         // Action log
