@@ -51,6 +51,26 @@ function sanitizeNameForS3(name) {
 function buildS3Folder(firstName, lastName, contactId) {
     return `${sanitizeNameForS3(firstName)}_${sanitizeNameForS3(lastName)}_${contactId}/`;
 }
+// Find existing S3 folder by contact ID, fall back to building from name
+async function findOrBuildS3Folder(firstName, lastName, contactId) {
+    try {
+        const { ListObjectsV2Command: ListCmd } = await import('@aws-sdk/client-s3');
+        let continuationToken = undefined;
+        do {
+            const resp = await s3Client.send(new ListCmd({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: continuationToken }));
+            for (const p of (resp.CommonPrefixes || [])) {
+                if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`)) {
+                    console.log(`[S3] Found existing folder for contact ${contactId}: ${p.Prefix}`);
+                    return p.Prefix;
+                }
+            }
+            continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+        } while (continuationToken);
+    } catch (err) {
+        console.warn(`[S3] Error searching folders for contact ${contactId}:`, err.message);
+    }
+    return buildS3Folder(firstName, lastName, contactId);
+}
 
 function renderAlreadySubmittedPage(title, message) {
     return `<!DOCTYPE html>
@@ -1895,7 +1915,7 @@ app.post('/api/submit-previous-address', async (req, res) => {
                     console.log(`[Background] PDF generated. Buffer size: ${pdfBuffer.length} bytes.`);
 
                     // 3. Upload to S3 (New Folder Structure)
-                    const folderName = buildS3Folder(contact.first_name, contact.last_name, clientId).slice(0, -1);
+                    const folderName = (await findOrBuildS3Folder(contact.first_name, contact.last_name, clientId)).replace(/\/$/, '');
                     const timestamp = Date.now();
                     const fileName = `${folderName}/Documents/Previous_Addresses_${timestamp}.pdf`;
                     console.log(`[Background] Uploading to S3 Key: ${fileName}`);
@@ -2942,7 +2962,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
-        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
+        const baseFolder = await findOrBuildS3Folder(first_name, last_name, contact_id);
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -2953,7 +2973,7 @@ app.post('/api/upload-document', upload.single('document'), async (req, res) => 
 
         // Check for existing file with same name in this category
         let s3FileName = `${baseName}${ext}`;
-        const folderPath = `${safeName}_${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${baseFolder}Documents/${sanitizedCategory}`;
 
         const nameCheck = await pool.query(
             `SELECT name FROM documents WHERE contact_id = $1 AND name LIKE $2 AND category = $3`,
@@ -3064,7 +3084,7 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
             return res.status(404).json({ success: false, message: 'Contact not found' });
         }
         const { first_name, last_name } = contactRes.rows[0];
-        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
+        const baseFolder = await findOrBuildS3Folder(first_name, last_name, contact_id);
 
         const originalName = file.originalname;
         const ext = path.extname(originalName);
@@ -3085,16 +3105,16 @@ app.post('/api/upload-claim-document', upload.single('document'), async (req, re
         // Special handling for LOA and Cover Letter - store directly in lender folder with DSAR-compatible naming
         if (category === 'Letter of Authority') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - LOA${ext}`;
-            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${baseFolder}Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else if (category === 'Cover Letter') {
             s3FileName = `${refSpec} - ${clientName} - ${sanitizedLender} - COVER LETTER${ext}`;
-            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}`;
+            folderPath = `${baseFolder}Lenders/${sanitizedLender}`;
             key = `${folderPath}/${s3FileName}`;
         } else {
             // Standard category - store in subfolder
             s3FileName = `${baseName}${ext}`;
-            folderPath = `${safeName}_${contact_id}/Lenders/${sanitizedLender}/${sanitizedCategory}`;
+            folderPath = `${baseFolder}Lenders/${sanitizedLender}/${sanitizedCategory}`;
 
             // Check for existing file with same name to handle versioning
             const nameCheck = await pool.query(
@@ -3199,7 +3219,8 @@ app.post('/api/upload-document-by-name', upload.single('document'), async (req, 
 
         // 3. Upload to S3 under contact folder
         const docName = original_name || file.originalname;
-        const key = `${buildS3Folder(contact.first_name, contact.last_name, contact_id)}Documents/${docName}`;
+        const existingFolder = await findOrBuildS3Folder(contact.first_name, contact.last_name, contact_id);
+        const key = `${existingFolder}Documents/${docName}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
@@ -7295,7 +7316,7 @@ app.delete('/api/cases/:id', async (req, res) => {
         }
 
         const claim = claimRes.rows[0];
-        const folderPath = buildS3Folder(claim.first_name, claim.last_name, claim.contact_id);
+        const folderPath = await findOrBuildS3Folder(claim.first_name, claim.last_name, claim.contact_id);
         const refSpec = `${claim.contact_id}${id}`;
         const sanitizedLender = claim.lender.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
         const safeFirstName = (claim.first_name || '').replace(/[\/\\]/g, '');
@@ -7833,7 +7854,7 @@ app.post('/api/submit-loa-form', async (req, res) => {
         }
 
         const contactId = contact.id;
-        const folderPath = buildS3Folder(contact.first_name, contact.last_name, contactId);
+        const folderPath = await findOrBuildS3Folder(contact.first_name, contact.last_name, contactId);
 
         // --- UPDATE DB IMMEDIATELY ---
         await pool.query(
@@ -8783,7 +8804,7 @@ app.post('/api/submit-questionnaire', async (req, res) => {
             try {
                 console.log(`[Background Questionnaire] Starting processing for contact ${contactId}...`);
 
-                const folderPath = buildS3Folder(contact.first_name, contact.last_name, contactId);
+                const folderPath = await findOrBuildS3Folder(contact.first_name, contact.last_name, contactId);
 
                 // 1. Upload Signature to S3
                 const base64Data = signatureData.replace(/^data:image\/png;base64,/, '');
@@ -9133,13 +9154,13 @@ app.post('/api/id-upload/:token', upload.single('document'), async (req, res) =>
         }
 
         const contactId = row.cid;
-        const safeName = `${sanitizeNameForS3(row.first_name)}_${sanitizeNameForS3(row.last_name)}`;
+        const baseFolder = await findOrBuildS3Folder(row.first_name, row.last_name, contactId);
         const originalName = file.originalname;
         const ext = path.extname(originalName);
         const baseName = path.basename(originalName, ext);
 
         // Build S3 path — same structure as intake form ID uploads
-        const folderPath = `${safeName}_${contactId}/Documents/ID_Document`;
+        const folderPath = `${baseFolder}Documents/ID_Document`;
 
         // Check for existing file with same name
         let s3FileName = `${baseName}${ext}`;
@@ -11155,7 +11176,7 @@ app.post('/api/submit-resign', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
+        const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
@@ -11483,7 +11504,7 @@ app.post('/api/submit-offer-accept', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
+        const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
@@ -11569,7 +11590,7 @@ app.post('/api/submit-sales-signature', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-        const folderPath = buildS3Folder(record.first_name, record.last_name, contactId);
+        const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
@@ -16897,17 +16918,30 @@ crmRouter.post('/documents/generate', async (req, res) => {
                     let signatureBuffer = null;
 
                     if (sigContact.rows.length > 0) {
-                        const { first_name: fn, last_name: ln, signature_url } = sigContact.rows[0];
-                        // Try direct S3 key first
-                        const sigKey = `${fn}_${ln}_${contact_id}/Signatures/signature.png`;
-                        try {
-                            const sigResp = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: sigKey }));
-                            const sigChunks = [];
-                            for await (const chunk of sigResp.Body) sigChunks.push(chunk);
-                            signatureBuffer = Buffer.concat(sigChunks);
-                            console.log(`[CRM API] Signature loaded from S3: ${sigKey} (${signatureBuffer.length} bytes)`);
-                        } catch (sigErr) {
-                            console.warn(`[CRM API] Signature not found at ${sigKey}`);
+                        // Search all S3 folders ending with _contactId/ to handle name sanitization mismatches
+                        const { ListObjectsV2Command: ListCmd2 } = await import('@aws-sdk/client-s3');
+                        const sigFolders = [];
+                        let sigContToken = undefined;
+                        do {
+                            const sigList = await s3Client.send(new ListCmd2({ Bucket: BUCKET_NAME, Delimiter: '/', MaxKeys: 1000, ContinuationToken: sigContToken }));
+                            for (const p of (sigList.CommonPrefixes || [])) {
+                                if (p.Prefix && p.Prefix.endsWith(`_${contact_id}/`)) sigFolders.push(p.Prefix);
+                            }
+                            sigContToken = sigList.IsTruncated ? sigList.NextContinuationToken : undefined;
+                        } while (sigContToken);
+
+                        for (const folder of sigFolders) {
+                            const sigKey = `${folder}Signatures/signature.png`;
+                            try {
+                                const sigResp = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: sigKey }));
+                                const sigChunks = [];
+                                for await (const chunk of sigResp.Body) sigChunks.push(chunk);
+                                signatureBuffer = Buffer.concat(sigChunks);
+                                console.log(`[CRM API] Signature loaded from S3: ${sigKey} (${signatureBuffer.length} bytes)`);
+                                break;
+                            } catch (sigErr) {
+                                console.warn(`[CRM API] Signature not found at ${sigKey}`);
+                            }
                         }
                     }
 
@@ -16979,7 +17013,7 @@ crmRouter.post('/documents/generate', async (req, res) => {
             if (contactRes.rows.length > 0) {
                 const { first_name, last_name } = contactRes.rows[0];
                 const sanitize = (s) => (s || '').replace(/[<>:"/\\|?*]/g, '').trim();
-                const folderName = buildS3Folder(first_name, last_name, contact_id).slice(0, -1);
+                const folderName = (await findOrBuildS3Folder(first_name, last_name, contact_id)).replace(/\/$/, '');
                 const fullName = `${(first_name || '').replace(/[\/\\]/g, '')} ${(last_name || '').replace(/[\/\\]/g, '')}`.trim();
                 const lenderName = sanitize(lender || variables?.['claim.lender'] || variables?.['{{claim.lender}}'] || 'General');
                 const documentType = sanitize(resolvedDocType);
@@ -17142,12 +17176,12 @@ crmRouter.post('/documents/upload', upload.single('file'), async (req, res) => {
         if (contactRes.rows.length === 0) return res.status(404).json({ error: 'Contact not found' });
         const { first_name, last_name } = contactRes.rows[0];
 
-        const safeName = `${sanitizeNameForS3(first_name)}_${sanitizeNameForS3(last_name)}`;
+        const baseFolder = await findOrBuildS3Folder(first_name, last_name, contact_id);
         const docCategory = category || 'Other';
         const ext = path.extname(fileName);
         const baseName = path.basename(fileName, ext);
         const sanitizedCategory = docCategory.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-        const folderPath = `${safeName}_${contact_id}/Documents/${sanitizedCategory}`;
+        const folderPath = `${baseFolder}Documents/${sanitizedCategory}`;
 
         // Version check
         let s3FileName = `${baseName}${ext}`;

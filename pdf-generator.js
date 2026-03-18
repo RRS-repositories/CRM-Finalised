@@ -3,7 +3,7 @@
  * Handles DOCX template filling and PDF conversion
  */
 
-import { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReport } from 'docx-templates';
 import { convertDocxToPdf } from './oo-converter.js';
@@ -18,6 +18,29 @@ const __dirname = path.dirname(__filename);
 const S3_BUCKET = process.env.S3_BUCKET_NAME || 'client.landing.page';
 const S3_REGION = process.env.AWS_REGION || 'eu-north-1';
 const s3Client = new S3Client({ region: S3_REGION });
+
+/**
+ * Find all S3 folders for a contact by scanning for folders ending with _contactId/
+ * This handles name sanitization mismatches (e.g. O'Loughlin → O_loughlin vs Oloughlin)
+ */
+async function findS3FoldersByContactId(contactId) {
+    const folders = [];
+    const seen = new Set();
+    let continuationToken = undefined;
+    do {
+        const resp = await s3Client.send(new ListObjectsV2Command({
+            Bucket: S3_BUCKET, Delimiter: '/', MaxKeys: 1000, ContinuationToken: continuationToken
+        }));
+        for (const p of (resp.CommonPrefixes || [])) {
+            if (p.Prefix && p.Prefix.endsWith(`_${contactId}/`) && !seen.has(p.Prefix)) {
+                folders.push(p.Prefix);
+                seen.add(p.Prefix);
+            }
+        }
+        continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return folders;
+}
 
 /**
  * Fetch file from S3 as buffer
@@ -289,17 +312,19 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
         console.log('[PDF Generator] Signatures table not found or query failed, trying S3 fallback');
     }
 
-    // If not found in database, try standard Signatures folder location
+    // If not found in database, search ALL S3 folders for this contact by contact ID
     if (!signatureBase64) {
         try {
-            const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-            const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-            const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contact.id}`;
-            const signatureKey = `${folderPrefix}/Signatures/signature.png`;
-
-            const signatureBuffer = await fetchFromS3(signatureKey);
-            if (signatureBuffer) {
-                signatureBase64 = `data:image/png;base64,${signatureBuffer.toString('base64')}`;
+            const folders = await findS3FoldersByContactId(contact.id);
+            console.log(`[PDF Generator] S3 folders for contact ${contact.id}: ${folders.join(', ') || 'none'}`);
+            for (const folder of folders) {
+                const signatureKey = `${folder}Signatures/signature.png`;
+                const signatureBuffer = await fetchFromS3(signatureKey);
+                if (signatureBuffer) {
+                    signatureBase64 = `data:image/png;base64,${signatureBuffer.toString('base64')}`;
+                    console.log(`[PDF Generator] Signature found at: ${signatureKey}`);
+                    break;
+                }
             }
         } catch (err) {
             console.log('[PDF Generator] No signature found in S3, continuing without signature');
@@ -363,10 +388,11 @@ export async function generatePdfFromCase(contact, caseData, documentType, pool,
     const docType = documentType === 'LOA' ? 'LOA' : 'COVER LETTER';
     const fileName = `${refSpec} - ${contactName} - ${sanitizedLender} - ${docType}.pdf`;
 
-    // S3 path structure: {firstName}_{lastName}_{contactId}/Lenders/{lender}/{fileName}
-    const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contact.id}`;
+    // S3 path: use existing folder if found, otherwise build from name
+    const existingFolders = await findS3FoldersByContactId(contact.id);
+    const folderPrefix = existingFolders.length > 0
+        ? existingFolders[0].replace(/\/$/, '')
+        : `${(contact.first_name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_')}_${(contact.last_name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_')}_${contact.id}`;
     const s3Key = `${folderPrefix}/Lenders/${sanitizedLender}/${fileName}`;
 
     // 9. Upload to S3
@@ -564,10 +590,11 @@ export async function generateClientCareLetter(contact, pool) {
     console.log('[Client Care Letter] Converting DOCX to PDF using OnlyOffice...');
     const pdfBuffer = await convertDocxToPdf(filledDocx, `Client_Care_Letter_${contactId}.docx`);
 
-    // 7. Build S3 key — stored in contact's Documents/Other folder (not per-lender)
-    const sanitizedFirstName = (contact.first_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sanitizedLastName = (contact.last_name || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const folderPrefix = `${sanitizedFirstName}_${sanitizedLastName}_${contactId}`;
+    // 7. Build S3 key — use existing folder if found, otherwise build from name
+    const existingCCFolders = await findS3FoldersByContactId(contactId);
+    const folderPrefix = existingCCFolders.length > 0
+        ? existingCCFolders[0].replace(/\/$/, '')
+        : `${(contact.first_name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_')}_${(contact.last_name || '').replace(/[\/\\]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '').replace(/_+/g, '_')}_${contactId}`;
     const fileName = `Client_Care_Letter_${fullName.replace(/[^a-zA-Z0-9 _-]/g, '')}.pdf`;
     const s3Key = `${folderPrefix}/Documents/Other/${fileName}`;
 
