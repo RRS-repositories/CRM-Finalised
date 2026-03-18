@@ -12328,7 +12328,7 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         if (nameChanged === 'true' && newFirstName && newLastName) {
             const oldName = record.first_name + ' ' + record.last_name;
             noteLines.push('Name changed: ' + oldName + ' → ' + newFirstName + ' ' + newLastName);
-            await pool.query('UPDATE contacts SET first_name = $1, last_name = $2 WHERE id = $3', [newFirstName, newLastName, contactId]);
+            await pool.query('UPDATE contacts SET first_name = $1, last_name = $2, full_name = $3 WHERE id = $4', [newFirstName, newLastName, newFirstName + ' ' + newLastName, contactId]);
         }
 
         // DOB changes
