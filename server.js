@@ -12114,7 +12114,9 @@ function handleCurrentAddrSearch(query) {
             document.getElementById('newCounty').value = addr.county;
             document.getElementById('newPostcode').value = addr.postcode;
             document.getElementById('addrSearch').value = r.formatted || '';
-    dd.className = 'suggestions';
+            dd.className = 'suggestions';
+        });
+    }, 300);
 }
 
 document.addEventListener('click', function(e) {
