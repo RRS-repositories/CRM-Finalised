@@ -12147,49 +12147,50 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
             await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
             // Add note
+            const over10Note = `[Unable to Locate - ${record.lender}] Client confirmed finance is MORE THAN 10 YEARS OLD. Claim cannot proceed — outside actionable limitation period.`;
             await pool.query(
                 `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')`,
-                [contactId, \`[Unable to Locate - ${record.lender}] Client confirmed finance is MORE THAN 10 YEARS OLD. Claim cannot proceed — outside actionable limitation period.\`]
+                [contactId, over10Note]
             );
 
             await pool.query(
-                \`INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
-                 VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())\`,
-                [contactId, caseId, \`\${record.first_name} \${record.last_name}\`, \`Client confirmed finance with \${record.lender} is over 10 years old — claim closed\`]
+                `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+                 VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())`,
+                [contactId, caseId, record.first_name + ' ' + record.last_name, 'Client confirmed finance with ' + record.lender + ' is over 10 years old — claim closed']
             );
 
             return res.json({ success: true, message: 'Recorded. Finance is over 10 years old.' });
         }
 
         // Build changes note
-        const noteLines = [\`[Unable to Locate - \${record.lender}] Client submitted account details:\`];
+        const noteLines = ['[Unable to Locate - ' + record.lender + '] Client submitted account details:'];
 
         // Account info
-        if (accountNumber) noteLines.push(\`Account Number: \${accountNumber}\`);
-        if (lenderName && lenderName !== record.lender) noteLines.push(\`Lender Name: \${lenderName}\`);
-        if (agreementDate) noteLines.push(\`Approx Date of Agreement: \${agreementDate}\`);
-        if (amountBorrowed) noteLines.push(\`Approx Amount Borrowed: \${amountBorrowed}\`);
-        if (otherRefs) noteLines.push(\`Other Reference Numbers: \${otherRefs}\`);
+        if (accountNumber) noteLines.push('Account Number: ' + accountNumber);
+        if (lenderName && lenderName !== record.lender) noteLines.push('Lender Name: ' + lenderName);
+        if (agreementDate) noteLines.push('Approx Date of Agreement: ' + agreementDate);
+        if (amountBorrowed) noteLines.push('Approx Amount Borrowed: ' + amountBorrowed);
+        if (otherRefs) noteLines.push('Other Reference Numbers: ' + otherRefs);
 
         // Name changes
         if (nameChanged === 'true' && newFirstName && newLastName) {
-            const oldName = \`\${record.first_name} \${record.last_name}\`;
-            noteLines.push(\`Name changed: \${oldName} → \${newFirstName} \${newLastName}\`);
+            const oldName = record.first_name + ' ' + record.last_name;
+            noteLines.push('Name changed: ' + oldName + ' → ' + newFirstName + ' ' + newLastName);
             await pool.query('UPDATE contacts SET first_name = $1, last_name = $2 WHERE id = $3', [newFirstName, newLastName, contactId]);
         }
 
         // DOB changes
         if (dobChanged === 'true' && newDob) {
             const oldDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB') : 'not set';
-            noteLines.push(\`DOB changed: \${oldDob} → \${new Date(newDob).toLocaleDateString('en-GB')}\`);
+            noteLines.push('DOB changed: ' + oldDob + ' → ' + new Date(newDob).toLocaleDateString('en-GB'));
             await pool.query('UPDATE contacts SET dob = $1 WHERE id = $2', [newDob, contactId]);
         }
 
         // Address changes
         if (addressChanged === 'true' && newAddr1) {
             const oldAddr = [record.address_line_1, record.city, record.postal_code].filter(Boolean).join(', ');
-            const newAddr = [newAddr1, newCity, newPostcode].filter(Boolean).join(', ');
-            noteLines.push(\`Address changed: \${oldAddr} → \${newAddr}\`);
+            const newAddrStr = [newAddr1, newCity, newPostcode].filter(Boolean).join(', ');
+            noteLines.push('Address changed: ' + oldAddr + ' → ' + newAddrStr);
             await pool.query('UPDATE contacts SET address_line_1 = $1, city = $2, postal_code = $3 WHERE id = $4', [newAddr1, newCity, newPostcode, contactId]);
         }
 
@@ -12197,16 +12198,16 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         let parsedNewAddresses = [];
         try { parsedNewAddresses = JSON.parse(newPreviousAddresses || '[]'); } catch (e) {}
         if (parsedNewAddresses.length > 0) {
-            noteLines.push(\`New previous addresses added:\`);
+            noteLines.push('New previous addresses added:');
             for (const addr of parsedNewAddresses) {
                 const parts = [addr.address_line_1, addr.address_line_2, addr.city, addr.postal_code].filter(Boolean).join(', ');
-                const dates = addr.dates ? \` (dates: \${addr.dates})\` : '';
-                noteLines.push(\`  - \${parts}\${dates}\`);
+                const dates = addr.dates ? ' (dates: ' + addr.dates + ')' : '';
+                noteLines.push('  - ' + parts + dates);
 
                 // Insert into previous_addresses table
                 await pool.query(
-                    \`INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
-                     VALUES ($1, $2, $3, $4, $5, $6)\`,
+                    `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
                     [contactId, addr.address_line_1 || '', addr.address_line_2 || '', addr.city || '', '', addr.postal_code || '']
                 );
             }
@@ -12226,10 +12227,10 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         // Upload documents to S3
         if (req.files && req.files.length > 0) {
             const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
-            noteLines.push(\`Documents uploaded: \${req.files.map(f => f.originalname).join(', ')}\`);
+            noteLines.push('Documents uploaded: ' + req.files.map(f => f.originalname).join(', '));
 
             for (const file of req.files) {
-                const s3Key = \`\${folderPath}Documents/Unable_to_Locate/\${file.originalname}\`;
+                const s3Key = folderPath + 'Documents/Unable_to_Locate/' + file.originalname;
                 await s3Client.send(new PutObjectCommand({
                     Bucket: BUCKET_NAME,
                     Key: s3Key,
@@ -12239,31 +12240,31 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
 
                 const docUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }), { expiresIn: 604800 });
                 await pool.query(
-                    \`INSERT INTO documents (contact_id, name, type, category, url, size, tags, document_status)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed')\`,
+                    `INSERT INTO documents (contact_id, name, type, category, url, size, tags, document_status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed')`,
                     [contactId, file.originalname, file.mimetype.split('/')[1] || 'file', 'Unable to Locate',
-                     docUrl, \`\${(file.size / 1024).toFixed(1)} KB\`, [record.lender, 'Unable to Locate', 'Client Upload']]
+                     docUrl, (file.size / 1024).toFixed(1) + ' KB', [record.lender, 'Unable to Locate', 'Client Upload']]
                 );
             }
         }
 
         // Save note
         await pool.query(
-            \`INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')\`,
-            [contactId, noteLines.join('\\n')]
+            `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')`,
+            [contactId, noteLines.join('\n')]
         );
 
         // Clear token
         await pool.query('UPDATE cases SET unable_to_locate_token = NULL WHERE id = $1', [caseId]);
 
         // Track completed
-        await pool.query(\`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1\`, [token]).catch(() => {});
+        await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
         // Action log
         await pool.query(
-            \`INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
-             VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())\`,
-            [contactId, caseId, \`\${record.first_name} \${record.last_name}\`, \`Client submitted account details for \${record.lender} (Unable to Locate)\`]
+            `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+             VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())`,
+            [contactId, caseId, record.first_name + ' ' + record.last_name, 'Client submitted account details for ' + record.lender + ' (Unable to Locate)']
         );
 
         res.json({ success: true });
