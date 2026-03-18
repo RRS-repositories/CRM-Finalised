@@ -11909,20 +11909,25 @@ app.get('/unable-to-locate/:token', async (req, res) => {
                 <div class="input-group" style="margin-top:8px;"><label>Date of Birth</label><input type="date" id="newDob" value="${r.dob ? new Date(r.dob).toISOString().split('T')[0] : ''}"></div>
             </div>
 
-            <!-- Address -->
+            <!-- Current Address -->
             <div class="detail-row">
-                <div><div class="detail-label">Address</div><div class="detail-value">${[r.address_line_1, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
+                <div><div class="detail-label">Current Address</div><div class="detail-value">${[r.address_line_1, r.address_line_2, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
                 <div class="toggle-group" style="width:160px;">
                     <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">YES</div>
                     <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">NO</div>
                 </div>
             </div>
             <div id="addressEdit" class="edit-field">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+                <div class="input-group" style="margin-top:8px;"><label>Search Address</label><div class="search-wrap"><input type="text" id="addrSearch" autocomplete="off" placeholder="Start typing to search..." oninput="handleCurrentAddrSearch(this.value)"><div id="addrSuggestions" class="suggestions"></div></div></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                     <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
-                    <div class="input-group"><label>Town/City</label><input type="text" id="newCity" value="${r.city || ''}"></div>
-                    <div class="input-group"><label>Postcode</label><input type="text" id="newPostcode" value="${r.postal_code || ''}"></div>
+                    <div class="input-group"><label>Address Line 2</label><input type="text" id="newAddr2" value="${r.address_line_2 || ''}"></div>
                 </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="input-group"><label>City</label><input type="text" id="newCity" value="${r.city || ''}"></div>
+                    <div class="input-group"><label>County</label><input type="text" id="newCounty" value=""></div>
+                </div>
+                <div class="input-group"><label>Postcode</label><input type="text" id="newPostcode" value="${r.postal_code || ''}"></div>
             </div>
         </div>
 
@@ -12025,6 +12030,34 @@ function selectAddr(n, i) {
     dd.className = 'suggestions';
 }
 
+function handleCurrentAddrSearch(query) {
+    if (searchTimeouts['cur']) clearTimeout(searchTimeouts['cur']);
+    const dd = document.getElementById('addrSuggestions');
+    if (query.length <= 2) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
+    searchTimeouts['cur'] = setTimeout(async () => {
+        const results = await fetchSuggestions(query);
+        if (results.length === 0) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
+        dd.innerHTML = results.map((r, i) => '<div onclick="selectCurrentAddr(' + i + ')" data-idx="' + i + '">' + (r.formatted || '') + '</div>').join('');
+        dd.className = 'suggestions open';
+        dd._results = results;
+    }, 300);
+}
+
+function selectCurrentAddr(i) {
+    const dd = document.getElementById('addrSuggestions');
+    const r = dd._results?.[i];
+    if (!r) return;
+    const street = [r.housenumber, r.street].filter(Boolean).join(' ') || r.address_line1 || '';
+    const name = (r.name && r.name !== r.street) ? r.name : '';
+    document.getElementById('newAddr1').value = name || street;
+    document.getElementById('newAddr2').value = name ? street : '';
+    document.getElementById('newCity').value = r.city || r.town || r.village || '';
+    document.getElementById('newCounty').value = r.county || r.state || '';
+    document.getElementById('newPostcode').value = r.postcode || '';
+    document.getElementById('addrSearch').value = r.formatted || '';
+    dd.className = 'suggestions';
+}
+
 document.addEventListener('click', function(e) {
     document.querySelectorAll('.suggestions.open').forEach(function(d) {
         if (!d.parentElement.contains(e.target)) d.className = 'suggestions';
@@ -12096,7 +12129,9 @@ async function submitForm() {
         formData.append('addressChanged', addrEditVisible);
         if (addrEditVisible) {
             formData.append('newAddr1', document.getElementById('newAddr1').value);
+            formData.append('newAddr2', document.getElementById('newAddr2').value);
             formData.append('newCity', document.getElementById('newCity').value);
+            formData.append('newCounty', document.getElementById('newCounty').value);
             formData.append('newPostcode', document.getElementById('newPostcode').value);
         }
 
@@ -12153,7 +12188,7 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         const { token, isOver10Years, accountNumber, lenderName, agreementDate, amountBorrowed, otherRefs,
                 nameChanged, newFirstName, newLastName,
                 dobChanged, newDob,
-                addressChanged, newAddr1, newCity, newPostcode,
+                addressChanged, newAddr1, newAddr2, newCity, newCounty, newPostcode,
                 newPreviousAddresses } = req.body;
 
         if (!token) return res.status(400).json({ success: false, message: 'Missing token' });
@@ -12223,9 +12258,9 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         // Address changes
         if (addressChanged === 'true' && newAddr1) {
             const oldAddr = [record.address_line_1, record.city, record.postal_code].filter(Boolean).join(', ');
-            const newAddrStr = [newAddr1, newCity, newPostcode].filter(Boolean).join(', ');
+            const newAddrStr = [newAddr1, newAddr2, newCity, newCounty, newPostcode].filter(Boolean).join(', ');
             noteLines.push('Address changed: ' + oldAddr + ' → ' + newAddrStr);
-            await pool.query('UPDATE contacts SET address_line_1 = $1, city = $2, postal_code = $3 WHERE id = $4', [newAddr1, newCity, newPostcode, contactId]);
+            await pool.query('UPDATE contacts SET address_line_1 = $1, address_line_2 = $2, city = $3, postal_code = $4 WHERE id = $5', [newAddr1, newAddr2 || '', newCity, newPostcode, contactId]);
         }
 
         // New previous addresses
