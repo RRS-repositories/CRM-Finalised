@@ -12439,11 +12439,13 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         // Track completed (keep token active for reuse)
         await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
 
-        // Action log
+        // Action log — use updated name if changed
+        const finalFirst = (nameChanged === 'true' && newFirstName) ? newFirstName : record.first_name;
+        const finalLast = (nameChanged === 'true' && newLastName) ? newLastName : record.last_name;
         await pool.query(
             `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
              VALUES ($1, $2, 'client', $3, $4, 'unable_to_locate_submitted', 'claims', $5, NOW())`,
-            [contactId, caseId, String(contactId), record.first_name + ' ' + record.last_name, 'Client submitted account details for ' + record.lender + ' (Unable to Locate)']
+            [contactId, caseId, String(contactId), finalFirst + ' ' + finalLast, 'Client submitted account details for ' + record.lender + ' (Unable to Locate)']
         );
 
         res.json({ success: true });
