@@ -5082,8 +5082,12 @@ app.get('/api/contacts/paginated', async (req, res) => {
         let paramIdx = 1;
 
         if (search) {
-            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx} OR c.postal_code ILIKE $${paramIdx} OR c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx} OR c.reference ILIKE $${paramIdx})`);
+            // Strip 'RR-' prefix if user searches by displayed Client ID format (e.g. "RR-221622")
+            const strippedSearch = search.replace(/^RR-/i, '');
+            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx} OR c.postal_code ILIKE $${paramIdx} OR c.client_id ILIKE $${paramIdx} OR c.reference ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx + 1})`);
             params.push(`%${search}%`);
+            paramIdx++;
+            params.push(`%${strippedSearch}%`);
             paramIdx++;
         }
         if (fullName) {
