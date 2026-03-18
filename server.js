@@ -12323,11 +12323,6 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         const noteLines = ['[Unable to Locate - ' + record.lender + '] Client submitted account details:'];
 
         // Account info
-        if (accountNumber) noteLines.push('Account Number: ' + accountNumber);
-        if (lenderName && lenderName !== record.lender) noteLines.push('Lender Name: ' + lenderName);
-        if (agreementDate) noteLines.push('Approx Date of Agreement: ' + agreementDate);
-        if (amountBorrowed) noteLines.push('Approx Amount Borrowed: ' + amountBorrowed);
-        if (otherRefs) noteLines.push('Other Reference Numbers: ' + otherRefs);
 
         // Name changes
         if (nameChanged === 'true' && newFirstName && newLastName) {
