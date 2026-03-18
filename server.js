@@ -942,6 +942,7 @@ const IRL_LENDER_VARIABLES = {
     // ─── CREDIT CARDS ───
     'AQUA': 'aqua',
     'BARCLAYS CREDIT CARD': 'barclays_credit_card',
+    'BIP CREDIT': 'bip_credit_card',
     'BIP CREDIT CARD': 'bip_credit_card',
     'CAPITAL ONE': 'capital_one',
     'FLUID': 'fluid',
