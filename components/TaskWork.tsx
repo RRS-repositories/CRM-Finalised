@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Filter, ChevronLeft, ChevronRight, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Search, Filter, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle, X, Loader2 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface TaskWorkClaim {
   id: number;
@@ -36,13 +37,7 @@ interface AdminUser {
   role: string;
 }
 
-interface Pagination {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-  hasMore: boolean;
-}
+const BATCH_SIZE = 50;
 
 const TaskWork: React.FC = () => {
   const { currentUser, addNotification } = useCRM();
@@ -52,8 +47,10 @@ const TaskWork: React.FC = () => {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [lenders, setLenders] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0, hasMore: false });
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Filter state
   const [search, setSearch] = useState('');
@@ -69,6 +66,9 @@ const TaskWork: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedAgent, setSelectedAgent] = useState('');
 
+  // Prevent concurrent fetches
+  const fetchingRef = useRef(false);
+
   // Access check
   if (currentUser?.role !== 'Management') {
     return (
@@ -78,31 +78,69 @@ const TaskWork: React.FC = () => {
     );
   }
 
-  const fetchClaims = useCallback(async (p?: number, l?: number) => {
+  const buildParams = useCallback((page: number) => {
+    return new URLSearchParams({
+      page: String(page),
+      limit: String(BATCH_SIZE),
+      ...(search && { search }),
+      ...(statusFilter && { status: statusFilter }),
+      ...(lenderFilter && { lender: lenderFilter }),
+      ...(assignedToFilter && { assignedTo: assignedToFilter }),
+      ...(dateFrom && { dateFrom }),
+      ...(dateTo && { dateTo }),
+      ...(flagFilter && { flagFilter }),
+    });
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
+
+  // Initial fetch (replaces claims)
+  const fetchClaims = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        page: String(p ?? pagination.page),
-        limit: String(l ?? pagination.limit),
-        ...(search && { search }),
-        ...(statusFilter && { status: statusFilter }),
-        ...(lenderFilter && { lender: lenderFilter }),
-        ...(assignedToFilter && { assignedTo: assignedToFilter }),
-        ...(dateFrom && { dateFrom }),
-        ...(dateTo && { dateTo }),
-        ...(flagFilter && { flagFilter }),
-      });
+      const params = buildParams(1);
       const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
       const data = await res.json();
       setClaims(data.claims || []);
-      setPagination(data.pagination || { page: p ?? pagination.page, limit: l ?? pagination.limit, total: 0, totalPages: 0, hasMore: false });
+      const pag = data.pagination || { total: 0, hasMore: false };
+      setTotal(pag.total || 0);
+      setHasMore(pag.hasMore || false);
     } catch (err) {
       console.error('Failed to fetch task work claims:', err);
     } finally {
+      fetchingRef.current = false;
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
+  }, [buildParams]);
+
+  // Load more (appends claims)
+  const loadMore = useCallback(async () => {
+    if (fetchingRef.current || !hasMore) return;
+    fetchingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const nextPage = Math.floor(claims.length / BATCH_SIZE) + 1;
+      const params = buildParams(nextPage);
+      const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
+      const data = await res.json();
+      const newClaims = data.claims || [];
+      setClaims(prev => [...prev, ...newClaims]);
+      const pag = data.pagination || { total: 0, hasMore: false };
+      setTotal(pag.total || 0);
+      setHasMore(pag.hasMore || false);
+    } catch (err) {
+      console.error('Failed to load more claims:', err);
+    } finally {
+      fetchingRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [buildParams, claims.length, hasMore]);
+
+  const { sentinelRef, scrollContainerRef } = useInfiniteScroll({
+    hasMore,
+    isLoading: loadingMore,
+    onLoadMore: loadMore,
+  });
 
   const fetchFilterData = useCallback(async () => {
     try {
@@ -126,17 +164,10 @@ const TaskWork: React.FC = () => {
     fetchFilterData();
   }, [fetchFilterData]);
 
-  // Fetch on filter change — reset to page 1
+  // Fetch on filter change — reset list
   useEffect(() => {
-    fetchClaims(1, pagination.limit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
-
-  // Fetch on pagination change only
-  useEffect(() => {
-    fetchClaims(pagination.page, pagination.limit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.limit]);
+    fetchClaims();
+  }, [fetchClaims]);
 
   const handleSelectAll = () => {
     if (selectedIds.size === claims.length) {
@@ -228,18 +259,6 @@ const TaskWork: React.FC = () => {
     }
   };
 
-  const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= pagination.totalPages) {
-      setPagination(prev => ({ ...prev, page: newPage }));
-      setSelectedIds(new Set());
-    }
-  };
-
-  const handleLimitChange = (newLimit: number) => {
-    setPagination(prev => ({ ...prev, limit: newLimit, page: 1 }));
-    setSelectedIds(new Set());
-  };
-
   // Debounced search
   const [searchInput, setSearchInput] = useState('');
   useEffect(() => {
@@ -260,16 +279,8 @@ const TaskWork: React.FC = () => {
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   };
-
-  const formatCurrency = (val: number | null) => {
-    if (val === null || val === undefined) return '-';
-    return `£${val.toLocaleString('en-GB', { minimumFractionDigits: 2 })}`;
-  };
-
-  const startIdx = (pagination.page - 1) * pagination.limit + 1;
-  const endIdx = Math.min(pagination.page * pagination.limit, pagination.total);
 
   return (
     <div className="h-full flex flex-col bg-gray-100 dark:bg-surface-900 p-6">
@@ -277,7 +288,7 @@ const TaskWork: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Task Assigner</h1>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500 dark:text-gray-400">{pagination.total.toLocaleString()} claims</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{total.toLocaleString()} claims</span>
           <button
             onClick={() => fetchClaims()}
             className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/5 transition-all"
@@ -442,7 +453,7 @@ const TaskWork: React.FC = () => {
 
       {/* Table */}
       <div className="flex-1 bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden flex flex-col">
-        <div className="overflow-auto flex-1">
+        <div ref={scrollContainerRef} className="overflow-auto flex-1">
           <table className="w-full">
             <thead className="sticky top-0 bg-gray-50 dark:bg-surface-900 z-10">
               <tr className="border-b border-gray-200 dark:border-white/5">
@@ -563,50 +574,24 @@ const TaskWork: React.FC = () => {
               )}
             </tbody>
           </table>
+
+          {/* Loading more indicator */}
+          {loadingMore && (
+            <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-sm">Loading more claims...</span>
+            </div>
+          )}
+
+          {/* Infinite scroll sentinel */}
+          {hasMore && !loading && <div ref={sentinelRef} className="h-1" />}
         </div>
 
-        {/* Pagination Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900 shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {pagination.total > 0 ? `${startIdx}-${endIdx} of ${pagination.total.toLocaleString()}` : '0 results'}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Per page:</span>
-              {[20, 50, 100, 250, 500].map(n => (
-                <button
-                  key={n}
-                  onClick={() => handleLimitChange(n)}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-all ${
-                    pagination.limit === n
-                      ? 'bg-brand-orange/10 text-brand-orange'
-                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handlePageChange(pagination.page - 1)}
-              disabled={pagination.page <= 1}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              Page {pagination.page} of {pagination.totalPages || 1}
-            </span>
-            <button
-              onClick={() => handlePageChange(pagination.page + 1)}
-              disabled={!pagination.hasMore}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
+        {/* Status Footer */}
+        <div className="flex items-center justify-center px-4 py-2 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900 shrink-0">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Showing {claims.length} of {total.toLocaleString()} claims
+          </span>
         </div>
       </div>
     </div>

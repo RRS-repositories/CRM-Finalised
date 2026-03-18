@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { FileText, DollarSign, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock, X, UserCheck } from 'lucide-react';
+import { FileText, Users, Target, RefreshCw, Trophy, ArrowRightLeft, Flag, CheckCircle, Clock, X, UserCheck } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
 
 interface KPIs {
   dsarSentToLender: number;
-  complaintSentToLender: number;
+  dsarResponseReceived: number;
   countersSentToLender: number;
   loggedInUsers: number;
   totalAgents: number;
@@ -65,7 +65,7 @@ type Period = 'day' | 'week' | 'month' | 'year';
 const TaskWorkDashboard: React.FC = () => {
   const { currentUser } = useCRM();
   const [period, setPeriod] = useState<Period>('day');
-  const [kpis, setKpis] = useState<KPIs>({ dsarSentToLender: 0, complaintSentToLender: 0, countersSentToLender: 0, loggedInUsers: 0, totalAgents: 0 });
+  const [kpis, setKpis] = useState<KPIs>({ dsarSentToLender: 0, dsarResponseReceived: 0, countersSentToLender: 0, loggedInUsers: 0, totalAgents: 0 });
   const [dailyLeaderboard, setDailyLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [weeklyLeaderboard, setWeeklyLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [statusActions, setStatusActions] = useState<StatusAction[]>([]);
@@ -130,7 +130,7 @@ const TaskWorkDashboard: React.FC = () => {
   useEffect(() => {
     fetchAll(false);
     // Auto-refresh every 2 minutes (background — no loading spinner)
-    const interval = setInterval(() => fetchAll(true), 120000);
+    const interval = setInterval(() => fetchAll(true), 60000);
     return () => clearInterval(interval);
   }, [fetchAll]);
 
@@ -295,12 +295,12 @@ const TaskWorkDashboard: React.FC = () => {
         </div>
 
         <div className="bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-white/10 p-5 flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-green-50 dark:bg-green-500/10">
-            <DollarSign size={24} className="text-green-600 dark:text-green-400" />
+          <div className="p-3 rounded-lg bg-cyan-50 dark:bg-cyan-500/10">
+            <FileText size={24} className="text-cyan-600 dark:text-cyan-400" />
           </div>
           <div>
-            <p className="text-3xl font-bold text-gray-900 dark:text-white">{kpis.complaintSentToLender}</p>
-            <p className="text-xs font-medium text-green-600 dark:text-green-400 mt-0.5">Complaint Submitted to Lender</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white">{kpis.dsarResponseReceived}</p>
+            <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400 mt-0.5">DSAR Response Received</p>
           </div>
         </div>
 

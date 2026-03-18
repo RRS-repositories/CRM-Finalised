@@ -457,9 +457,18 @@ const Pipeline: React.FC = () => {
   const [statusSearch, setStatusSearch] = useState('');
   const [lenderSearch, setLenderSearch] = useState('');
 
-  // Pagination state for list view
-  const [claimsPerPage, setClaimsPerPage] = useState(20);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Infinite scroll state for list view
+  const [listDisplayCount, setListDisplayCount] = useState(30);
+  const listObserverRef = useRef<IntersectionObserver | null>(null);
+  const listSentinelRef = useCallback((node: HTMLDivElement | null) => {
+    if (listObserverRef.current) { listObserverRef.current.disconnect(); listObserverRef.current = null; }
+    if (!node) return;
+    listObserverRef.current = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) setListDisplayCount(prev => prev + 30); },
+      { threshold: 0.1, rootMargin: '0px 0px 300px 0px' }
+    );
+    listObserverRef.current.observe(node);
+  }, []);
 
   // Animation key - changes when filters change to trigger re-animation
   const filterKey = useMemo(() =>
@@ -578,19 +587,17 @@ const Pipeline: React.FC = () => {
     return { enrichedClaimsByCategory: buckets, allFilteredClaims: allFiltered };
   }, [claims, contactMap, statusFilter, lenderFilter, dateRangeFilter, clientFilter, statusToCategoryMap, sortColumn, sortDirection]);
 
-  // Pagination calculations for list view
-  const totalPages = Math.ceil(allFilteredClaims.length / claimsPerPage);
-  const startIndex = (currentPage - 1) * claimsPerPage;
-  const endIndex = startIndex + claimsPerPage;
-  const paginatedClaims = useMemo(() =>
-    allFilteredClaims.slice(startIndex, endIndex),
-    [allFilteredClaims, startIndex, endIndex]
+  // Infinite scroll calculations for list view
+  const visibleClaims = useMemo(() =>
+    allFilteredClaims.slice(0, listDisplayCount),
+    [allFilteredClaims, listDisplayCount]
   );
+  const hasMoreListClaims = listDisplayCount < allFilteredClaims.length;
 
-  // Reset to page 1 when filters change or per-page changes
+  // Reset display count when filters change
   React.useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter, claimsPerPage]);
+    setListDisplayCount(30);
+  }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter]);
 
   // Sort column handler for list view
   const handleSortColumn = useCallback((column: SortColumn) => {
@@ -605,9 +612,9 @@ const Pipeline: React.FC = () => {
     }
   }, [sortColumn, sortDirection]);
 
-  // Reset to page 1 when sort changes
+  // Reset display count when sort changes
   React.useEffect(() => {
-    setCurrentPage(1);
+    setListDisplayCount(30);
   }, [sortColumn, sortDirection]);
 
   // Selection handlers for list view - wrapped in useCallback for stable references
@@ -1063,7 +1070,7 @@ const Pipeline: React.FC = () => {
                   </thead>
                   {/* Table Body */}
                   <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                     {paginatedClaims.length === 0 ? (
+                     {visibleClaims.length === 0 ? (
                         <tr>
                            <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                               <TrendingUp size={32} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
@@ -1071,7 +1078,7 @@ const Pipeline: React.FC = () => {
                            </td>
                         </tr>
                      ) : (
-                        paginatedClaims.map((claim, index) => {
+                        visibleClaims.map((claim, index) => {
                            const priority = getPriorityFromClaimValue(claim.claimValue || 0);
                            const priorityStyle = priorityConfig[priority];
                            const avatarColor = getAvatarColor(claim.contactName);
@@ -1207,47 +1214,18 @@ const Pipeline: React.FC = () => {
                      )}
                   </tbody>
                </table>
-               {/* Table Footer with Pagination */}
+               {/* Infinite scroll sentinel */}
+               {hasMoreListClaims && (
+                  <div ref={listSentinelRef} className="flex items-center justify-center py-3 text-xs text-gray-400">
+                     Scroll for more...
+                  </div>
+               )}
+               {/* Status footer */}
                {allFilteredClaims.length > 0 && (
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
-                     <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                           Showing {startIndex + 1}-{Math.min(endIndex, allFilteredClaims.length)} of {allFilteredClaims.length}
-                        </span>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
-                        <div className="flex items-center gap-1.5">
-                           <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
-                           <select
-                              value={claimsPerPage}
-                              onChange={(e) => setClaimsPerPage(Number(e.target.value))}
-                              className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                           >
-                              <option value={20}>20</option>
-                              <option value={30}>30</option>
-                              <option value={50}>50</option>
-                              <option value={100}>100</option>
-                           </select>
-                        </div>
-                     </div>
-                     <div className="flex items-center">
-                        <button
-                           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                           disabled={currentPage === 1}
-                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                        >
-                           Previous
-                        </button>
-                        <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
-                           {currentPage} / {totalPages || 1}
-                        </span>
-                        <button
-                           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                           disabled={currentPage === totalPages || totalPages === 0}
-                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                        >
-                           Next
-                        </button>
-                     </div>
+                  <div className="px-4 py-2 text-center border-t border-gray-200 dark:border-slate-700">
+                     <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Showing {visibleClaims.length} of {allFilteredClaims.length} claims
+                     </span>
                   </div>
                )}
             </div>

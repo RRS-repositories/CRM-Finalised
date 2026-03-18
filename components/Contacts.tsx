@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import {
    Search, Filter, Upload, Download, MoreHorizontal,
    Trash2, X, UserPlus, ArrowLeft, Clock as ClockIcon,
@@ -508,9 +509,18 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // Timeline Filter
    const [timelineFilter, setTimelineFilter] = useState<string>('all');
 
-   // Claims Pagination State
-   const [claimsPerPage, setClaimsPerPage] = useState(20);
-   const [currentClaimsPage, setCurrentClaimsPage] = useState(1);
+   // Claims infinite scroll state
+   const [claimsDisplayCount, setClaimsDisplayCount] = useState(20);
+   const claimsObserverRef = useRef<IntersectionObserver | null>(null);
+   const claimsSentinelRef = useCallback((node: HTMLDivElement | null) => {
+      if (claimsObserverRef.current) { claimsObserverRef.current.disconnect(); claimsObserverRef.current = null; }
+      if (!node) return;
+      claimsObserverRef.current = new IntersectionObserver(
+         (entries) => { if (entries[0].isIntersecting) setClaimsDisplayCount(prev => prev + 20); },
+         { threshold: 0.1, rootMargin: '0px 0px 200px 0px' }
+      );
+      claimsObserverRef.current.observe(node);
+   }, []);
 
    // Claim File View (detailed view for individual claim)
    const [viewingClaimId, setViewingClaimId] = useState<string | null>(null);
@@ -598,6 +608,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (contactId) {
          fetchCasesForContact(contactId);
       }
+      setClaimsDisplayCount(20);
+      setDocsDisplayCount(30);
    }, [contactId]);
 
    useEffect(() => {
@@ -626,6 +638,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          fetchActionLogs(contact.id);
       }
    }, [activeTab, contact?.id]);
+
+   // Sync activeTab when initialTab changes (e.g., re-navigation from global search)
+   useEffect(() => {
+      setActiveTab(initialTab);
+      if (initialTab === 'claims' && !initialClaimId) {
+         setViewingClaimId(null);
+      }
+   }, [initialTab, initialClaimId]);
 
    // Auto-open claim file when navigating from Pipeline with initialClaimId
    useEffect(() => {
@@ -732,9 +752,18 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [localContactDocs, setLocalContactDocs] = useState<Document[]>([]);
    const [docsLoading, setDocsLoading] = useState(false);
 
-   // Document pagination
-   const [docsPage, setDocsPage] = useState(1);
-   const [docsPerPage, setDocsPerPage] = useState(20);
+   // Documents infinite scroll state
+   const [docsDisplayCount, setDocsDisplayCount] = useState(30);
+   const docsObserverRef = useRef<IntersectionObserver | null>(null);
+   const docsSentinelRef = useCallback((node: HTMLDivElement | null) => {
+      if (docsObserverRef.current) { docsObserverRef.current.disconnect(); docsObserverRef.current = null; }
+      if (!node) return;
+      docsObserverRef.current = new IntersectionObserver(
+         (entries) => { if (entries[0].isIntersecting) setDocsDisplayCount(prev => prev + 30); },
+         { threshold: 0.1, rootMargin: '0px 0px 200px 0px' }
+      );
+      docsObserverRef.current.observe(node);
+   }, []);
 
    // Lender dropdown state for documents table
    const [docLenderDropdown, setDocLenderDropdown] = useState<string | null>(null); // doc id
@@ -770,7 +799,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             createdAt: d.created_at
          }));
          setLocalContactDocs(mapped);
-         setDocsPage(1);
+         setDocsDisplayCount(30);
          setDocsLenderFilter('');
 
          // Auto-derive checklist from loaded documents
@@ -901,8 +930,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       if (docsCategoryFilter) docs = docs.filter(d => (d.category || 'General') === docsCategoryFilter);
       return docs;
    }, [contactDocs, docsLenderFilter, docsCategoryFilter]);
-   const totalDocsPages = Math.ceil(filteredDocs.length / docsPerPage);
-   const paginatedDocs = useMemo(() => filteredDocs.slice((docsPage - 1) * docsPerPage, docsPage * docsPerPage), [filteredDocs, docsPage, docsPerPage]);
+   const visibleDocs = useMemo(() => filteredDocs.slice(0, docsDisplayCount), [filteredDocs, docsDisplayCount]);
+   const hasMoreDocs = docsDisplayCount < filteredDocs.length;
 
    // Save lender for a document (documents are S3-based; lender stored in document_lender_map)
    const handleDocLenderSave = async (docId: string, lender: string) => {
@@ -1849,13 +1878,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    };
    handleOpenClaimFileRef.current = handleOpenClaimFile;
 
-   // Close claim file view and go back to list (or Pipeline if came from there)
+   // Close claim file view and go back to claims list
    const handleCloseClaimFile = () => {
-      // If we came from Pipeline (initialClaimId was set), navigate back to Pipeline
-      if (initialClaimId && onBackToPipeline) {
-         onBackToPipeline();
-         return;
-      }
       setViewingClaimId(null);
       setClaimFileData(null);
       setClaimFileForm({
@@ -2148,7 +2172,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             <div className="flex justify-between items-center">
                {/* Left Section: Back Button + Client ID */}
                <div className="flex items-center gap-3 min-w-[200px]">
-                  <button onClick={onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full text-gray-500 dark:text-gray-400 transition-colors">
+                  <button onClick={viewingClaimId ? handleCloseClaimFile : onBack} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full text-gray-500 dark:text-gray-400 transition-colors">
                      <ArrowLeft size={20} />
                   </button>
                   {/* Client ID Display - Bordered box, subtle highlight */}
@@ -2961,11 +2985,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   {/* CLAIMS LIST VIEW (when not viewing a specific claim) */}
                   {!viewingClaimId && (
                      (() => {
-                        // Claims Pagination calculations
-                        const totalClaimsPages = Math.ceil(contactClaims.length / claimsPerPage);
-                        const startClaimIndex = (currentClaimsPage - 1) * claimsPerPage;
-                        const endClaimIndex = startClaimIndex + claimsPerPage;
-                        const paginatedClaims = contactClaims.slice(startClaimIndex, endClaimIndex);
+                        // Claims infinite scroll — show incrementally
+                        const visibleClaims = contactClaims.slice(0, claimsDisplayCount);
+                        const hasMoreClaims = claimsDisplayCount < contactClaims.length;
 
                         return (
                            <>
@@ -2999,14 +3021,20 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                  </div>
 
                                  {/* Table Body */}
-                                 {paginatedClaims.map((claim, index) => (
+                                 {visibleClaims.map((claim, index) => (
                                     <div
                                        key={claim.id}
                                        className={`grid grid-cols-12 gap-4 px-5 py-4 border-b border-gray-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600/50 transition-colors items-center ${index % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50/80 dark:bg-slate-700/40'}`}
                                     >
                                        <div className="col-span-4">
                                           <button
-                                             onClick={() => handleOpenClaimFile(claim.id)}
+                                             onClick={(e) => {
+                                                if (e.ctrlKey || e.metaKey) {
+                                                   window.open(`/contacts/${contact.id}?tab=claims&claimId=${claim.id}`, '_blank');
+                                                } else {
+                                                   handleOpenClaimFile(claim.id);
+                                                }
+                                             }}
                                              className="font-semibold text-navy-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer transition-colors text-left"
                                           >
                                              {toTitleCase(claim.lender)}
@@ -3033,7 +3061,13 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        </div>
                                        <div className="col-span-2 flex justify-end">
                                           <button
-                                             onClick={() => handleOpenClaimFile(claim.id)}
+                                             onClick={(e) => {
+                                                if (e.ctrlKey || e.metaKey) {
+                                                   window.open(`/contacts/${contact.id}?tab=claims&claimId=${claim.id}`, '_blank');
+                                                } else {
+                                                   handleOpenClaimFile(claim.id);
+                                                }
+                                             }}
                                              className="px-4 py-1.5 text-sm font-medium bg-navy-600 hover:bg-navy-700 text-white rounded-lg shadow-sm hover:shadow transition-all flex items-center gap-1.5 dark:bg-navy-500 dark:hover:bg-navy-600"
                                           >
                                              Open File <ArrowLeft size={14} className="rotate-180" />
@@ -3055,50 +3089,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                     </div>
                                  )}
 
-                                 {/* Claims Pagination Controls */}
-                                 {contactClaims.length > 0 && (
-                                    <div className="flex items-center justify-between px-5 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
-                                       <div className="flex items-center gap-3">
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                                             Showing {startClaimIndex + 1}-{Math.min(endClaimIndex, contactClaims.length)} of {contactClaims.length}
-                                          </span>
-                                          <span className="text-gray-300 dark:text-gray-600">|</span>
-                                          <div className="flex items-center gap-1.5">
-                                             <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
-                                             <select
-                                                value={claimsPerPage}
-                                                onChange={(e) => {
-                                                   setClaimsPerPage(Number(e.target.value));
-                                                   setCurrentClaimsPage(1);
-                                                }}
-                                                className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                                             >
-                                                <option value={20}>20</option>
-                                                <option value={30}>30</option>
-                                                <option value={50}>50</option>
-                                                <option value={100}>100</option>
-                                             </select>
-                                          </div>
-                                       </div>
-                                       <div className="flex items-center">
-                                          <button
-                                             onClick={() => setCurrentClaimsPage(prev => Math.max(prev - 1, 1))}
-                                             disabled={currentClaimsPage === 1}
-                                             className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                                          >
-                                             Previous
-                                          </button>
-                                          <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
-                                             {currentClaimsPage} / {totalClaimsPages || 1}
-                                          </span>
-                                          <button
-                                             onClick={() => setCurrentClaimsPage(prev => Math.min(prev + 1, totalClaimsPages))}
-                                             disabled={currentClaimsPage === totalClaimsPages || totalClaimsPages === 0}
-                                             className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                                          >
-                                             Next
-                                          </button>
-                                       </div>
+                                 {/* Infinite scroll sentinel for claims */}
+                                 {hasMoreClaims && (
+                                    <div ref={claimsSentinelRef} className="flex items-center justify-center py-3 text-xs text-gray-400">
+                                       Scroll for more...
                                     </div>
                                  )}
                               </div>
@@ -4790,17 +4784,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                      </div>
                   ) : contactDocs.length > 0 ? (
                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-x-hidden">
-                        {/* Pagination Info Header */}
+                        {/* Documents Info Header */}
                         <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600 flex items-center justify-between">
                            <span className="text-sm text-gray-600 dark:text-gray-400">
-                              Showing {filteredDocs.length === 0 ? 0 : ((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, filteredDocs.length)} of {filteredDocs.length}{(docsLenderFilter || docsCategoryFilter) ? ` (filtered from ${contactDocs.length})` : ''} documents
+                              Showing {visibleDocs.length} of {filteredDocs.length}{(docsLenderFilter || docsCategoryFilter) ? ` (filtered from ${contactDocs.length})` : ''} documents
                            </span>
                            <div className="flex items-center gap-3">
                               {/* Lender filter */}
                               {docsLenderOptions.length > 0 && (
                                  <select
                                     value={docsLenderFilter}
-                                    onChange={e => { setDocsLenderFilter(e.target.value); setDocsPage(1); }}
+                                    onChange={e => { setDocsLenderFilter(e.target.value); setDocsDisplayCount(30); }}
                                     className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
                                  >
                                     <option value="">All Lenders</option>
@@ -4813,7 +4807,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               {docsCategoryOptions.length > 0 && (
                                  <select
                                     value={docsCategoryFilter}
-                                    onChange={e => { setDocsCategoryFilter(e.target.value); setDocsPage(1); }}
+                                    onChange={e => { setDocsCategoryFilter(e.target.value); setDocsDisplayCount(30); }}
                                     className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
                                  >
                                     <option value="">All Categories</option>
@@ -4821,36 +4815,6 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        <option key={c} value={c}>{c}</option>
                                     ))}
                                  </select>
-                              )}
-                              <select
-                                 value={docsPerPage}
-                                 onChange={e => { setDocsPerPage(Number(e.target.value)); setDocsPage(1); }}
-                                 className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                              >
-                                 <option value={20}>20 / page</option>
-                                 <option value={50}>50 / page</option>
-                                 <option value={100}>100 / page</option>
-                              </select>
-                              {totalDocsPages > 1 && (
-                                 <div className="flex items-center gap-2">
-                                    <button
-                                       onClick={() => setDocsPage(p => Math.max(1, p - 1))}
-                                       disabled={docsPage === 1}
-                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       Previous
-                                    </button>
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                                       Page {docsPage} of {totalDocsPages}
-                                    </span>
-                                    <button
-                                       onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
-                                       disabled={docsPage === totalDocsPages}
-                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       Next
-                                    </button>
-                                 </div>
                               )}
                            </div>
                         </div>
@@ -4866,7 +4830,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               </tr>
                            </thead>
                            <tbody>
-                              {paginatedDocs.map((doc, index) => (
+                              {visibleDocs.map((doc, index) => (
                                  <tr
                                     key={doc.id}
                                     className={`
@@ -4924,7 +4888,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              )}
                                           </button>
                                           {docLenderDropdown === doc.id && (
-                                             <div className={`absolute z-50 left-0 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= paginatedDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
+                                             <div className={`absolute z-50 left-0 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= visibleDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
                                                 <div className="p-2 border-b border-gray-100 dark:border-slate-700">
                                                    <input
                                                       autoFocus
@@ -5001,7 +4965,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              )}
                                           </button>
                                           {docCategoryDropdown === doc.id && (
-                                             <div className={`absolute z-50 left-0 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= paginatedDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
+                                             <div className={`absolute z-50 left-0 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-600 overflow-hidden ${index >= visibleDocs.length - 3 ? 'bottom-full mb-1' : 'mt-1'}`} onClick={e => e.stopPropagation()}>
                                                 <div className="max-h-56 overflow-y-auto">
                                                    {DOCUMENT_CATEGORIES.map(cat => (
                                                       <button
@@ -5066,58 +5030,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                               ))}
                            </tbody>
                         </table>
-                        {/* Pagination Footer */}
-                        <div className="px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600 flex items-center justify-between">
-                           <span className="text-sm text-gray-600 dark:text-gray-400">
-                              Showing {filteredDocs.length === 0 ? 0 : ((docsPage - 1) * docsPerPage) + 1}-{Math.min(docsPage * docsPerPage, filteredDocs.length)} of {filteredDocs.length}{(docsLenderFilter || docsCategoryFilter) ? ` (filtered)` : ''}
-                           </span>
-                           <div className="flex items-center gap-2">
-                              <select
-                                 value={docsPerPage}
-                                 onChange={e => { setDocsPerPage(Number(e.target.value)); setDocsPage(1); }}
-                                 className="text-xs rounded-lg border border-gray-200 dark:border-slate-500 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                              >
-                                 <option value={20}>20 / page</option>
-                                 <option value={50}>50 / page</option>
-                                 <option value={100}>100 / page</option>
-                              </select>
-                              {totalDocsPages > 1 && (
-                                 <>
-                                    <button
-                                       onClick={() => setDocsPage(1)}
-                                       disabled={docsPage === 1}
-                                       className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       First
-                                    </button>
-                                    <button
-                                       onClick={() => setDocsPage(p => Math.max(1, p - 1))}
-                                       disabled={docsPage === 1}
-                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       ← Prev
-                                    </button>
-                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                       {docsPage} / {totalDocsPages}
-                                    </span>
-                                    <button
-                                       onClick={() => setDocsPage(p => Math.min(totalDocsPages, p + 1))}
-                                       disabled={docsPage === totalDocsPages}
-                                       className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       Next →
-                                    </button>
-                                    <button
-                                       onClick={() => setDocsPage(totalDocsPages)}
-                                       disabled={docsPage === totalDocsPages}
-                                       className="px-2 py-1 text-xs font-medium rounded-lg bg-white dark:bg-slate-600 border border-gray-200 dark:border-slate-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                       Last
-                                    </button>
-                                 </>
-                              )}
+                        {/* Infinite scroll sentinel for documents */}
+                        {hasMoreDocs && (
+                           <div ref={docsSentinelRef} className="flex items-center justify-center py-3 text-xs text-gray-400">
+                              Scroll for more...
                            </div>
-                        </div>
+                        )}
                      </div>
                   ) : (
                      <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800">
@@ -6203,7 +6121,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
 };
 
 const Contacts: React.FC = () => {
-   const { contacts, addContact, deleteContacts, addNotification, actionLogs, fetchAllActionLogs, addCommunication, pendingContactNavigation, clearContactNavigation, contactsPagination, fetchContactsPage } = useCRM();
+   const { contacts, addContact, deleteContacts, addNotification, actionLogs, fetchAllActionLogs, addCommunication, pendingContactNavigation, clearContactNavigation, contactsPagination, fetchContactsPage, loadMoreContacts } = useCRM();
    const navigate = useNavigate();
    const { contactId: urlContactId } = useParams<{ contactId: string }>();
    const [searchParams] = useSearchParams();
@@ -6299,24 +6217,22 @@ const Contacts: React.FC = () => {
    // Unified search field
    const [searchTerm, setSearchTerm] = useState('');
 
-   // Pagination State
-   const [contactsPerPage, setContactsPerPage] = useState(50);
-   const [currentContactsPage, setCurrentContactsPage] = useState(1);
-
-   // Debounced server-side search + pagination
+   // Debounced server-side search (resets list on search change)
    useEffect(() => {
       const timer = setTimeout(() => {
-         fetchContactsPage(currentContactsPage, contactsPerPage, {
+         fetchContactsPage(1, 50, {
             search: searchTerm || undefined,
          });
       }, 400);
       return () => clearTimeout(timer);
-   }, [searchTerm, contactsPerPage, currentContactsPage]);
+   }, [searchTerm]);
 
-   // Reset to page 1 when filters or per-page changes
-   useEffect(() => {
-      setCurrentContactsPage(1);
-   }, [searchTerm, contactsPerPage]);
+   // Infinite scroll for contacts list
+   const { sentinelRef: contactsSentinelRef } = useInfiniteScroll({
+      hasMore: contactsPagination.hasMore,
+      isLoading: contactsPagination.isLoadingMore,
+      onLoadMore: () => loadMoreContacts(searchTerm || undefined),
+   });
 
    // Action Menu & Delete Logic
    const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -6427,19 +6343,38 @@ const Contacts: React.FC = () => {
       return <ContactDetailView contactId={selectedContactId} onBack={handleBack} initialTab={initialTab} initialClaimId={initialClaimId} onBackToPipeline={handleBackToPipeline} />;
    }
 
-   // Server-side pagination — contacts already contains only the current page
-   const paginatedContacts = contacts;
-   const totalContactsPages = contactsPagination.totalPages;
-   const startContactIndex = (currentContactsPage - 1) * contactsPerPage;
-   const endContactIndex = startContactIndex + contactsPerPage;
+   // Contacts list — rendered via infinite scroll (contacts array grows as user scrolls)
 
    return (
       <div className="flex flex-col h-full bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors">
          {/* Header */}
          <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-shrink-0 shadow-sm">
-            <div className="h-16 flex items-center justify-between px-6">
-               <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
-               <div className="flex gap-3">
+            <div className="h-16 flex items-center justify-between px-6 gap-4">
+               <div className="flex items-center gap-3 flex-shrink-0">
+                  <h1 className="text-xl font-bold text-gray-800 dark:text-white">Contacts Directory</h1>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                     {contactsPagination.total} contacts
+                  </span>
+               </div>
+               <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  <input
+                     type="text"
+                     placeholder="Search by name, email, phone, postcode, or client ID..."
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                     className="w-full pl-10 pr-10 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-slate-50 dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
+                  />
+                  {searchTerm && (
+                     <button
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                     >
+                        <X size={16} />
+                     </button>
+                  )}
+               </div>
+               <div className="flex gap-3 flex-shrink-0">
                   <button
                      onClick={() => setShowBulkImport(true)}
                      className="bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600 text-navy-700 dark:text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors text-sm"
@@ -6454,42 +6389,6 @@ const Contacts: React.FC = () => {
                   </button>
                </div>
             </div>
-
-            {/* Unified Search Bar */}
-            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-gray-200 dark:border-slate-600">
-                  <div className="relative">
-                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                     <input
-                        type="text"
-                        placeholder="Search by name, email, phone, postcode, or client ID..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-10 py-2.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder:text-gray-400"
-                     />
-                     {searchTerm && (
-                        <button
-                           onClick={() => setSearchTerm('')}
-                           className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                        >
-                           <X size={16} />
-                        </button>
-                     )}
-                  </div>
-                  <div className="flex justify-between items-center mt-3">
-                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {contactsPagination.total} contacts
-                     </span>
-                     {searchTerm && (
-                        <button
-                           onClick={() => setSearchTerm('')}
-                           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                        >
-                           <RotateCcw size={14} />
-                           Clear Search
-                        </button>
-                     )}
-                  </div>
-               </div>
          </div>
 
          {/* List */}
@@ -6507,17 +6406,7 @@ const Contacts: React.FC = () => {
                      </tr>
                   </thead>
                   <tbody>
-                     {contactsPagination.isLoadingMore && (
-                        <tr>
-                           <td colSpan={6} className="px-6 py-8 text-center">
-                              <div className="flex items-center justify-center gap-2 text-gray-400">
-                                 <Loader2 size={18} className="animate-spin" />
-                                 <span className="text-sm">Loading contacts...</span>
-                              </div>
-                           </td>
-                        </tr>
-                     )}
-                     {!contactsPagination.isLoadingMore && paginatedContacts.map((contact, index) => (
+                     {contacts.map((contact, index) => (
                         <tr
                            key={contact.id}
                            onClick={() => handleContactClick(contact.id)}
@@ -6628,9 +6517,9 @@ const Contacts: React.FC = () => {
                            </td>
                         </tr>
                      ))}
-                     {!contactsPagination.isLoadingMore && paginatedContacts.length === 0 && (
+                     {contacts.length === 0 && !contactsPagination.isLoadingMore && (
                         <tr>
-                           <td colSpan={5} className="px-6 py-12 text-center text-gray-400">
+                           <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
                               No contacts found.
                            </td>
                         </tr>
@@ -6638,47 +6527,17 @@ const Contacts: React.FC = () => {
                   </tbody>
                </table>
 
-               {/* Pagination Controls */}
+               {/* Infinite scroll sentinel + loading indicator */}
+               {contactsPagination.isLoadingMore && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
+                     <Loader2 size={18} className="animate-spin" />
+                     <span className="text-sm">Loading more contacts...</span>
+                  </div>
+               )}
+               {contactsPagination.hasMore && <div ref={contactsSentinelRef} className="h-1" />}
                {contactsPagination.total > 0 && (
-                  <div className="flex items-center justify-between px-6 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700">
-                     <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                           Showing {startContactIndex + 1}-{Math.min(startContactIndex + paginatedContacts.length, contactsPagination.total)} of {contactsPagination.total}
-                        </span>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
-                        <div className="flex items-center gap-1.5">
-                           <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
-                           <select
-                              value={contactsPerPage}
-                              onChange={(e) => setContactsPerPage(Number(e.target.value))}
-                              className="px-1.5 py-0.5 border border-gray-200 dark:border-slate-600 rounded text-xs bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                           >
-                              <option value={20}>20</option>
-                              <option value={30}>30</option>
-                              <option value={50}>50</option>
-                              <option value={100}>100</option>
-                           </select>
-                        </div>
-                     </div>
-                     <div className="flex items-center">
-                        <button
-                           onClick={() => setCurrentContactsPage(prev => Math.max(prev - 1, 1))}
-                           disabled={currentContactsPage === 1}
-                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                        >
-                           Previous
-                        </button>
-                        <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
-                           {currentContactsPage} / {totalContactsPages || 1}
-                        </span>
-                        <button
-                           onClick={() => setCurrentContactsPage(prev => Math.min(prev + 1, totalContactsPages))}
-                           disabled={currentContactsPage === totalContactsPages || totalContactsPages === 0}
-                           className="px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                        >
-                           Next
-                        </button>
-                     </div>
+                  <div className="px-6 py-2 text-xs text-gray-500 dark:text-gray-400 text-center">
+                     Showing {contacts.length} of {contactsPagination.total} contacts
                   </div>
                )}
             </div>

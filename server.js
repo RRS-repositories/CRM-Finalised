@@ -5082,7 +5082,7 @@ app.get('/api/contacts/paginated', async (req, res) => {
         let paramIdx = 1;
 
         if (search) {
-            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx} OR c.postal_code ILIKE $${paramIdx} OR c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx})`);
+            conditions.push(`(c.full_name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR c.phone ILIKE $${paramIdx} OR c.postal_code ILIKE $${paramIdx} OR c.client_id ILIKE $${paramIdx} OR CAST(c.id AS TEXT) ILIKE $${paramIdx} OR c.reference ILIKE $${paramIdx})`);
             params.push(`%${search}%`);
             paramIdx++;
         }
@@ -18996,9 +18996,9 @@ app.get('/api/task-work/dashboard/kpis', async (req, res) => {
         const period = req.query.period || 'week';
         const dateFilter = twDateFilter(period);
 
-        const [dsarResult, complaintResult, counterResult, agentsResult, loggedInResult] = await Promise.all([
+        const [dsarResult, dsarReceivedResult, counterResult, agentsResult, loggedInResult] = await Promise.all([
             pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'DSAR Sent to Lender' ${dateFilter}`),
-            pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'Complaint Submitted' ${dateFilter}`),
+            pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'DSAR Response Received' ${dateFilter}`),
             pool.query(`SELECT COUNT(*) as count FROM action_logs al WHERE al.action_type = 'status_changed' AND al.action_category = 'claims' AND al.metadata->>'new_status' = 'Counter Response sent' ${dateFilter}`),
             pool.query(`SELECT COUNT(*) as total FROM users WHERE is_approved = true AND role IN ('Admin', 'Management', 'IT', 'Payments', 'Sales')`),
             // Users active in the last 3 minutes = logged in (using heartbeat last_active_at, fallback to last_login)
@@ -19007,7 +19007,7 @@ app.get('/api/task-work/dashboard/kpis', async (req, res) => {
 
         res.json({
             dsarSentToLender: parseInt(dsarResult.rows[0].count),
-            complaintSentToLender: parseInt(complaintResult.rows[0].count),
+            dsarResponseReceived: parseInt(dsarReceivedResult.rows[0].count),
             countersSentToLender: parseInt(counterResult.rows[0].count),
             loggedInUsers: parseInt(loggedInResult.rows[0].logged_in),
             totalAgents: parseInt(agentsResult.rows[0].total)

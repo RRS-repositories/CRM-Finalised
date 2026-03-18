@@ -133,7 +133,11 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
     setSearchOpen(false);
     setSearchQuery('');
     setSearchResults([]);
-    navigate(`/contacts/${result.contact_id}`);
+    if (result.claim_id) {
+      navigate(`/contacts/${result.contact_id}?tab=claims&claimId=${result.claim_id}`);
+    } else {
+      navigate(`/contacts/${result.contact_id}?tab=claims`);
+    }
   };
 
   // Live clock - update every minute
@@ -602,7 +606,19 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView, on
                     searchResults.map((r, idx) => (
                       <button
                         key={`${r.contact_id}-${r.claim_id || idx}`}
-                        onClick={() => handleSelectResult(r)}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey) {
+                            const url = r.claim_id
+                              ? `/contacts/${r.contact_id}?tab=claims&claimId=${r.claim_id}`
+                              : `/contacts/${r.contact_id}?tab=claims`;
+                            window.open(url, '_blank');
+                            setSearchOpen(false);
+                            setSearchQuery('');
+                            setSearchResults([]);
+                          } else {
+                            handleSelectResult(r);
+                          }
+                        }}
                         className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors border-b border-gray-100 dark:border-white/5 last:border-b-0"
                       >
                         <div className="flex items-center justify-between gap-3">
