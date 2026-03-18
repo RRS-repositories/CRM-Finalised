@@ -2809,6 +2809,141 @@ const processOfferReceivedEmails = async () => {
     }
 };
 
+// ── UNABLE TO LOCATE EMAILS ──
+const processUnableToLocateEmails = async () => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT c.id as case_id, c.lender, c.unable_to_locate_token,
+                   cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email
+            FROM cases c
+            JOIN contacts cnt ON c.contact_id = cnt.id
+            WHERE c.unable_to_locate_token IS NOT NULL
+              AND c.unable_to_locate_email_sent = false
+              AND c.status ILIKE '%unable to locate%'
+            LIMIT 10
+        `);
+
+        if (rows.length === 0) return;
+
+        console.log(`[Worker] Found ${rows.length} pending Unable to Locate email(s) to send.`);
+
+        const isProduction = process.env.PM2_HOME || process.env.NODE_ENV === 'production';
+        const FRONTEND_URL = isProduction ? 'http://rowanroseclaims.co.uk' : 'http://localhost:3000';
+
+        for (const record of rows) {
+            try {
+                if (!record.email) {
+                    console.log(`[Worker] ⚠️ No email for contact ${record.contact_id} — skipping Unable to Locate`);
+                    await pool.query('UPDATE cases SET unable_to_locate_email_sent = true WHERE id = $1', [record.case_id]);
+                    continue;
+                }
+
+                const formLink = `${FRONTEND_URL}/unable-to-locate/${record.unable_to_locate_token}`;
+                const clientName = `${record.first_name} ${record.last_name}`;
+
+                const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #1e3a5f 0%, #0f172a 100%); padding: 45px; text-align: center;">
+                            <h1 style="font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: 2px; margin: 0; text-transform: uppercase;">Rowan Rose Solicitors</h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 48px 45px; background: #ffffff;">
+                            <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 6px; font-weight: 700;">Account Details Required</h2>
+                            <p style="color: #64748b; font-size: 16px; margin: 0 0 30px; font-weight: 500;">We need your help to locate your account with <strong>${record.lender}</strong></p>
+
+                            <p style="font-size: 18px; color: #1e293b; margin-bottom: 16px;">Dear ${clientName},</p>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569; margin-bottom: 16px;">We have been unable to locate your account with <strong>${record.lender}</strong>. To continue investigating your claim, we need some additional information from you.</p>
+
+                            <!-- Highlight Box -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+                                <tr>
+                                    <td style="background: linear-gradient(135deg, #fef9e7 0%, #fef3c7 100%); border-left: 5px solid #f59e0b; padding: 24px 28px; border-radius: 0 14px 14px 0;">
+                                        <p style="font-weight: 700; color: #b45309; margin: 0; font-size: 18px;">Action Required</p>
+                                        <p style="color: #92400e; margin: 10px 0 0; font-size: 16px; line-height: 1.6;">Please click the button below to confirm your details and provide any account information you may have. You can also upload copies of any relevant paperwork.</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 36px 0 28px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="${formLink}" style="display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); border: 3px solid #000000;">Provide Account Details</a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center" style="padding-top: 14px;">
+                                        <span style="font-size: 14px; color: #ef4444; font-weight: 600;">This secure link expires in 7 days</span>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="font-size: 17px; line-height: 1.75; color: #475569;">If you have any questions, our dedicated team is here to assist you.</p>
+
+                            <!-- Signature -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 20px;">
+                                <tr><td><p style="font-size: 17px; color: #475569; margin: 0;">Kind regards,</p></td></tr>
+                                <tr><td><p style="font-size: 17px; color: #0f172a; font-weight: 700; margin: 4px 0 0;">The Rowan Rose Solicitors Team</p></td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%); padding: 28px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <p style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 6px;">Rowan Rose Solicitors</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">1.03 The Boat Shed, 12 Exchange Quay, Salford, M5 3EQ</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 4px 0;">0161 533 1706 | irl@rowanrose.co.uk</p>
+                            <p style="font-size: 12px; color: #94a3b8; margin: 10px 0 0;">Authorised and Regulated by the Solicitors Regulation Authority (SRA No. 8000843)</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+                await irlEmailTransporter.sendMail({
+                    from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
+                    to: record.email,
+                    subject: `Account Details Required – ${record.lender} - Rowan Rose Solicitors`,
+                    html: emailHtml
+                });
+
+                await pool.query('UPDATE cases SET unable_to_locate_email_sent = true WHERE id = $1', [record.case_id]);
+
+                await pool.query(
+                    `INSERT INTO client_communications_tracking (client_id, claim_id, type, token, email_address)
+                     VALUES ($1, $2, 'unable_to_locate', $3, $4) ON CONFLICT (token) DO NOTHING`,
+                    [record.contact_id, record.case_id, record.unable_to_locate_token, record.email]
+                );
+
+                console.log(`[Worker] ✅ Unable to Locate email sent to ${record.email} for case ${record.case_id} (lender: ${record.lender})`);
+
+            } catch (emailErr) {
+                console.error(`[Worker] ❌ Failed to send Unable to Locate email for case ${record.case_id}:`, emailErr.message);
+            }
+        }
+    } catch (err) {
+        console.error('[Worker] ❌ Error in processUnableToLocateEmails:', err.message);
+    }
+};
+
 // --- RUNNER ---
 console.log('Starting LOA Background Worker...');
 
@@ -2828,6 +2963,8 @@ const runWorkerCycle = async () => {
     await processResendLOAEmails();
     // Send offer acceptance emails for Offer Received cases
     await processOfferReceivedEmails();
+    // Send unable-to-locate emails
+    await processUnableToLocateEmails();
 };
 
 // Run immediately on start (with small delay for DB migration)

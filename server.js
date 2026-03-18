@@ -720,6 +720,13 @@ async function logAction({ clientId, claimId, actorType = 'system', actorId = 's
             `);
             console.log('✅ Offer acceptance columns ready');
 
+            // Unable to Locate columns on cases
+            await client.query(`
+                ALTER TABLE cases ADD COLUMN IF NOT EXISTS unable_to_locate_token UUID DEFAULT NULL;
+                ALTER TABLE cases ADD COLUMN IF NOT EXISTS unable_to_locate_email_sent BOOLEAN DEFAULT FALSE;
+            `);
+            console.log('✅ Unable to locate columns ready');
+
             // Client communications tracking table
             await client.query(`
                 CREATE TABLE IF NOT EXISTS client_communications_tracking (
@@ -6888,6 +6895,21 @@ app.patch('/api/cases/:id', async (req, res) => {
             }
         }
 
+        // If status = "Unable to Locate Account Number", generate token for worker to email client
+        if (status && status.toLowerCase().includes('unable to locate')) {
+            try {
+                const { randomUUID } = await import('crypto');
+                const utlToken = randomUUID();
+                await pool.query(
+                    'UPDATE cases SET unable_to_locate_token = $1, unable_to_locate_email_sent = false WHERE id = $2',
+                    [utlToken, id]
+                );
+                console.log(`🔄 Unable to Locate: token generated for case ${id}, worker will send email`);
+            } catch (utlErr) {
+                console.error(`❌ Error generating unable-to-locate token for case ${id}:`, utlErr);
+            }
+        }
+
         // Log status change to action_logs
         if (contactId && oldStatus !== status) {
             try {
@@ -11676,6 +11698,579 @@ VALUES($1, 'client', $1, 'Client', 'document_completed', 'documents', $2, $3, NO
     } catch (error) {
         console.error('Error submitting sales signature:', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================================================
+// UNABLE TO LOCATE - CLIENT FORM
+// ============================================================================
+
+// GET /unable-to-locate/:token — Serve the client form
+app.get('/unable-to-locate/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, c.unable_to_locate_token,
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email,
+                    cnt.dob, cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.postal_code,
+                    cnt.previous_addresses
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.unable_to_locate_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.send(renderAlreadySubmittedPage('Invalid Link', 'This link is invalid or has already been used.'));
+        }
+
+        const r = caseRes.rows[0];
+
+        // Track viewed
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', viewed_at = NOW() WHERE token = $1 AND status = 'Sent'`, [token]).catch(() => {});
+
+        // Format DOB
+        const dobFormatted = r.dob ? new Date(r.dob).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Not on file';
+
+        // Parse previous addresses
+        let prevAddresses = [];
+        try {
+            if (r.previous_addresses) {
+                prevAddresses = typeof r.previous_addresses === 'string' ? JSON.parse(r.previous_addresses) : r.previous_addresses;
+                if (!Array.isArray(prevAddresses)) prevAddresses = [];
+            }
+        } catch (e) { prevAddresses = []; }
+
+        const prevAddressesHtml = prevAddresses.map((a, i) => {
+            const parts = [a.address_line_1, a.address_line_2, a.city, a.county, a.postal_code].filter(Boolean);
+            return `<div style="background: #f1f5f9; padding: 10px 16px; border-radius: 8px; margin-bottom: 8px; font-size: 15px; color: #334155;">${parts.join(', ')}</div>`;
+        }).join('');
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Details Required - Rowan Rose Solicitors</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%); min-height: 100vh; padding: 40px 20px; }
+        .container { max-width: 700px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 32px; }
+        .header h1 { color: #fff; font-size: 22px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
+        .card { background: #fff; border-radius: 20px; padding: 40px; box-shadow: 0 25px 60px rgba(0,0,0,0.3); margin-bottom: 24px; }
+        .card h2 { color: #0f172a; font-size: 22px; margin-bottom: 4px; font-weight: 700; }
+        .card .subtitle { color: #64748b; font-size: 15px; margin-bottom: 24px; }
+        .lender-badge { display: inline-block; background: linear-gradient(145deg, #1e3a5f, #0f172a); color: #fff; padding: 8px 20px; border-radius: 8px; font-weight: 700; font-size: 16px; margin-bottom: 24px; }
+
+        .question-row { margin-bottom: 24px; }
+        .question-label { font-size: 16px; color: #1e293b; font-weight: 600; margin-bottom: 10px; }
+        .toggle-group { display: flex; gap: 12px; }
+        .toggle-btn { flex: 1; padding: 14px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; font-size: 16px; font-weight: 600; color: #64748b; text-align: center; transition: all 0.2s; }
+        .toggle-btn:hover { border-color: #94a3b8; }
+        .toggle-btn.selected-yes { border-color: #22c55e; background: #f0fdf4; color: #16a34a; }
+        .toggle-btn.selected-no { border-color: #ef4444; background: #fef2f2; color: #dc2626; }
+
+        .stop-banner { background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-left: 5px solid #ef4444; padding: 24px; border-radius: 0 14px 14px 0; margin: 20px 0; }
+        .stop-banner p { color: #991b1b; font-size: 16px; line-height: 1.6; }
+        .stop-banner .stop-icon { font-size: 24px; margin-bottom: 8px; }
+        .stop-banner .stop-title { font-weight: 700; font-size: 18px; color: #7f1d1d; margin-bottom: 8px; }
+
+        .section { display: none; }
+        .section.visible { display: block; }
+
+        .detail-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
+        .detail-label { font-size: 14px; color: #64748b; font-weight: 500; }
+        .detail-value { font-size: 16px; color: #0f172a; font-weight: 600; }
+        .edit-field { display: none; width: 100%; }
+        .edit-field input { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px; font-family: 'Inter', sans-serif; }
+        .edit-field.visible { display: block; margin-top: 8px; }
+
+        .input-group { margin-bottom: 16px; }
+        .input-group label { display: block; font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .input-group input, .input-group textarea { width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; font-family: 'Inter', sans-serif; transition: border-color 0.2s; }
+        .input-group input:focus, .input-group textarea:focus { outline: none; border-color: #f97316; }
+        .input-group textarea { resize: vertical; min-height: 80px; }
+
+        .file-upload { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; }
+        .file-upload:hover { border-color: #f97316; background: #fff7ed; }
+        .file-upload input { display: none; }
+        .file-upload p { color: #64748b; font-size: 15px; }
+        .file-upload .upload-icon { font-size: 32px; margin-bottom: 8px; }
+        .file-list { margin-top: 8px; }
+        .file-item { background: #f0fdf4; padding: 8px 14px; border-radius: 8px; margin-bottom: 6px; font-size: 14px; color: #16a34a; display: flex; justify-content: space-between; align-items: center; }
+        .file-item .remove { cursor: pointer; color: #ef4444; font-weight: 700; }
+
+        .prev-addr-add { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 16px; margin-top: 12px; }
+        .prev-addr-add .addr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .prev-addr-add .addr-row.full { grid-template-columns: 1fr; }
+
+        .btn-submit { display: block; width: 100%; padding: 18px; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #fff; font-size: 18px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 16px rgba(249,115,22,0.35); transition: all 0.2s; }
+        .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(249,115,22,0.4); }
+        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-secondary { display: inline-block; padding: 10px 20px; background: #f1f5f9; color: #334155; font-size: 14px; font-weight: 600; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .btn-secondary:hover { background: #e2e8f0; }
+
+        .success-msg { display: none; text-align: center; padding: 40px; }
+        .success-msg .icon { font-size: 64px; margin-bottom: 16px; }
+        .success-msg h3 { font-size: 24px; color: #0f172a; margin-bottom: 8px; }
+        .success-msg p { font-size: 16px; color: #64748b; }
+
+        @media (max-width: 600px) {
+            .card { padding: 24px; }
+            .prev-addr-add .addr-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header"><h1>Rowan Rose Solicitors</h1></div>
+
+        <div id="formArea">
+        <!-- Card 1: Is finance over 10 years? -->
+        <div class="card">
+            <h2>Account Details Required</h2>
+            <p class="subtitle">Claim with <span class="lender-badge">${r.lender}</span></p>
+
+            <div class="question-row">
+                <div class="question-label">Is this finance more than 10 years old?</div>
+                <div class="toggle-group">
+                    <div class="toggle-btn" onclick="setOver10(true)" id="over10Yes">YES</div>
+                    <div class="toggle-btn" onclick="setOver10(false)" id="over10No">NO</div>
+                </div>
+            </div>
+
+            <!-- Stop banner for YES -->
+            <div id="stopBanner" class="stop-banner" style="display:none;">
+                <div class="stop-title">Unable to Continue</div>
+                <p>Unfortunately we are unable to continue with this claim. Finance agreements over 10 years old fall outside the actionable limitation period.</p>
+            </div>
+        </div>
+
+        <!-- Card 2: Account info + file upload (hidden until NO) -->
+        <div id="accountSection" class="section">
+        <div class="card">
+            <h2>Account Information</h2>
+            <p class="subtitle">Please provide any details to help us locate your account</p>
+
+            <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" onchange="handleFiles(this.files)">
+                <div class="upload-icon">📄</div>
+                <p><strong>Upload your paperwork</strong><br>Click to browse or take a photo</p>
+            </div>
+            <div id="fileList" class="file-list"></div>
+
+            <div class="input-group">
+                <label>Account Number</label>
+                <input type="text" id="accountNumber" placeholder="Enter account or reference number">
+            </div>
+            <div class="input-group">
+                <label>Lender Name</label>
+                <input type="text" id="lenderName" value="${r.lender}" placeholder="Lender name">
+            </div>
+            <div class="input-group">
+                <label>Approximate Date of Agreement</label>
+                <input type="text" id="agreementDate" placeholder="e.g. March 2019">
+            </div>
+            <div class="input-group">
+                <label>Approximate Amount Borrowed</label>
+                <input type="text" id="amountBorrowed" placeholder="e.g. £2,000">
+            </div>
+            <div class="input-group">
+                <label>Any Other Reference Numbers</label>
+                <input type="text" id="otherRefs" placeholder="Optional">
+            </div>
+        </div>
+
+        <!-- Card 3: Client details verification -->
+        <div class="card">
+            <h2>Client Details</h2>
+            <p class="subtitle">Please verify your information is correct</p>
+
+            <!-- Name -->
+            <div class="detail-row">
+                <div><div class="detail-label">Name</div><div class="detail-value">${r.first_name} ${r.last_name}</div></div>
+                <div class="toggle-group" style="width:160px;">
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">NO</div>
+                </div>
+            </div>
+            <div id="nameEdit" class="edit-field">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+                    <div class="input-group"><label>First Name</label><input type="text" id="newFirstName" value="${r.first_name}"></div>
+                    <div class="input-group"><label>Last Name</label><input type="text" id="newLastName" value="${r.last_name}"></div>
+                </div>
+            </div>
+
+            <!-- DOB -->
+            <div class="detail-row">
+                <div><div class="detail-label">Date of Birth</div><div class="detail-value">${dobFormatted}</div></div>
+                <div class="toggle-group" style="width:160px;">
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">NO</div>
+                </div>
+            </div>
+            <div id="dobEdit" class="edit-field">
+                <div class="input-group" style="margin-top:8px;"><label>Date of Birth</label><input type="date" id="newDob" value="${r.dob ? new Date(r.dob).toISOString().split('T')[0] : ''}"></div>
+            </div>
+
+            <!-- Address -->
+            <div class="detail-row">
+                <div><div class="detail-label">Address</div><div class="detail-value">${[r.address_line_1, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
+                <div class="toggle-group" style="width:160px;">
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">NO</div>
+                </div>
+            </div>
+            <div id="addressEdit" class="edit-field">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+                    <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
+                    <div class="input-group"><label>Town/City</label><input type="text" id="newCity" value="${r.city || ''}"></div>
+                    <div class="input-group"><label>Postcode</label><input type="text" id="newPostcode" value="${r.postal_code || ''}"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 4: Previous addresses -->
+        <div class="card">
+            <h2>Previous Addresses</h2>
+            ${prevAddresses.length > 0 ? `<p class="subtitle">Addresses we have on file:</p>${prevAddressesHtml}` : '<p class="subtitle">No previous addresses on file.</p>'}
+
+            <div class="question-row" style="margin-top:16px;">
+                <div class="question-label">Did you have any more previous addresses?</div>
+                <div class="toggle-group">
+                    <div class="toggle-btn" onclick="toggleMoreAddresses(true, this)" id="moreAddrYes">YES</div>
+                    <div class="toggle-btn" onclick="toggleMoreAddresses(false, this)" id="moreAddrNo">NO</div>
+                </div>
+            </div>
+
+            <div id="newAddressArea" style="display:none;">
+                <div id="newAddressList"></div>
+                <button type="button" class="btn-secondary" onclick="addAddressRow()" style="margin-top:8px;">+ Add Another Address</button>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <button class="btn-submit" id="submitBtn" onclick="submitForm()">Submit Details</button>
+        </div>
+
+        <!-- Success -->
+        <div id="successArea" class="card success-msg">
+            <div class="icon">✅</div>
+            <h3>Thank You!</h3>
+            <p>Your details have been submitted successfully. Our team will review the information and continue investigating your claim.</p>
+        </div>
+    </div>
+
+<script>
+const TOKEN = '${token}';
+let isOver10 = null;
+let uploadedFiles = [];
+let newAddressCount = 0;
+
+function setOver10(val) {
+    isOver10 = val;
+    document.getElementById('over10Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
+    document.getElementById('over10No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
+    document.getElementById('stopBanner').style.display = val ? 'block' : 'none';
+    document.getElementById('accountSection').className = val ? 'section' : 'section visible';
+}
+
+function toggleCorrect(field, isCorrect, btn) {
+    const row = btn.closest('.toggle-group');
+    row.querySelectorAll('.toggle-btn').forEach(b => b.className = 'toggle-btn');
+    btn.className = 'toggle-btn ' + (isCorrect ? 'selected-yes' : 'selected-no');
+    document.getElementById(field + 'Edit').className = isCorrect ? 'edit-field' : 'edit-field visible';
+}
+
+function toggleMoreAddresses(show, btn) {
+    document.getElementById('moreAddrYes').className = 'toggle-btn' + (show ? ' selected-yes' : '');
+    document.getElementById('moreAddrNo').className = 'toggle-btn' + (!show ? ' selected-no' : '');
+    document.getElementById('newAddressArea').style.display = show ? 'block' : 'none';
+    if (show && newAddressCount === 0) addAddressRow();
+}
+
+function addAddressRow() {
+    newAddressCount++;
+    const n = newAddressCount;
+    const div = document.createElement('div');
+    div.className = 'prev-addr-add';
+    div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address #' + n + '</p>' +
+        '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
+        '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
+        '<div class="addr-row full"><div class="input-group"><label>Dates at this address (approx)</label><input type="text" id="na_dates_' + n + '" placeholder="e.g. 2015 - 2019"></div></div>';
+    document.getElementById('newAddressList').appendChild(div);
+}
+
+function handleFiles(files) {
+    for (const f of files) {
+        if (uploadedFiles.length >= 5) { alert('Maximum 5 files allowed'); return; }
+        uploadedFiles.push(f);
+    }
+    renderFileList();
+}
+
+function removeFile(idx) {
+    uploadedFiles.splice(idx, 1);
+    renderFileList();
+}
+
+function renderFileList() {
+    const el = document.getElementById('fileList');
+    el.innerHTML = uploadedFiles.map((f, i) =>
+        '<div class="file-item"><span>' + f.name + ' (' + (f.size / 1024).toFixed(1) + ' KB)</span><span class="remove" onclick="removeFile(' + i + ')">✕</span></div>'
+    ).join('');
+}
+
+async function submitForm() {
+    if (isOver10 === null) { alert('Please answer whether this finance is more than 10 years old.'); return; }
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+        const formData = new FormData();
+        formData.append('token', TOKEN);
+        formData.append('isOver10Years', isOver10);
+        formData.append('accountNumber', document.getElementById('accountNumber')?.value || '');
+        formData.append('lenderName', document.getElementById('lenderName')?.value || '');
+        formData.append('agreementDate', document.getElementById('agreementDate')?.value || '');
+        formData.append('amountBorrowed', document.getElementById('amountBorrowed')?.value || '');
+        formData.append('otherRefs', document.getElementById('otherRefs')?.value || '');
+
+        // Name changes
+        const nameEditVisible = document.getElementById('nameEdit').classList.contains('visible');
+        formData.append('nameChanged', nameEditVisible);
+        if (nameEditVisible) {
+            formData.append('newFirstName', document.getElementById('newFirstName').value);
+            formData.append('newLastName', document.getElementById('newLastName').value);
+        }
+
+        // DOB changes
+        const dobEditVisible = document.getElementById('dobEdit').classList.contains('visible');
+        formData.append('dobChanged', dobEditVisible);
+        if (dobEditVisible) {
+            formData.append('newDob', document.getElementById('newDob').value);
+        }
+
+        // Address changes
+        const addrEditVisible = document.getElementById('addressEdit').classList.contains('visible');
+        formData.append('addressChanged', addrEditVisible);
+        if (addrEditVisible) {
+            formData.append('newAddr1', document.getElementById('newAddr1').value);
+            formData.append('newCity', document.getElementById('newCity').value);
+            formData.append('newPostcode', document.getElementById('newPostcode').value);
+        }
+
+        // New previous addresses
+        const newAddresses = [];
+        for (let i = 1; i <= newAddressCount; i++) {
+            const a1 = document.getElementById('na_addr1_' + i)?.value;
+            if (a1) {
+                newAddresses.push({
+                    address_line_1: a1,
+                    address_line_2: document.getElementById('na_addr2_' + i)?.value || '',
+                    city: document.getElementById('na_city_' + i)?.value || '',
+                    postal_code: document.getElementById('na_postcode_' + i)?.value || '',
+                    dates: document.getElementById('na_dates_' + i)?.value || ''
+                });
+            }
+        }
+        formData.append('newPreviousAddresses', JSON.stringify(newAddresses));
+
+        // Files
+        for (const f of uploadedFiles) {
+            formData.append('documents', f);
+        }
+
+        const resp = await fetch('/api/submit-unable-to-locate', { method: 'POST', body: formData });
+        const data = await resp.json();
+
+        if (data.success) {
+            document.getElementById('formArea').style.display = 'none';
+            document.getElementById('successArea').style.display = 'block';
+        } else {
+            alert(data.message || 'Something went wrong. Please try again.');
+            btn.disabled = false;
+            btn.textContent = 'Submit Details';
+        }
+    } catch (err) {
+        alert('Network error. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Submit Details';
+    }
+}
+</script>
+</body>
+</html>`);
+    } catch (err) {
+        console.error('Error serving unable-to-locate page:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// POST /api/submit-unable-to-locate — Handle form submission
+app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (req, res) => {
+    try {
+        const { token, isOver10Years, accountNumber, lenderName, agreementDate, amountBorrowed, otherRefs,
+                nameChanged, newFirstName, newLastName,
+                dobChanged, newDob,
+                addressChanged, newAddr1, newCity, newPostcode,
+                newPreviousAddresses } = req.body;
+
+        if (!token) return res.status(400).json({ success: false, message: 'Missing token' });
+
+        // Find case
+        const caseRes = await pool.query(
+            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.dob,
+                    cnt.address_line_1, cnt.city, cnt.postal_code
+             FROM cases c
+             JOIN contacts cnt ON c.contact_id = cnt.id
+             WHERE c.unable_to_locate_token = $1`,
+            [token]
+        );
+
+        if (caseRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const record = caseRes.rows[0];
+        const contactId = record.contact_id;
+        const caseId = record.case_id;
+
+        // If over 10 years — just log and close
+        if (isOver10Years === 'true') {
+            await pool.query('UPDATE cases SET unable_to_locate_token = NULL WHERE id = $1', [caseId]);
+            await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
+
+            // Add note
+            await pool.query(
+                `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')`,
+                [contactId, \`[Unable to Locate - ${record.lender}] Client confirmed finance is MORE THAN 10 YEARS OLD. Claim cannot proceed — outside actionable limitation period.\`]
+            );
+
+            await pool.query(
+                \`INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+                 VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())\`,
+                [contactId, caseId, \`\${record.first_name} \${record.last_name}\`, \`Client confirmed finance with \${record.lender} is over 10 years old — claim closed\`]
+            );
+
+            return res.json({ success: true, message: 'Recorded. Finance is over 10 years old.' });
+        }
+
+        // Build changes note
+        const noteLines = [\`[Unable to Locate - \${record.lender}] Client submitted account details:\`];
+
+        // Account info
+        if (accountNumber) noteLines.push(\`Account Number: \${accountNumber}\`);
+        if (lenderName && lenderName !== record.lender) noteLines.push(\`Lender Name: \${lenderName}\`);
+        if (agreementDate) noteLines.push(\`Approx Date of Agreement: \${agreementDate}\`);
+        if (amountBorrowed) noteLines.push(\`Approx Amount Borrowed: \${amountBorrowed}\`);
+        if (otherRefs) noteLines.push(\`Other Reference Numbers: \${otherRefs}\`);
+
+        // Name changes
+        if (nameChanged === 'true' && newFirstName && newLastName) {
+            const oldName = \`\${record.first_name} \${record.last_name}\`;
+            noteLines.push(\`Name changed: \${oldName} → \${newFirstName} \${newLastName}\`);
+            await pool.query('UPDATE contacts SET first_name = $1, last_name = $2 WHERE id = $3', [newFirstName, newLastName, contactId]);
+        }
+
+        // DOB changes
+        if (dobChanged === 'true' && newDob) {
+            const oldDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB') : 'not set';
+            noteLines.push(\`DOB changed: \${oldDob} → \${new Date(newDob).toLocaleDateString('en-GB')}\`);
+            await pool.query('UPDATE contacts SET dob = $1 WHERE id = $2', [newDob, contactId]);
+        }
+
+        // Address changes
+        if (addressChanged === 'true' && newAddr1) {
+            const oldAddr = [record.address_line_1, record.city, record.postal_code].filter(Boolean).join(', ');
+            const newAddr = [newAddr1, newCity, newPostcode].filter(Boolean).join(', ');
+            noteLines.push(\`Address changed: \${oldAddr} → \${newAddr}\`);
+            await pool.query('UPDATE contacts SET address_line_1 = $1, city = $2, postal_code = $3 WHERE id = $4', [newAddr1, newCity, newPostcode, contactId]);
+        }
+
+        // New previous addresses
+        let parsedNewAddresses = [];
+        try { parsedNewAddresses = JSON.parse(newPreviousAddresses || '[]'); } catch (e) {}
+        if (parsedNewAddresses.length > 0) {
+            noteLines.push(\`New previous addresses added:\`);
+            for (const addr of parsedNewAddresses) {
+                const parts = [addr.address_line_1, addr.address_line_2, addr.city, addr.postal_code].filter(Boolean).join(', ');
+                const dates = addr.dates ? \` (dates: \${addr.dates})\` : '';
+                noteLines.push(\`  - \${parts}\${dates}\`);
+
+                // Insert into previous_addresses table
+                await pool.query(
+                    \`INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
+                     VALUES ($1, $2, $3, $4, $5, $6)\`,
+                    [contactId, addr.address_line_1 || '', addr.address_line_2 || '', addr.city || '', '', addr.postal_code || '']
+                );
+            }
+
+            // Also update the JSONB column
+            const existingRes = await pool.query('SELECT previous_addresses FROM contacts WHERE id = $1', [contactId]);
+            let existing = [];
+            try {
+                const val = existingRes.rows[0]?.previous_addresses;
+                if (val) existing = typeof val === 'string' ? JSON.parse(val) : val;
+                if (!Array.isArray(existing)) existing = [];
+            } catch (e) {}
+            const merged = [...existing, ...parsedNewAddresses];
+            await pool.query('UPDATE contacts SET previous_addresses = $1 WHERE id = $2', [JSON.stringify(merged), contactId]);
+        }
+
+        // Upload documents to S3
+        if (req.files && req.files.length > 0) {
+            const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
+            noteLines.push(\`Documents uploaded: \${req.files.map(f => f.originalname).join(', ')}\`);
+
+            for (const file of req.files) {
+                const s3Key = \`\${folderPath}Documents/Unable_to_Locate/\${file.originalname}\`;
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: s3Key,
+                    Body: file.buffer,
+                    ContentType: file.mimetype
+                }));
+
+                const docUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }), { expiresIn: 604800 });
+                await pool.query(
+                    \`INSERT INTO documents (contact_id, name, type, category, url, size, tags, document_status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Completed')\`,
+                    [contactId, file.originalname, file.mimetype.split('/')[1] || 'file', 'Unable to Locate',
+                     docUrl, \`\${(file.size / 1024).toFixed(1)} KB\`, [record.lender, 'Unable to Locate', 'Client Upload']]
+                );
+            }
+        }
+
+        // Save note
+        await pool.query(
+            \`INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')\`,
+            [contactId, noteLines.join('\\n')]
+        );
+
+        // Clear token
+        await pool.query('UPDATE cases SET unable_to_locate_token = NULL WHERE id = $1', [caseId]);
+
+        // Track completed
+        await pool.query(\`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1\`, [token]).catch(() => {});
+
+        // Action log
+        await pool.query(
+            \`INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, actor_name, action_type, action_category, description, timestamp)
+             VALUES ($1, $2, 'client', $1, $3, 'unable_to_locate_submitted', 'claims', $4, NOW())\`,
+            [contactId, caseId, \`\${record.first_name} \${record.last_name}\`, \`Client submitted account details for \${record.lender} (Unable to Locate)\`]
+        );
+
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error('Error processing unable-to-locate submission:', err);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
