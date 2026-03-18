@@ -11875,10 +11875,6 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             </div>
             <div id="fileList" class="file-list"></div>
 
-            <div class="input-group">
-                <label>Account Number / Reference Number</label>
-                <input type="text" id="accountNumber" placeholder="Enter any account or reference number you have">
-            </div>
         </div>
 
         <!-- Card 3: Client details verification -->
@@ -11955,9 +11951,9 @@ app.get('/unable-to-locate/:token', async (req, res) => {
 
         <!-- Success -->
         <div id="successArea" class="card success-msg">
-            <div class="icon">✅</div>
+            <div class="icon">😊</div>
             <h3>Thank You!</h3>
-            <p>Your details have been submitted successfully. Our team will review the information and continue investigating your claim.</p>
+            <p>Your details have been submitted successfully. Our team will review the information and continue investigating your claim. We appreciate your help!</p>
         </div>
     </div>
 
@@ -12023,6 +12019,7 @@ function selectAddr(n, i) {
     document.getElementById('na_addr1_' + n).value = name || street;
     document.getElementById('na_addr2_' + n).value = name ? street : '';
     document.getElementById('na_city_' + n).value = r.city || r.town || r.village || '';
+    document.getElementById('na_county_' + n).value = r.county || r.state || '';
     document.getElementById('na_postcode_' + n).value = postcode;
     document.getElementById('na_search_' + n).value = r.formatted || '';
     dd.className = 'suggestions';
@@ -12042,7 +12039,8 @@ function addAddressRow() {
     div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address #' + n + '</p>' +
         '<div class="input-group"><label>Search Address</label><div class="search-wrap"><input type="text" id="na_search_' + n + '" autocomplete="off" placeholder="Start typing an address..." oninput="handleAddrSearch(' + n + ', this.value)"><div id="na_suggestions_' + n + '" class="suggestions"></div></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
-        '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>';
+        '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>County</label><input type="text" id="na_county_' + n + '"></div></div>' +
+        '<div class="addr-row full"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>';
     document.getElementById('newAddressList').appendChild(div);
 }
 
@@ -12077,7 +12075,6 @@ async function submitForm() {
         const formData = new FormData();
         formData.append('token', TOKEN);
         formData.append('isOver10Years', isOver10);
-        formData.append('accountNumber', document.getElementById('accountNumber')?.value || '');
 
         // Name changes
         const nameEditVisible = document.getElementById('nameEdit').classList.contains('visible');
@@ -12112,8 +12109,8 @@ async function submitForm() {
                     address_line_1: a1,
                     address_line_2: document.getElementById('na_addr2_' + i)?.value || '',
                     city: document.getElementById('na_city_' + i)?.value || '',
-                    postal_code: document.getElementById('na_postcode_' + i)?.value || '',
-                    dates: document.getElementById('na_dates_' + i)?.value || ''
+                    county: document.getElementById('na_county_' + i)?.value || '',
+                    postal_code: document.getElementById('na_postcode_' + i)?.value || ''
                 });
             }
         }
@@ -12245,7 +12242,7 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
                 await pool.query(
                     `INSERT INTO previous_addresses (contact_id, address_line_1, address_line_2, city, county, postal_code)
                      VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [contactId, addr.address_line_1 || '', addr.address_line_2 || '', addr.city || '', '', addr.postal_code || '']
+                    [contactId, addr.address_line_1 || '', addr.address_line_2 || '', addr.city || '', addr.county || '', addr.postal_code || '']
                 );
             }
 
