@@ -11890,8 +11890,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Name</div><div class="detail-value">${r.first_name} ${r.last_name}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">NO</div>
                 </div>
             </div>
             <div id="nameEdit" class="edit-field">
@@ -11905,8 +11905,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Date of Birth</div><div class="detail-value">${dobFormatted}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">NO</div>
                 </div>
             </div>
             <div id="dobEdit" class="edit-field">
@@ -11917,8 +11917,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div class="detail-row">
                 <div><div class="detail-label">Address</div><div class="detail-value">${[r.address_line_1, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
                 <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">NO</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">YES</div>
+                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">NO</div>
                 </div>
             </div>
             <div id="addressEdit" class="edit-field">
@@ -12042,8 +12042,7 @@ function addAddressRow() {
     div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address #' + n + '</p>' +
         '<div class="input-group"><label>Search Address</label><div class="search-wrap"><input type="text" id="na_search_' + n + '" autocomplete="off" placeholder="Start typing an address..." oninput="handleAddrSearch(' + n + ', this.value)"><div id="na_suggestions_' + n + '" class="suggestions"></div></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
-        '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
-        '<div class="addr-row full"><div class="input-group"><label>Dates at this address (approx)</label><input type="text" id="na_dates_' + n + '" placeholder="e.g. 2015 - 2019"></div></div>';
+        '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>';
     document.getElementById('newAddressList').appendChild(div);
 }
 
