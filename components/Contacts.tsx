@@ -3596,8 +3596,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           </div>
                                        )}
 
-                                       {/* No of Loans - Conditional: only when non-credit-card finance type selected */}
-                                       {claimFileForm.financeTypes.some(ft => ft.financeType !== 'Credit Card') && (
+                                       {/* No of Loans - Conditional: show only when a loan-type finance type is selected */}
+                                       {claimFileForm.financeTypes.length > 0 && claimFileForm.financeTypes.some(ft => !['Credit Card', 'Catalogue Credit', 'Overdraft'].includes(ft.financeType)) && (
                                        <div>
                                           <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">No of Loans</label>
                                           <select
@@ -3628,12 +3628,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        )}
 
                                        {/* Dynamic Loan Details - Horizontal Grid Layout */}
-                                       {claimFileForm.financeTypes.some(ft => ft.financeType !== 'Credit Card') && claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
+                                       {claimFileForm.financeTypes.length > 0 && claimFileForm.financeTypes.some(ft => !['Credit Card', 'Catalogue Credit', 'Overdraft'].includes(ft.financeType)) && claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
                                           <div className="pl-4 border-l-4 border-blue-400 dark:border-blue-600 space-y-4">
                                              <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Loan Details (per Loan)</p>
                                              <div className="flex flex-wrap gap-4">
                                              {claimFileForm.loanDetails.map((loan, idx) => (
-                                                <div key={idx} className="min-w-[280px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
+                                                <div key={idx} className="min-w-[280px] max-w-[400px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
                                                    <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Loan {loan.loanNumber}</h4>
                                                       <div>
                                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Account Number</label>
@@ -3756,8 +3756,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           </div>
                                        )}
 
-                                       {/* No of Credit Cards - Conditional: only when Credit Card finance type selected */}
-                                       {claimFileForm.financeTypes.some(ft => ft.financeType === 'Credit Card') && (
+                                       {/* No of Credit Cards - Conditional: when Credit Card, Catalogue Credit, or Overdraft finance type selected */}
+                                       {claimFileForm.financeTypes.some(ft => ['Credit Card', 'Catalogue Credit', 'Overdraft'].includes(ft.financeType)) && (
                                        <div>
                                           <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">No of Credit Cards</label>
                                           <select
@@ -3779,6 +3779,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                              }}
                                              className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                           >
+                                             <option value="0">0</option>
                                              {LOAN_NUMBER_OPTIONS.map(num => (
                                                 <option key={num} value={num}>{num}</option>
                                              ))}
@@ -3788,12 +3789,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                        )}
 
                                        {/* Dynamic Credit Card Details - Horizontal Grid Layout */}
-                                       {claimFileForm.financeTypes.some(ft => ft.financeType === 'Credit Card') && claimFileForm.creditCardDetails && claimFileForm.creditCardDetails.length > 0 && (
+                                       {claimFileForm.financeTypes.some(ft => ['Credit Card', 'Catalogue Credit', 'Overdraft'].includes(ft.financeType)) && claimFileForm.creditCardDetails && claimFileForm.creditCardDetails.length > 0 && (
                                           <div className="pl-4 border-l-4 border-green-400 dark:border-green-600 space-y-4">
                                              <p className="text-sm font-bold text-green-600 dark:text-green-400">Credit Card Details (per Card)</p>
                                              <div className="flex flex-wrap gap-4">
                                              {claimFileForm.creditCardDetails.map((card, idx) => (
-                                                <div key={idx} className="min-w-[280px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
+                                                <div key={idx} className="min-w-[280px] max-w-[400px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
                                                    <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Credit card {card.cardNumber}</h4>
                                                       <div>
                                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Account Number</label>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Filter, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle, X, Loader2 } from 'lucide-react';
+import { Search, Filter, RefreshCw, Users, UserX, Calendar, Flag, CheckCircle, X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { API_ENDPOINTS } from '../src/config';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface TaskWorkClaim {
   id: number;
@@ -37,8 +36,6 @@ interface AdminUser {
   role: string;
 }
 
-const BATCH_SIZE = 50;
-
 const TaskWork: React.FC = () => {
   const { currentUser, addNotification } = useCRM();
 
@@ -48,9 +45,11 @@ const TaskWork: React.FC = () => {
   const [lenders, setLenders] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   // Filter state
   const [search, setSearch] = useState('');
@@ -78,10 +77,10 @@ const TaskWork: React.FC = () => {
     );
   }
 
-  const buildParams = useCallback((page: number) => {
+  const buildParams = useCallback((p: number) => {
     return new URLSearchParams({
-      page: String(page),
-      limit: String(BATCH_SIZE),
+      page: String(p),
+      limit: String(pageSize),
       ...(search && { search }),
       ...(statusFilter && { status: statusFilter }),
       ...(lenderFilter && { lender: lenderFilter }),
@@ -90,57 +89,38 @@ const TaskWork: React.FC = () => {
       ...(dateTo && { dateTo }),
       ...(flagFilter && { flagFilter }),
     });
-  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter, pageSize]);
 
-  // Initial fetch (replaces claims)
+  // Fetch claims for current page
   const fetchClaims = useCallback(async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     setLoading(true);
     try {
-      const params = buildParams(1);
+      const params = buildParams(page);
       const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
       const data = await res.json();
       setClaims(data.claims || []);
-      const pag = data.pagination || { total: 0, hasMore: false };
+      const pag = data.pagination || { total: 0 };
       setTotal(pag.total || 0);
-      setHasMore(pag.hasMore || false);
     } catch (err) {
       console.error('Failed to fetch task work claims:', err);
     } finally {
       fetchingRef.current = false;
       setLoading(false);
     }
-  }, [buildParams]);
+  }, [buildParams, page]);
 
-  // Load more (appends claims)
-  const loadMore = useCallback(async () => {
-    if (fetchingRef.current || !hasMore) return;
-    fetchingRef.current = true;
-    setLoadingMore(true);
-    try {
-      const nextPage = Math.floor(claims.length / BATCH_SIZE) + 1;
-      const params = buildParams(nextPage);
-      const res = await fetch(`${API_ENDPOINTS.api}/task-work/claims?${params}`);
-      const data = await res.json();
-      const newClaims = data.claims || [];
-      setClaims(prev => [...prev, ...newClaims]);
-      const pag = data.pagination || { total: 0, hasMore: false };
-      setTotal(pag.total || 0);
-      setHasMore(pag.hasMore || false);
-    } catch (err) {
-      console.error('Failed to load more claims:', err);
-    } finally {
-      fetchingRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [buildParams, claims.length, hasMore]);
+  const totalPages = Math.ceil(total / pageSize) || 1;
 
-  const { sentinelRef, scrollContainerRef } = useInfiniteScroll({
-    hasMore,
-    isLoading: loadingMore,
-    onLoadMore: loadMore,
-  });
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) setPage(newPage);
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
 
   const fetchFilterData = useCallback(async () => {
     try {
@@ -164,7 +144,12 @@ const TaskWork: React.FC = () => {
     fetchFilterData();
   }, [fetchFilterData]);
 
-  // Fetch on filter change — reset list
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, lenderFilter, assignedToFilter, dateFrom, dateTo, flagFilter]);
+
+  // Fetch on filter/page change
   useEffect(() => {
     fetchClaims();
   }, [fetchClaims]);
@@ -453,7 +438,7 @@ const TaskWork: React.FC = () => {
 
       {/* Table */}
       <div className="flex-1 bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden flex flex-col">
-        <div ref={scrollContainerRef} className="overflow-auto flex-1">
+        <div className="overflow-auto flex-1">
           <table className="w-full">
             <thead className="sticky top-0 bg-gray-50 dark:bg-surface-900 z-10">
               <tr className="border-b border-gray-200 dark:border-white/5">
@@ -575,23 +560,48 @@ const TaskWork: React.FC = () => {
             </tbody>
           </table>
 
-          {/* Loading more indicator */}
-          {loadingMore && (
-            <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
-              <Loader2 size={18} className="animate-spin" />
-              <span className="text-sm">Loading more claims...</span>
-            </div>
-          )}
-
-          {/* Infinite scroll sentinel */}
-          {hasMore && !loading && <div ref={sentinelRef} className="h-1" />}
         </div>
 
-        {/* Status Footer */}
-        <div className="flex items-center justify-center px-4 py-2 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900 shrink-0">
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            Showing {claims.length} of {total.toLocaleString()} claims
-          </span>
+        {/* Pagination Footer */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-surface-900 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {total > 0
+                ? `${((page - 1) * pageSize) + 1}-${Math.min(page * pageSize, total)} of ${total.toLocaleString()}`
+                : '0 results'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400 dark:text-gray-500">Per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="text-xs bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-orange cursor-pointer"
+              >
+                {[50, 100, 250, 500, 1000].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page <= 1}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page >= totalPages}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

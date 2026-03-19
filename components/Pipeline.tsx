@@ -1,9 +1,10 @@
 
-import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo } from 'react';
 
 import { PIPELINE_CATEGORIES, SPEC_LENDERS, toTitleCase } from '../constants';
 import { ClaimStatus, Claim, Contact } from '../types';
-import { Clock, ChevronLeft, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { API_ENDPOINTS } from '../src/config';
+import { Clock, ChevronLeft, ChevronRight, ChevronDown, Filter, Search, User, Sparkles, AlertCircle, TrendingUp, Phone, Calendar, X, LayoutGrid, List, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 
 // === PERFORMANCE: Debounce hook to prevent re-render on every keystroke ===
@@ -417,10 +418,11 @@ KanbanColumn.displayName = 'KanbanColumn';
 const Pipeline: React.FC = () => {
   const { claims, contacts, updateClaimStatus, bulkUpdateClaimStatusByIds, fetchAllClaims } = useCRM();
 
-  // Fetch all claims when Pipeline loads
-  useEffect(() => {
-    fetchAllClaims();
-  }, []);
+  // Server-side paginated list view state
+  const [listClaims, setListClaims] = useState<ListEnrichedClaim[]>([]);
+  const [listTotal, setListTotal] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const kanbanLoadedRef = React.useRef(false);
   const [draggedClaimId, setDraggedClaimId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
@@ -439,6 +441,7 @@ const Pipeline: React.FC = () => {
 
   // Inline status dropdown state for list view rows
   const [inlineStatusDropdownId, setInlineStatusDropdownId] = useState<string | null>(null);
+  const [inlineDropdownPos, setInlineDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   // Filter States
   const [dateRangeFilter, setDateRangeFilter] = useState('all');
@@ -457,18 +460,72 @@ const Pipeline: React.FC = () => {
   const [statusSearch, setStatusSearch] = useState('');
   const [lenderSearch, setLenderSearch] = useState('');
 
-  // Infinite scroll state for list view
-  const [listDisplayCount, setListDisplayCount] = useState(30);
-  const listObserverRef = useRef<IntersectionObserver | null>(null);
-  const listSentinelRef = useCallback((node: HTMLDivElement | null) => {
-    if (listObserverRef.current) { listObserverRef.current.disconnect(); listObserverRef.current = null; }
-    if (!node) return;
-    listObserverRef.current = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) setListDisplayCount(prev => prev + 30); },
-      { threshold: 0.1, rootMargin: '0px 0px 300px 0px' }
-    );
-    listObserverRef.current.observe(node);
-  }, []);
+  // Pagination state for list view
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(50);
+
+  // Server-side fetch for list view
+  const fetchListClaims = useCallback(async () => {
+    setListLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        limit: String(listPageSize),
+        ...(statusFilter && { status: statusFilter }),
+        ...(lenderFilter && { lender: lenderFilter }),
+        ...(clientFilter && { client: clientFilter }),
+        ...(sortColumn && { sortColumn }),
+        ...(sortDirection && { sortDirection }),
+      });
+      const res = await fetch(`${API_ENDPOINTS.api}/cases/paginated?${params}`);
+      const data = await res.json();
+      const statusToCat = new Map<string, string>();
+      for (const cat of PIPELINE_CATEGORIES) {
+        for (const s of cat.statuses) statusToCat.set(s, cat.title);
+      }
+      const enriched: ListEnrichedClaim[] = (data.claims || []).map((cs: any) => {
+        const contactName = cs.contact_full_name || [cs.contact_first_name, cs.contact_last_name].filter(Boolean).join(' ') || 'Unknown Client';
+        const cid = `RR-${cs.contact_id}`;
+        const ref = cs.lender_reference || cs.reference_specified || '';
+        return {
+          id: cs.id.toString(),
+          contactId: cs.contact_id.toString(),
+          lender: cs.lender,
+          status: cs.status,
+          claimValue: Number(cs.claim_value),
+          productType: cs.product_type,
+          accountNumber: cs.account_number,
+          startDate: cs.start_date ? new Date(cs.start_date).toLocaleDateString('en-GB') : '',
+          createdAt: cs.created_at || '',
+          daysInStage: 0,
+          contactName,
+          lenderReference: cs.lender_reference || '',
+          referenceSpecified: cs.reference_specified || '',
+          clientIdRef: ref ? `${cid}/${ref}` : cid,
+          workflowStage: statusToCat.get(cs.status) || 'Unknown',
+        };
+      });
+      setListClaims(enriched);
+      setListTotal(data.pagination?.total || 0);
+    } catch (err) {
+      console.error('Failed to fetch list claims:', err);
+    } finally {
+      setListLoading(false);
+    }
+  }, [listPage, listPageSize, statusFilter, lenderFilter, clientFilter, sortColumn, sortDirection]);
+
+  // Fetch list data when params change
+  useEffect(() => {
+    if (viewType === 'list') fetchListClaims();
+  }, [fetchListClaims, viewType]);
+
+  // Fetch all claims only when switching to kanban
+  useEffect(() => {
+    if (viewType === 'kanban' && !kanbanLoadedRef.current) {
+      fetchAllClaims();
+      kanbanLoadedRef.current = true;
+    }
+  }, [viewType, fetchAllClaims]);
 
   // Animation key - changes when filters change to trigger re-animation
   const filterKey = useMemo(() =>
@@ -587,17 +644,13 @@ const Pipeline: React.FC = () => {
     return { enrichedClaimsByCategory: buckets, allFilteredClaims: allFiltered };
   }, [claims, contactMap, statusFilter, lenderFilter, dateRangeFilter, clientFilter, statusToCategoryMap, sortColumn, sortDirection]);
 
-  // Infinite scroll calculations for list view
-  const visibleClaims = useMemo(() =>
-    allFilteredClaims.slice(0, listDisplayCount),
-    [allFilteredClaims, listDisplayCount]
-  );
-  const hasMoreListClaims = listDisplayCount < allFilteredClaims.length;
+  // Pagination calculations for list view (server-side)
+  const totalListPages = Math.ceil(listTotal / listPageSize) || 1;
 
-  // Reset display count when filters change
+  // Reset page when filters change
   React.useEffect(() => {
-    setListDisplayCount(30);
-  }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter]);
+    setListPage(1);
+  }, [statusFilter, lenderFilter, dateRangeFilter, clientFilter, listPageSize]);
 
   // Sort column handler for list view
   const handleSortColumn = useCallback((column: SortColumn) => {
@@ -612,9 +665,9 @@ const Pipeline: React.FC = () => {
     }
   }, [sortColumn, sortDirection]);
 
-  // Reset display count when sort changes
+  // Reset page when sort changes
   React.useEffect(() => {
-    setListDisplayCount(30);
+    setListPage(1);
   }, [sortColumn, sortDirection]);
 
   // Selection handlers for list view - wrapped in useCallback for stable references
@@ -632,13 +685,13 @@ const Pipeline: React.FC = () => {
 
   const toggleSelectAll = useCallback(() => {
     setSelectedClaims(prev => {
-      if (prev.size === allFilteredClaims.length) {
+      if (prev.size === listClaims.length) {
         return new Set<string>();
       } else {
-        return new Set(allFilteredClaims.map(c => c.id));
+        return new Set(listClaims.map(c => c.id));
       }
     });
-  }, [allFilteredClaims]);
+  }, [listClaims]);
 
   const clearSelection = useCallback(() => {
     setSelectedClaims(new Set());
@@ -750,7 +803,7 @@ const Pipeline: React.FC = () => {
             <div className="flex items-center gap-3">
                <h2 className="text-base font-bold text-navy-900 dark:text-white">Claims Pipeline</h2>
                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
-                  {claims.length} Claims
+                  {viewType === 'list' ? listTotal.toLocaleString() : claims.length} Claims
                </span>
                {/* View Toggle Button */}
                <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
@@ -1022,6 +1075,7 @@ const Pipeline: React.FC = () => {
                setStatusDropdownOpen(false);
                setLenderDropdownOpen(false);
                setInlineStatusDropdownId(null);
+               setInlineDropdownPos(null);
             }}
          />
       )}
@@ -1038,7 +1092,7 @@ const Pipeline: React.FC = () => {
                         <th className="w-12 px-4 py-3 border-r border-gray-200 dark:border-slate-600">
                            <input
                               type="checkbox"
-                              checked={allFilteredClaims.length > 0 && selectedClaims.size === allFilteredClaims.length}
+                              checked={listClaims.length > 0 && selectedClaims.size === listClaims.length}
                               onChange={toggleSelectAll}
                               className="w-4 h-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                            />
@@ -1070,7 +1124,16 @@ const Pipeline: React.FC = () => {
                   </thead>
                   {/* Table Body */}
                   <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                     {visibleClaims.length === 0 ? (
+                     {listLoading ? (
+                        <tr>
+                           <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                              <div className="flex items-center justify-center gap-2">
+                                 <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                                 <span className="text-sm">Loading claims...</span>
+                              </div>
+                           </td>
+                        </tr>
+                     ) : listClaims.length === 0 ? (
                         <tr>
                            <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                               <TrendingUp size={32} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
@@ -1078,7 +1141,7 @@ const Pipeline: React.FC = () => {
                            </td>
                         </tr>
                      ) : (
-                        visibleClaims.map((claim, index) => {
+                        listClaims.map((claim, index) => {
                            const priority = getPriorityFromClaimValue(claim.claimValue || 0);
                            const priorityStyle = priorityConfig[priority];
                            const avatarColor = getAvatarColor(claim.contactName);
@@ -1138,7 +1201,14 @@ const Pipeline: React.FC = () => {
                                     <button
                                        onClick={(e) => {
                                           e.stopPropagation();
-                                          setInlineStatusDropdownId(inlineStatusDropdownId === claim.id ? null : claim.id);
+                                          if (inlineStatusDropdownId === claim.id) {
+                                             setInlineStatusDropdownId(null);
+                                             setInlineDropdownPos(null);
+                                          } else {
+                                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                             setInlineDropdownPos({ top: rect.bottom + 4, left: rect.left });
+                                             setInlineStatusDropdownId(claim.id);
+                                          }
                                        }}
                                        className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-md ${priorityStyle.bgColor} ${priorityStyle.color} hover:ring-2 hover:ring-offset-1 hover:ring-indigo-300 transition-colors cursor-pointer`}
                                     >
@@ -1148,8 +1218,11 @@ const Pipeline: React.FC = () => {
                                     </button>
 
                                     {/* Inline Status Dropdown */}
-                                    {inlineStatusDropdownId === claim.id && (
-                                       <div className="absolute left-0 top-full mt-1 z-[100] bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-72 max-h-80 overflow-hidden">
+                                    {inlineStatusDropdownId === claim.id && inlineDropdownPos && (
+                                       <div
+                                          className="fixed z-[9999] bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-600 w-72 max-h-80 overflow-hidden"
+                                          style={{ top: inlineDropdownPos.top, left: inlineDropdownPos.left }}
+                                       >
                                           <div className="p-2 border-b border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50">
                                              <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Change Status</span>
                                           </div>
@@ -1214,20 +1287,47 @@ const Pipeline: React.FC = () => {
                      )}
                   </tbody>
                </table>
-               {/* Infinite scroll sentinel */}
-               {hasMoreListClaims && (
-                  <div ref={listSentinelRef} className="flex items-center justify-center py-3 text-xs text-gray-400">
-                     Scroll for more...
-                  </div>
-               )}
-               {/* Status footer */}
-               {allFilteredClaims.length > 0 && (
-                  <div className="px-4 py-2 text-center border-t border-gray-200 dark:border-slate-700">
-                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                        Showing {visibleClaims.length} of {allFilteredClaims.length} claims
+               {/* Pagination Footer */}
+               <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
+                  <div className="flex items-center gap-3">
+                     <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {listTotal > 0
+                           ? `${((listPage - 1) * listPageSize) + 1}-${Math.min(listPage * listPageSize, listTotal)} of ${listTotal.toLocaleString()}`
+                           : '0 results'}
                      </span>
+                     <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400 dark:text-gray-500">Per page:</span>
+                        <select
+                           value={listPageSize}
+                           onChange={(e) => setListPageSize(Number(e.target.value))}
+                           className="text-xs bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        >
+                           {[50, 100, 250, 500, 1000].map(n => (
+                              <option key={n} value={n}>{n}</option>
+                           ))}
+                        </select>
+                     </div>
                   </div>
-               )}
+                  <div className="flex items-center gap-2">
+                     <button
+                        onClick={() => setListPage(p => Math.max(1, p - 1))}
+                        disabled={listPage <= 1}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                     >
+                        <ChevronLeft size={18} />
+                     </button>
+                     <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Page {listPage} of {totalListPages || 1}
+                     </span>
+                     <button
+                        onClick={() => setListPage(p => Math.min(totalListPages, p + 1))}
+                        disabled={listPage >= totalListPages}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                     >
+                        <ChevronRight size={18} />
+                     </button>
+                  </div>
+               </div>
             </div>
          </div>
       )}

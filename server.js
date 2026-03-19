@@ -6638,6 +6638,80 @@ app.get('/api/cases', async (req, res) => {
     }
 });
 
+// Get cases with server-side pagination + filters (for Pipeline list view)
+app.get('/api/cases/paginated', async (req, res) => {
+    try {
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 50));
+        const offset = (page - 1) * limit;
+        const { status, lender, client, sortColumn, sortDirection } = req.query;
+
+        const conditions = [];
+        const params = [];
+        let paramIdx = 1;
+
+        if (status) {
+            conditions.push(`c.status = $${paramIdx++}`);
+            params.push(status);
+        }
+        if (lender) {
+            conditions.push(`c.lender = $${paramIdx++}`);
+            params.push(lender);
+        }
+        if (client) {
+            conditions.push(`(con.full_name ILIKE $${paramIdx} OR con.first_name ILIKE $${paramIdx} OR con.last_name ILIKE $${paramIdx})`);
+            params.push(`%${client}%`);
+            paramIdx++;
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        // Validate sort column to prevent SQL injection
+        const allowedSortColumns = {
+            contactName: 'con.full_name',
+            lender: 'c.lender',
+            status: 'c.status',
+            createdAt: 'c.created_at',
+        };
+        const sortCol = allowedSortColumns[sortColumn] || 'c.created_at';
+        const sortDir = sortDirection === 'asc' ? 'ASC' : 'DESC';
+
+        const countQuery = `SELECT COUNT(*) FROM cases c LEFT JOIN contacts con ON c.contact_id = con.id ${whereClause}`;
+        const dataQuery = `
+            SELECT c.id, c.contact_id, c.lender, c.status, c.claim_value, c.product_type,
+                   c.account_number, c.start_date, c.created_at,
+                   c.lender_reference, c.reference_specified,
+                   con.first_name AS contact_first_name, con.last_name AS contact_last_name,
+                   con.full_name AS contact_full_name
+            FROM cases c
+            LEFT JOIN contacts con ON c.contact_id = con.id
+            ${whereClause}
+            ORDER BY ${sortCol} ${sortDir}
+            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+        `;
+
+        const [countRes, dataRes] = await Promise.all([
+            pool.query(countQuery, params),
+            pool.query(dataQuery, [...params, limit, offset])
+        ]);
+
+        const total = parseInt(countRes.rows[0].count);
+        res.json({
+            claims: dataRes.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasMore: page * limit < total
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching paginated cases:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get claims filtered by status with pagination
 app.get('/api/crm/claims', async (req, res) => {
     try {

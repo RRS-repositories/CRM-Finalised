@@ -3,6 +3,14 @@ import { Conversation, Contact, Document, Template, Form, KPI, ClaimStatus, Emai
 // Pipeline Categories for Kanban board
 export const PIPELINE_CATEGORIES = [
   {
+    id: 'temp',
+    title: 'Temp',
+    color: 'border-l-gray-400',
+    statuses: [
+      ClaimStatus.TEMP,
+    ],
+  },
+  {
     id: 'lead-generation',
     title: 'Lead Generation & SALES',
     color: 'border-l-blue-500',

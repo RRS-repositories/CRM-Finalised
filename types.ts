@@ -1,5 +1,8 @@
 
 export enum ClaimStatus {
+  // Temp - no triggers
+  TEMP = "Temp",
+
   // Category 1: Lead Generation & SALES
   NEW_LEAD = "New Lead",
   CONTACT_ATTEMPTED = "Contact Attempted",
