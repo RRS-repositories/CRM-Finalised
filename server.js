@@ -11775,22 +11775,33 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .card h2 { color: #0f172a; font-size: 22px; margin-bottom: 4px; font-weight: 700; }
         .card .subtitle { color: #64748b; font-size: 15px; margin-bottom: 24px; }
         .lender-badge { display: inline-block; background: linear-gradient(145deg, #1e3a5f, #0f172a); color: #fff; padding: 8px 20px; border-radius: 8px; font-weight: 700; font-size: 16px; margin-bottom: 24px; }
+        .step-num { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: linear-gradient(145deg, #f97316, #ea580c); color: #fff; border-radius: 50%; font-weight: 700; font-size: 14px; margin-right: 10px; flex-shrink: 0; }
+        .step-num.completed { background: linear-gradient(145deg, #22c55e, #16a34a); }
+        .step-header { display: flex; align-items: center; margin-bottom: 20px; }
+        .step-header h2 { margin-bottom: 0; }
 
         .question-row { margin-bottom: 24px; }
         .question-label { font-size: 16px; color: #1e293b; font-weight: 600; margin-bottom: 10px; }
         .toggle-group { display: flex; gap: 12px; }
-        .toggle-btn { flex: 1; padding: 14px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; font-size: 16px; font-weight: 600; color: #64748b; text-align: center; transition: all 0.2s; }
+        .toggle-btn { flex: 1; padding: 14px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; font-size: 16px; font-weight: 600; color: #64748b; text-align: center; transition: all 0.2s; user-select: none; }
         .toggle-btn:hover { border-color: #94a3b8; }
         .toggle-btn.selected-yes { border-color: #22c55e; background: #f0fdf4; color: #16a34a; }
         .toggle-btn.selected-no { border-color: #ef4444; background: #fef2f2; color: #dc2626; }
 
         .stop-banner { background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-left: 5px solid #ef4444; padding: 24px; border-radius: 0 14px 14px 0; margin: 20px 0; }
         .stop-banner p { color: #991b1b; font-size: 16px; line-height: 1.6; }
-        .stop-banner .stop-icon { font-size: 24px; margin-bottom: 8px; }
         .stop-banner .stop-title { font-weight: 700; font-size: 18px; color: #7f1d1d; margin-bottom: 8px; }
 
-        .section { display: none; }
-        .section.visible { display: block; }
+        .step { display: none; opacity: 0; transform: translateY(20px); transition: opacity 0.4s ease, transform 0.4s ease; }
+        .step.visible { display: block; }
+        .step.animate-in { opacity: 1; transform: translateY(0); }
+
+        .choice-btn { display: flex; align-items: center; gap: 14px; width: 100%; padding: 18px 24px; border: 2px solid #e2e8f0; border-radius: 14px; background: #fff; cursor: pointer; font-size: 16px; font-weight: 600; color: #334155; transition: all 0.2s; margin-bottom: 12px; text-align: left; }
+        .choice-btn:hover { border-color: #f97316; background: #fff7ed; }
+        .choice-btn.selected { border-color: #f97316; background: #fff7ed; }
+        .choice-btn .choice-icon { font-size: 28px; }
+        .choice-btn .choice-text { flex: 1; }
+        .choice-btn .choice-text small { display: block; font-weight: 400; font-size: 13px; color: #64748b; margin-top: 2px; }
 
         .detail-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
         .detail-label { font-size: 14px; color: #64748b; font-weight: 500; }
@@ -11799,24 +11810,35 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .edit-field input { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px; font-family: 'Inter', sans-serif; }
         .edit-field.visible { display: block; margin-top: 8px; }
 
+        .correction-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+        .correction-btn { padding: 10px 20px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; font-size: 14px; font-weight: 600; color: #334155; transition: all 0.2s; }
+        .correction-btn:hover { border-color: #f97316; background: #fff7ed; }
+        .correction-btn.active { border-color: #f97316; background: #fff7ed; color: #ea580c; }
+
         .input-group { margin-bottom: 16px; }
         .input-group label { display: block; font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 6px; }
         .input-group input, .input-group textarea { width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; font-family: 'Inter', sans-serif; transition: border-color 0.2s; }
         .input-group input:focus, .input-group textarea:focus { outline: none; border-color: #f97316; }
-        .input-group textarea { resize: vertical; min-height: 80px; }
 
-        .file-upload { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; }
+        .file-upload { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; }
         .file-upload:hover { border-color: #f97316; background: #fff7ed; }
         .file-upload input { display: none; }
         .file-upload p { color: #64748b; font-size: 15px; }
-        .file-upload .upload-icon { font-size: 32px; margin-bottom: 8px; }
+        .file-upload .upload-icon { font-size: 40px; margin-bottom: 8px; }
         .file-list { margin-top: 8px; }
         .file-item { background: #f0fdf4; padding: 8px 14px; border-radius: 8px; margin-bottom: 6px; font-size: 14px; color: #16a34a; display: flex; justify-content: space-between; align-items: center; }
         .file-item .remove { cursor: pointer; color: #ef4444; font-weight: 700; }
 
-        .prev-addr-add { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 16px; margin-top: 12px; }
+        .completed-addr { background: #f0fdf4; border: 2px solid #bbf7d0; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+        .completed-addr .addr-check { color: #22c55e; font-size: 20px; flex-shrink: 0; }
+        .completed-addr .addr-text { font-size: 15px; color: #334155; font-weight: 500; }
+
+        .prev-addr-add { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; margin-top: 12px; }
         .prev-addr-add .addr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
         .prev-addr-add .addr-row.full { grid-template-columns: 1fr; }
+
+        .btn-continue { display: block; width: 100%; padding: 16px; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #fff; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 16px rgba(249,115,22,0.35); transition: all 0.2s; margin-top: 16px; }
+        .btn-continue:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(249,115,22,0.4); }
 
         .btn-submit { display: block; width: 100%; padding: 18px; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #fff; font-size: 18px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 16px rgba(249,115,22,0.35); transition: all 0.2s; }
         .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(249,115,22,0.4); }
@@ -11824,6 +11846,9 @@ app.get('/unable-to-locate/:token', async (req, res) => {
 
         .btn-secondary { display: inline-block; padding: 10px 20px; background: #f1f5f9; color: #334155; font-size: 14px; font-weight: 600; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
         .btn-secondary:hover { background: #e2e8f0; }
+
+        .btn-save-addr { padding: 12px 24px; background: #22c55e; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; margin-top: 8px; }
+        .btn-save-addr:hover { background: #16a34a; }
 
         .success-msg { display: none; text-align: center; padding: 40px; }
         .success-msg .icon { font-size: 64px; margin-bottom: 16px; }
@@ -11836,9 +11861,18 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .suggestions div { padding: 10px 14px; font-size: 14px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
         .suggestions div:hover { background: #fff7ed; }
 
+        .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+        .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { font-size: 14px; color: #64748b; font-weight: 500; }
+        .info-value { font-size: 15px; color: #0f172a; font-weight: 600; text-align: right; max-width: 60%; }
+
         @media (max-width: 600px) {
             .card { padding: 24px; }
             .prev-addr-add .addr-row { grid-template-columns: 1fr; }
+            .detail-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .info-row { flex-direction: column; gap: 4px; }
+            .info-value { text-align: left; max-width: 100%; }
         }
     </style>
 </head>
@@ -11847,130 +11881,191 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         <div class="header"><h1>Rowan Rose Solicitors</h1></div>
 
         <div id="formArea">
-        <!-- Card 1: Is finance over 10 years? -->
-        <div class="card">
-            <h2>Account Details Required</h2>
+
+        <!-- STEP 1: Is finance over 10 years? -->
+        <div class="card step visible animate-in" id="step1">
+            <div class="step-header"><span class="step-num" id="stepNum1">1</span><h2>Account Details Required</h2></div>
             <p class="subtitle">Claim with <span class="lender-badge">${r.lender}</span></p>
 
             <div class="question-row">
                 <div class="question-label">Is this finance more than 10 years old?</div>
                 <div class="toggle-group">
-                    <div class="toggle-btn" onclick="setOver10(true)" id="over10Yes">YES</div>
-                    <div class="toggle-btn" onclick="setOver10(false)" id="over10No">NO</div>
+                    <div class="toggle-btn" onclick="answerQ1(true)" id="q1Yes">YES</div>
+                    <div class="toggle-btn" onclick="answerQ1(false)" id="q1No">NO</div>
                 </div>
             </div>
 
-            <!-- Stop banner for YES -->
-            <div id="stopBanner" class="stop-banner" style="display:none;">
+            <div id="stopBanner1" class="stop-banner" style="display:none;">
                 <div class="stop-title">Unable to Continue</div>
                 <p>Unfortunately we are unable to continue with this claim. Finance agreements over 10 years old fall outside the actionable limitation period.</p>
             </div>
         </div>
 
-        <!-- Card 2: Account info + file upload (hidden until NO) -->
-        <div id="accountSection" class="section">
-        <div class="card">
-            <h2>Account Information</h2>
-            <p class="subtitle">We were unable to locate your account with <strong>${r.lender}</strong>. Please provide any account details or reference numbers to help us with our search.</p>
-
-            <p style="font-size: 16px; color: #334155; font-weight: 600; margin-bottom: 8px;">You can:</p>
-            <ul style="font-size: 15px; color: #475569; margin-bottom: 20px; padding-left: 20px; line-height: 2;">
-                <li>Upload your paperwork below</li>
-                <li>Send copies via email to <strong>irl@rowanrose.co.uk</strong></li>
-                <li>Take a picture of your documents</li>
-            </ul>
-
-            <div class="input-group" style="margin-bottom: 24px;">
-                <label style="font-size: 15px; font-weight: 600; color: #334155;">Account Number</label>
-                <input type="text" id="accountNumber" placeholder="Enter your account number" value="${existingAccountNumber}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; font-family: 'Inter', sans-serif; transition: border-color 0.2s;" onfocus="this.style.borderColor='#f97316'" onblur="this.style.borderColor='#e2e8f0'">
-            </div>
-
-            <div class="file-upload" onclick="document.getElementById('fileInput').click()">
-                <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" onchange="handleFiles(this.files)">
-                <div class="upload-icon">📄</div>
-                <p><strong>Upload your paperwork</strong><br>Click to browse or take a photo</p>
-            </div>
-            <div id="fileList" class="file-list"></div>
-
-        </div>
-
-        <!-- Card 3: Client details verification -->
-        <div class="card">
-            <h2>Client Details</h2>
-            <p class="subtitle">Please verify your information is correct</p>
-
-            <!-- Name -->
-            <div class="detail-row">
-                <div><div class="detail-label">Name</div><div class="detail-value">${r.first_name} ${r.last_name}</div></div>
-                <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('name', true, this)">NO</div>
-                </div>
-            </div>
-            <div id="nameEdit" class="edit-field">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
-                    <div class="input-group"><label>First Name</label><input type="text" id="newFirstName" value="${r.first_name}"></div>
-                    <div class="input-group"><label>Last Name</label><input type="text" id="newLastName" value="${r.last_name}"></div>
-                </div>
-            </div>
-
-            <!-- DOB -->
-            <div class="detail-row">
-                <div><div class="detail-label">Date of Birth</div><div class="detail-value">${dobFormatted}</div></div>
-                <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('dob', true, this)">NO</div>
-                </div>
-            </div>
-            <div id="dobEdit" class="edit-field">
-                <div class="input-group" style="margin-top:8px;"><label>Date of Birth</label><input type="date" id="newDob" value="${r.dob ? new Date(r.dob).toISOString().split('T')[0] : ''}"></div>
-            </div>
-
-            <!-- Current Address -->
-            <div class="detail-row">
-                <div><div class="detail-label">Current Address</div><div class="detail-value">${[r.address_line_1, r.address_line_2, r.city, r.postal_code].filter(Boolean).join(', ')}</div></div>
-                <div class="toggle-group" style="width:160px;">
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', false, this)">YES</div>
-                    <div class="toggle-btn" style="padding:8px;" onclick="toggleCorrect('address', true, this)">NO</div>
-                </div>
-            </div>
-            <div id="addressEdit" class="edit-field">
-                <div class="input-group" style="margin-top:8px;"><label>Search Address</label><div class="search-wrap"><input type="text" id="addrSearch" autocomplete="off" placeholder="Start typing to search..." oninput="handleCurrentAddrSearch(this.value)"><div id="addrSuggestions" class="suggestions"></div></div></div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                    <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
-                    <div class="input-group"><label>Address Line 2</label><input type="text" id="newAddr2" value="${r.address_line_2 || ''}"></div>
-                </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                    <div class="input-group"><label>City</label><input type="text" id="newCity" value="${r.city || ''}"></div>
-                    <div class="input-group"><label>County</label><input type="text" id="newCounty" value=""></div>
-                </div>
-                <div class="input-group"><label>Postcode</label><input type="text" id="newPostcode" value="${r.postal_code || ''}"></div>
-            </div>
-        </div>
-
-        <!-- Card 4: Previous addresses -->
-        <div class="card">
-            <h2>Previous Addresses</h2>
-            ${prevAddresses.length > 0 ? `<p class="subtitle">Addresses we have on file:</p>${prevAddressesHtml}` : '<p class="subtitle">No previous addresses on file.</p>'}
-
-            <div class="question-row" style="margin-top:16px;">
-                <div class="question-label">Did you have any more previous addresses?</div>
+        <!-- STEP 2: Confirm finance with lender -->
+        <div class="card step" id="step2">
+            <div class="step-header"><span class="step-num" id="stepNum2">2</span><h2>Confirm Your Finance</h2></div>
+            <div class="question-row">
+                <div class="question-label">Have you definitely had finance with <strong>${r.lender}</strong> in the last 10 years?</div>
                 <div class="toggle-group">
-                    <div class="toggle-btn" onclick="toggleMoreAddresses(true, this)" id="moreAddrYes">YES</div>
-                    <div class="toggle-btn" onclick="toggleMoreAddresses(false, this)" id="moreAddrNo">NO</div>
+                    <div class="toggle-btn" onclick="answerQ2(true)" id="q2Yes">YES</div>
+                    <div class="toggle-btn" onclick="answerQ2(false)" id="q2No">NO</div>
                 </div>
+            </div>
+
+            <div id="stopBanner2" class="stop-banner" style="display:none;">
+                <div class="stop-title">Unable to Continue</div>
+                <p>We can only proceed if you have had finance with ${r.lender}. If you believe this is incorrect, please contact us at <strong>irl@rowanrose.co.uk</strong>.</p>
+            </div>
+        </div>
+
+        <!-- STEP 3: Paperwork or Account Number -->
+        <div class="card step" id="step3">
+            <div class="step-header"><span class="step-num" id="stepNum3">3</span><h2>Account Information</h2></div>
+            <p class="subtitle">We were unable to locate your account with <strong>${r.lender}</strong>.</p>
+
+            <div class="question-row">
+                <div class="question-label">Do you still have any paperwork or account numbers?</div>
+                <div class="toggle-group">
+                    <div class="toggle-btn" onclick="answerQ3(true)" id="q3Yes">YES</div>
+                    <div class="toggle-btn" onclick="answerQ3(false)" id="q3No">NO</div>
+                </div>
+            </div>
+
+            <!-- Sub-choice: Account Number or Paperwork -->
+            <div id="q3SubChoice" style="display:none;">
+                <div class="question-label" style="margin-top:8px;">What do you have?</div>
+                <button class="choice-btn" onclick="chooseEvidence('account')" id="choiceAccount">
+                    <span class="choice-icon">#</span>
+                    <span class="choice-text">Account Number<small>I know my account or reference number</small></span>
+                </button>
+                <button class="choice-btn" onclick="chooseEvidence('paperwork')" id="choicePaperwork">
+                    <span class="choice-icon">📸</span>
+                    <span class="choice-text">Paperwork<small>I have documents, letters or statements</small></span>
+                </button>
+            </div>
+
+            <!-- Account Number Input -->
+            <div id="accountNumberArea" style="display:none; margin-top:16px;">
+                <div class="input-group">
+                    <label>Account Number</label>
+                    <input type="text" id="accountNumber" placeholder="Enter your account or reference number" value="${existingAccountNumber}">
+                </div>
+            </div>
+
+            <!-- Paperwork / Camera Upload -->
+            <div id="paperworkArea" style="display:none; margin-top:16px;">
+                <p style="font-size: 15px; color: #475569; margin-bottom: 16px; font-weight: 500;">Take a picture to help us with your claim or upload the paperwork you have</p>
+                <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" capture="environment" onchange="handleFiles(this.files)">
+                    <div class="upload-icon">📷</div>
+                    <p><strong>Take a Photo or Upload</strong><br>Tap to open camera or browse files</p>
+                </div>
+                <div id="fileList" class="file-list"></div>
+            </div>
+
+            <button class="btn-continue" id="q3Continue" style="display:none;" onclick="finishStep3()">Continue</button>
+        </div>
+
+        <!-- STEP 4: Verify Details -->
+        <div class="card step" id="step4">
+            <div class="step-header"><span class="step-num" id="stepNum4">4</span><h2>Verify Your Details</h2></div>
+            <p class="subtitle">Are the details below all correct?</p>
+
+            <div class="info-box">
+                <div class="info-row">
+                    <span class="info-label">Full Name</span>
+                    <span class="info-value">${r.first_name} ${r.last_name}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Date of Birth</span>
+                    <span class="info-value">${dobFormatted}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Full Address</span>
+                    <span class="info-value">${[r.address_line_1, r.address_line_2, r.city, r.postal_code].filter(Boolean).join(', ')}</span>
+                </div>
+            </div>
+
+            <div class="toggle-group" style="margin-bottom:16px;">
+                <div class="toggle-btn" onclick="answerQ4(true)" id="q4Yes">YES - All Correct</div>
+                <div class="toggle-btn" onclick="answerQ4(false)" id="q4No">NO - Something is Wrong</div>
+            </div>
+
+            <!-- Which is incorrect? -->
+            <div id="q4Corrections" style="display:none;">
+                <div class="question-label">Which is incorrect? (select all that apply)</div>
+                <div class="correction-btns">
+                    <button class="correction-btn" onclick="toggleCorrectionField('name', this)">Name</button>
+                    <button class="correction-btn" onclick="toggleCorrectionField('dob', this)">Date of Birth</button>
+                    <button class="correction-btn" onclick="toggleCorrectionField('address', this)">Address</button>
+                </div>
+
+                <!-- Name edit -->
+                <div id="nameEdit" class="edit-field">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+                        <div class="input-group"><label>First Name</label><input type="text" id="newFirstName" value="${r.first_name}"></div>
+                        <div class="input-group"><label>Last Name</label><input type="text" id="newLastName" value="${r.last_name}"></div>
+                    </div>
+                </div>
+
+                <!-- DOB edit -->
+                <div id="dobEdit" class="edit-field">
+                    <div class="input-group" style="margin-top:12px;"><label>Date of Birth</label><input type="date" id="newDob" value="${r.dob ? new Date(r.dob).toISOString().split('T')[0] : ''}"></div>
+                </div>
+
+                <!-- Address edit -->
+                <div id="addressEdit" class="edit-field">
+                    <div class="input-group" style="margin-top:12px;"><label>Search Address</label><div class="search-wrap"><input type="text" id="addrSearch" autocomplete="off" placeholder="Start typing to search..." oninput="handleCurrentAddrSearch(this.value)"><div id="addrSuggestions" class="suggestions"></div></div></div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
+                        <div class="input-group"><label>Address Line 2</label><input type="text" id="newAddr2" value="${r.address_line_2 || ''}"></div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="input-group"><label>City</label><input type="text" id="newCity" value="${r.city || ''}"></div>
+                        <div class="input-group"><label>County</label><input type="text" id="newCounty" value=""></div>
+                    </div>
+                    <div class="input-group"><label>Postcode</label><input type="text" id="newPostcode" value="${r.postal_code || ''}"></div>
+                </div>
+            </div>
+
+            <button class="btn-continue" id="q4Continue" style="display:none;" onclick="finishStep4()">Continue</button>
+        </div>
+
+        <!-- STEP 5: Previous Addresses -->
+        <div class="card step" id="step5">
+            <div class="step-header"><span class="step-num" id="stepNum5">5</span><h2>Previous Addresses</h2></div>
+            <p class="subtitle">Have you lived at any other address in the last 10 years?</p>
+
+            <div style="margin-bottom: 20px;">
+                <div class="completed-addr">
+                    <span class="addr-check">&#10003;</span>
+                    <span class="addr-text"><strong>Current Address:</strong> ${[r.address_line_1, r.address_line_2, r.city, r.postal_code].filter(Boolean).join(', ')}</span>
+                </div>
+                ${prevAddresses.length > 0 ? prevAddresses.map(function(a) {
+                    var parts = [a.address_line_1, a.address_line_2, a.city, a.county, a.postal_code].filter(Boolean);
+                    return '<div class="completed-addr"><span class="addr-check">&#10003;</span><span class="addr-text"><strong>Previous:</strong> ' + parts.join(', ') + '</span></div>';
+                }).join('') : ''}
+            </div>
+
+            <div class="toggle-group" style="margin-bottom:16px;">
+                <div class="toggle-btn" onclick="answerQ5(true)" id="q5Yes">YES</div>
+                <div class="toggle-btn" onclick="answerQ5(false)" id="q5No">NO</div>
             </div>
 
             <div id="newAddressArea" style="display:none;">
-                <div id="newAddressList"></div>
-                <button type="button" class="btn-secondary" onclick="addAddressRow()" style="margin-top:8px;">+ Add Another Address</button>
+                <div id="completedAddressesList"></div>
+                <div id="newAddressFormWrap">
+                    <div id="newAddressList"></div>
+                </div>
+                <button type="button" class="btn-secondary" onclick="addAddressRow()" id="addMoreAddrBtn" style="margin-top:8px; display:none;">+ Add Another Address</button>
             </div>
+
+            <button class="btn-continue" id="q5Continue" style="display:none;" onclick="finishStep5()">Continue</button>
         </div>
 
-        <!-- Submit -->
-        <!-- Card 5: Signature -->
-        <div class="card">
-            <h2>Signature</h2>
+        <!-- STEP 6: Signature -->
+        <div class="card step" id="step6">
+            <div class="step-header"><span class="step-num" id="stepNum6">6</span><h2>Signature</h2></div>
             <p class="subtitle">Please sign below to authorise Rowan Rose Solicitors to continue investigating your claim</p>
             <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff;">
                 <canvas id="sigCanvas" width="660" height="180" style="width:100%; cursor:crosshair; touch-action:none;"></canvas>
@@ -11978,14 +12073,14 @@ app.get('/unable-to-locate/:token', async (req, res) => {
             <div style="display:flex; justify-content:flex-end; margin-top:8px;">
                 <button type="button" class="btn-secondary" onclick="clearSignature()">Clear Signature</button>
             </div>
+            <button class="btn-submit" id="submitBtn" onclick="submitForm()" style="margin-top:20px;">Submit Details</button>
         </div>
 
-        <button class="btn-submit" id="submitBtn" onclick="submitForm()">Submit Details</button>
         </div>
 
         <!-- Success -->
         <div id="successArea" class="card success-msg">
-            <div class="icon">😊</div>
+            <div class="icon">&#128522;</div>
             <h3>Thank You!</h3>
             <p>Your details have been submitted successfully. Our team will review the information and continue investigating your claim. We appreciate your help!</p>
         </div>
@@ -11994,42 +12089,152 @@ app.get('/unable-to-locate/:token', async (req, res) => {
 <script>
 const TOKEN = '${token}';
 let isOver10 = null;
+let confirmedFinance = null;
 let uploadedFiles = [];
 let newAddressCount = 0;
 let sigDrawn = false;
+let evidenceType = null;
+let correctionFields = { name: false, dob: false, address: false };
 
-// Signature canvas
-const canvas = document.getElementById('sigCanvas');
-const ctx = canvas.getContext('2d');
-let drawing = false;
-canvas.addEventListener('pointerdown', function(e) { drawing = true; sigDrawn = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
-canvas.addEventListener('pointermove', function(e) { if (!drawing) return; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); });
-canvas.addEventListener('pointerup', function() { drawing = false; });
-canvas.addEventListener('pointerleave', function() { drawing = false; });
-function clearSignature() { ctx.clearRect(0, 0, canvas.width, canvas.height); sigDrawn = false; }
+function showStep(id) {
+    var el = document.getElementById(id);
+    el.classList.add('visible');
+    setTimeout(function() { el.classList.add('animate-in'); }, 30);
+    setTimeout(function() { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+}
 
-function setOver10(val) {
+function markCompleted(num) {
+    var el = document.getElementById('stepNum' + num);
+    el.classList.add('completed');
+    el.innerHTML = '&#10003;';
+}
+
+// ── STEP 1 ──
+function answerQ1(val) {
     isOver10 = val;
-    document.getElementById('over10Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
-    document.getElementById('over10No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
-    document.getElementById('stopBanner').style.display = val ? 'block' : 'none';
-    document.getElementById('accountSection').className = val ? 'section' : 'section visible';
+    document.getElementById('q1Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
+    document.getElementById('q1No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
+    document.getElementById('stopBanner1').style.display = val ? 'block' : 'none';
+
+    // Hide subsequent steps if changing answer
+    ['step2','step3','step4','step5','step6'].forEach(function(s) {
+        var e = document.getElementById(s); e.classList.remove('visible','animate-in');
+    });
+
+    if (!val) {
+        markCompleted(1);
+        showStep('step2');
+    }
 }
 
-function toggleCorrect(field, isNo, btn) {
-    const row = btn.closest('.toggle-group');
-    row.querySelectorAll('.toggle-btn').forEach(b => b.className = 'toggle-btn');
-    btn.className = 'toggle-btn ' + (isNo ? 'selected-no' : 'selected-yes');
-    document.getElementById(field + 'Edit').className = isNo ? 'edit-field visible' : 'edit-field';
+// ── STEP 2 ──
+function answerQ2(val) {
+    confirmedFinance = val;
+    document.getElementById('q2Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
+    document.getElementById('q2No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
+    document.getElementById('stopBanner2').style.display = !val ? 'block' : 'none';
+
+    ['step3','step4','step5','step6'].forEach(function(s) {
+        var e = document.getElementById(s); e.classList.remove('visible','animate-in');
+    });
+
+    if (val) {
+        markCompleted(2);
+        showStep('step3');
+    }
 }
 
-function toggleMoreAddresses(show, btn) {
-    document.getElementById('moreAddrYes').className = 'toggle-btn' + (show ? ' selected-yes' : '');
-    document.getElementById('moreAddrNo').className = 'toggle-btn' + (!show ? ' selected-no' : '');
-    document.getElementById('newAddressArea').style.display = show ? 'block' : 'none';
-    if (show && newAddressCount === 0) addAddressRow();
+// ── STEP 3 ──
+function answerQ3(val) {
+    document.getElementById('q3Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
+    document.getElementById('q3No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
+    document.getElementById('q3SubChoice').style.display = val ? 'block' : 'none';
+
+    if (!val) {
+        // No paperwork - skip to step 4
+        document.getElementById('accountNumberArea').style.display = 'none';
+        document.getElementById('paperworkArea').style.display = 'none';
+        document.getElementById('q3Continue').style.display = 'none';
+        evidenceType = null;
+        markCompleted(3);
+        showStep('step4');
+    }
 }
 
+function chooseEvidence(type) {
+    evidenceType = type;
+    document.getElementById('choiceAccount').className = 'choice-btn' + (type === 'account' ? ' selected' : '');
+    document.getElementById('choicePaperwork').className = 'choice-btn' + (type === 'paperwork' ? ' selected' : '');
+    document.getElementById('accountNumberArea').style.display = type === 'account' ? 'block' : 'none';
+    document.getElementById('paperworkArea').style.display = type === 'paperwork' ? 'block' : 'none';
+    document.getElementById('q3Continue').style.display = 'block';
+}
+
+function finishStep3() {
+    markCompleted(3);
+    showStep('step4');
+}
+
+// ── STEP 4 ──
+function answerQ4(allCorrect) {
+    document.getElementById('q4Yes').className = 'toggle-btn' + (allCorrect ? ' selected-yes' : '');
+    document.getElementById('q4No').className = 'toggle-btn' + (!allCorrect ? ' selected-no' : '');
+    document.getElementById('q4Corrections').style.display = allCorrect ? 'none' : 'block';
+    document.getElementById('q4Continue').style.display = 'block';
+
+    if (allCorrect) {
+        // Reset correction fields
+        correctionFields = { name: false, dob: false, address: false };
+        document.querySelectorAll('.correction-btn').forEach(function(b) { b.className = 'correction-btn'; });
+        document.getElementById('nameEdit').className = 'edit-field';
+        document.getElementById('dobEdit').className = 'edit-field';
+        document.getElementById('addressEdit').className = 'edit-field';
+    }
+}
+
+function toggleCorrectionField(field, btn) {
+    correctionFields[field] = !correctionFields[field];
+    btn.className = 'correction-btn' + (correctionFields[field] ? ' active' : '');
+    document.getElementById(field + 'Edit').className = correctionFields[field] ? 'edit-field visible' : 'edit-field';
+}
+
+function finishStep4() {
+    markCompleted(4);
+    showStep('step5');
+}
+
+// ── STEP 5 ──
+function answerQ5(val) {
+    document.getElementById('q5Yes').className = 'toggle-btn' + (val ? ' selected-yes' : '');
+    document.getElementById('q5No').className = 'toggle-btn' + (!val ? ' selected-no' : '');
+    document.getElementById('newAddressArea').style.display = val ? 'block' : 'none';
+    document.getElementById('q5Continue').style.display = 'block';
+
+    if (val && newAddressCount === 0) {
+        addAddressRow();
+    }
+}
+
+function finishStep5() {
+    markCompleted(5);
+    showStep('step6');
+    // Init signature canvas after it becomes visible
+    setTimeout(initSignatureCanvas, 100);
+}
+
+// ── Signature ──
+let canvas, ctx, drawing = false;
+function initSignatureCanvas() {
+    canvas = document.getElementById('sigCanvas');
+    ctx = canvas.getContext('2d');
+    canvas.addEventListener('pointerdown', function(e) { drawing = true; sigDrawn = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+    canvas.addEventListener('pointermove', function(e) { if (!drawing) return; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); });
+    canvas.addEventListener('pointerup', function() { drawing = false; });
+    canvas.addEventListener('pointerleave', function() { drawing = false; });
+}
+function clearSignature() { if (ctx) { ctx.clearRect(0, 0, canvas.width, canvas.height); sigDrawn = false; } }
+
+// ── Address search ──
 const GEOAPIFY_KEY = '4ce7ddaeaf724f009a58ea42fde55199';
 let searchTimeouts = {};
 const UK_POSTCODE_RE = /[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i;
@@ -12043,28 +12248,16 @@ async function fetchSuggestions(query) {
 }
 
 function extractAddress(result) {
-    // Postcode: try direct fields, then regex on formatted string
     var ukMatch = (result.formatted || '').match(UK_POSTCODE_RE);
     var postcode = result.postcode || result.postal_code || (ukMatch ? ukMatch[0].trim() : '');
-
-    // Street: combine name + housenumber + street intelligently
     var streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
     var street1, street2;
     if (result.name && result.street && result.name !== result.street) {
-        street1 = result.name;
-        street2 = streetParts;
+        street1 = result.name; street2 = streetParts;
     } else {
-        street1 = streetParts || result.address_line1 || '';
-        street2 = '';
+        street1 = streetParts || result.address_line1 || ''; street2 = '';
     }
-
-    return {
-        street1: street1,
-        street2: street2,
-        city: result.city || result.town || result.village || result.county || '',
-        county: result.county || result.state || '',
-        postcode: postcode
-    };
+    return { street1: street1, street2: street2, city: result.city || result.town || result.village || result.county || '', county: result.county || result.state || '', postcode: postcode };
 }
 
 async function reverseGeocodePostcode(lat, lon) {
@@ -12075,12 +12268,7 @@ async function reverseGeocodePostcode(lat, lon) {
         if (top) {
             var pc = top.postcode || top.postal_code || '';
             if (!pc) { var m = (top.formatted || '').match(UK_POSTCODE_RE); if (m) pc = m[0].trim(); }
-            return {
-                postcode: pc,
-                city: top.city || top.town || top.village || '',
-                county: top.county || top.state || '',
-                street: [top.housenumber, top.street].filter(Boolean).join(' ') || ''
-            };
+            return { postcode: pc, city: top.city || top.town || top.village || '', county: top.county || top.state || '', street: [top.housenumber, top.street].filter(Boolean).join(' ') || '' };
         }
     } catch (e) {}
     return null;
@@ -12088,15 +12276,10 @@ async function reverseGeocodePostcode(lat, lon) {
 
 function showSuggestions(dd, results, onSelect) {
     if (results.length === 0) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
-    dd.innerHTML = results.map(function(r, i) {
-        return '<div data-idx="' + i + '">' + (r.formatted || '') + '</div>';
-    }).join('');
+    dd.innerHTML = results.map(function(r, i) { return '<div data-idx="' + i + '">' + (r.formatted || '') + '</div>'; }).join('');
     dd.className = 'suggestions open';
     dd._results = results;
-    dd.onclick = function(e) {
-        var idx = e.target.getAttribute('data-idx');
-        if (idx !== null) onSelect(parseInt(idx));
-    };
+    dd.onclick = function(e) { var idx = e.target.getAttribute('data-idx'); if (idx !== null) onSelect(parseInt(idx)); };
 }
 
 function handleAddrSearch(n, query) {
@@ -12108,15 +12291,9 @@ function handleAddrSearch(n, query) {
         showSuggestions(dd, results, async function(i) {
             var r = results[i]; if (!r) return;
             var addr = extractAddress(r);
-            // Reverse geocode fallback if postcode missing
             if (!addr.postcode && r.lat && r.lon) {
                 var rev = await reverseGeocodePostcode(r.lat, r.lon);
-                if (rev) {
-                    if (!addr.postcode) addr.postcode = rev.postcode;
-                    if (!addr.city) addr.city = rev.city;
-                    if (!addr.county) addr.county = rev.county;
-                    if (!addr.street1 && rev.street) addr.street1 = rev.street;
-                }
+                if (rev) { if (!addr.postcode) addr.postcode = rev.postcode; if (!addr.city) addr.city = rev.city; if (!addr.county) addr.county = rev.county; if (!addr.street1 && rev.street) addr.street1 = rev.street; }
             }
             document.getElementById('na_addr1_' + n).value = addr.street1;
             document.getElementById('na_addr2_' + n).value = addr.street2;
@@ -12138,15 +12315,9 @@ function handleCurrentAddrSearch(query) {
         showSuggestions(dd, results, async function(i) {
             var r = results[i]; if (!r) return;
             var addr = extractAddress(r);
-            // Reverse geocode fallback if postcode missing
             if (!addr.postcode && r.lat && r.lon) {
                 var rev = await reverseGeocodePostcode(r.lat, r.lon);
-                if (rev) {
-                    if (!addr.postcode) addr.postcode = rev.postcode;
-                    if (!addr.city) addr.city = rev.city;
-                    if (!addr.county) addr.county = rev.county;
-                    if (!addr.street1 && rev.street) addr.street1 = rev.street;
-                }
+                if (rev) { if (!addr.postcode) addr.postcode = rev.postcode; if (!addr.city) addr.city = rev.city; if (!addr.county) addr.county = rev.county; if (!addr.street1 && rev.street) addr.street1 = rev.street; }
             }
             document.getElementById('newAddr1').value = addr.street1;
             document.getElementById('newAddr2').value = addr.street2;
@@ -12165,19 +12336,43 @@ document.addEventListener('click', function(e) {
     });
 });
 
+// ── Address rows with save/complete ──
 function addAddressRow() {
+    // Hide "+ Add Another" button while filling
+    document.getElementById('addMoreAddrBtn').style.display = 'none';
     newAddressCount++;
     const n = newAddressCount;
     const div = document.createElement('div');
     div.className = 'prev-addr-add';
-    div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address #' + n + '</p>' +
+    div.id = 'addrForm_' + n;
+    div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address</p>' +
         '<div class="input-group"><label>Search Address</label><div class="search-wrap"><input type="text" id="na_search_' + n + '" autocomplete="off" placeholder="Start typing an address..." oninput="handleAddrSearch(' + n + ', this.value)"><div id="na_suggestions_' + n + '" class="suggestions"></div></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>County</label><input type="text" id="na_county_' + n + '"></div></div>' +
-        '<div class="addr-row full"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>';
+        '<div class="addr-row full"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
+        '<button type="button" class="btn-save-addr" onclick="saveAddress(' + n + ')">Save Address</button>';
     document.getElementById('newAddressList').appendChild(div);
 }
 
+function saveAddress(n) {
+    var a1 = document.getElementById('na_addr1_' + n).value;
+    if (!a1) { alert('Please enter at least Address Line 1'); return; }
+    var parts = [a1, document.getElementById('na_addr2_' + n).value, document.getElementById('na_city_' + n).value, document.getElementById('na_postcode_' + n).value].filter(Boolean);
+
+    // Hide the form
+    document.getElementById('addrForm_' + n).style.display = 'none';
+
+    // Show completed address
+    var completedDiv = document.createElement('div');
+    completedDiv.className = 'completed-addr';
+    completedDiv.innerHTML = '<span class="addr-check">&#10003;</span><span class="addr-text">' + parts.join(', ') + '</span>';
+    document.getElementById('completedAddressesList').appendChild(completedDiv);
+
+    // Show "+ Add Another" button
+    document.getElementById('addMoreAddrBtn').style.display = 'inline-block';
+}
+
+// ── File handling ──
 function handleFiles(files) {
     for (const f of files) {
         if (uploadedFiles.length >= 5) { alert('Maximum 5 files allowed'); return; }
@@ -12194,13 +12389,13 @@ function removeFile(idx) {
 function renderFileList() {
     const el = document.getElementById('fileList');
     el.innerHTML = uploadedFiles.map((f, i) =>
-        '<div class="file-item"><span>' + f.name + ' (' + (f.size / 1024).toFixed(1) + ' KB)</span><span class="remove" onclick="removeFile(' + i + ')">✕</span></div>'
+        '<div class="file-item"><span>' + f.name + ' (' + (f.size / 1024).toFixed(1) + ' KB)</span><span class="remove" onclick="removeFile(' + i + ')">&#10005;</span></div>'
     ).join('');
 }
 
+// ── Submit ──
 async function submitForm() {
-    if (isOver10 === null) { alert('Please answer whether this finance is more than 10 years old.'); return; }
-    if (!isOver10 && !sigDrawn) { alert('Please draw your signature before submitting.'); return; }
+    if (!sigDrawn) { alert('Please draw your signature before submitting.'); return; }
 
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
@@ -12210,30 +12405,30 @@ async function submitForm() {
         const formData = new FormData();
         formData.append('token', TOKEN);
         formData.append('isOver10Years', isOver10);
-        formData.append('accountNumber', document.getElementById('accountNumber').value || '');
+        formData.append('accountNumber', document.getElementById('accountNumber') ? document.getElementById('accountNumber').value || '' : '');
         if (sigDrawn) {
             formData.append('signatureData', canvas.toDataURL('image/png'));
         }
 
         // Name changes
-        const nameEditVisible = document.getElementById('nameEdit').classList.contains('visible');
-        formData.append('nameChanged', nameEditVisible);
-        if (nameEditVisible) {
+        const nameChanged = correctionFields.name;
+        formData.append('nameChanged', nameChanged);
+        if (nameChanged) {
             formData.append('newFirstName', document.getElementById('newFirstName').value);
             formData.append('newLastName', document.getElementById('newLastName').value);
         }
 
         // DOB changes
-        const dobEditVisible = document.getElementById('dobEdit').classList.contains('visible');
-        formData.append('dobChanged', dobEditVisible);
-        if (dobEditVisible) {
+        const dobChanged = correctionFields.dob;
+        formData.append('dobChanged', dobChanged);
+        if (dobChanged) {
             formData.append('newDob', document.getElementById('newDob').value);
         }
 
         // Address changes
-        const addrEditVisible = document.getElementById('addressEdit').classList.contains('visible');
-        formData.append('addressChanged', addrEditVisible);
-        if (addrEditVisible) {
+        const addrChanged = correctionFields.address;
+        formData.append('addressChanged', addrChanged);
+        if (addrChanged) {
             formData.append('newAddr1', document.getElementById('newAddr1').value);
             formData.append('newAddr2', document.getElementById('newAddr2').value);
             formData.append('newCity', document.getElementById('newCity').value);
@@ -12244,10 +12439,10 @@ async function submitForm() {
         // New previous addresses
         const newAddresses = [];
         for (let i = 1; i <= newAddressCount; i++) {
-            const a1 = document.getElementById('na_addr1_' + i)?.value;
-            if (a1) {
+            const a1El = document.getElementById('na_addr1_' + i);
+            if (a1El && a1El.value) {
                 newAddresses.push({
-                    address_line_1: a1,
+                    address_line_1: a1El.value,
                     address_line_2: document.getElementById('na_addr2_' + i)?.value || '',
                     city: document.getElementById('na_city_' + i)?.value || '',
                     county: document.getElementById('na_county_' + i)?.value || '',
