@@ -7025,6 +7025,19 @@ app.patch('/api/cases/:id', async (req, res) => {
             clientWorkflow.queueQuestionnaireEmail(updatedCase.contact_id).catch(e => console.error('[Workflow] Queue questionnaire error:', e.message));
         }
 
+        // Trigger Windmill DSAR review workflow when status changes to "DSAR Response Received"
+        if (status === 'DSAR Response Received') {
+            fetch(
+                'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run_wait_result/p/f/crm/wf2_dsar_trigger?token=45wqwUNeFEONX7TJjh45N31b6jTYs0qS',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ claim_id: parseInt(id) }),
+                }
+            ).catch(err => console.error('DSAR trigger error:', err));
+            console.log(`🔍 DSAR review triggered for case ${id}`);
+        }
+
         res.json(updatedCase);
     } catch (error) {
         console.error('❌ Error updating case status:', error);
@@ -19481,12 +19494,11 @@ app.post('/api/nova/trigger-chase', async (req, res) => {
     if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
 
     try {
-        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run/p/f/crm/sw1_id_chase_trigger';
+        const windmillUrl = 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run_wait_result/p/f/crm/sw1_id_chase_trigger?token=45wqwUNeFEONX7TJjh45N31b6jTYs0qS';
         const response = await fetch(windmillUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer HT6hP5T8dDOIS2HF0pvDCtzoJHs05iUQ'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ contact_id })
         });

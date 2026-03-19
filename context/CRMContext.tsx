@@ -2348,7 +2348,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // If this is an ID chase workflow, also trigger the Nova/Windmill automation
       if (workflowType === 'id_chase') {
         try {
-          await fetch(`${API_BASE_URL}/api/nova/trigger-chase`, {
+          await fetch(`${API_BASE_URL}/nova/trigger-chase`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contact_id: clientId })
