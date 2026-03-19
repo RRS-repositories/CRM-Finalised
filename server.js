@@ -12860,6 +12860,13 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         const newStatus = hasRealChanges ? 'New Lead' : 'Not Qualified';
         await pool.query('UPDATE cases SET status = $1 WHERE id = $2', [newStatus, caseId]);
 
+        // If New Lead, trigger LOA + Cover Letter generation (same as status change handler)
+        if (newStatus === 'New Lead') {
+            triggerPdfGenerator(caseId, 'LOA').catch(err => {
+                console.error(`❌ [UTL] LOA generation failed for case ${caseId}:`, err.message);
+            });
+        }
+
         // Save note — if no changes, use a specific message
         const finalNoteContent = hasRealChanges
             ? noteLines.join('\n')
