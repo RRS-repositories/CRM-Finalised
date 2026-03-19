@@ -11111,9 +11111,6 @@ app.get('/resign/:token', async (req, res) => {
         .detail-item { display: flex; flex-direction: column; }
         .detail-label { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
         .detail-value { font-size: 15px; font-weight: 600; color: #1e293b; word-break: break-word; }
-        .detail-input { font-size: 15px; font-weight: 600; color: #1e293b; padding: 8px 12px; border: 1.5px solid #e2e8f0; border-radius: 8px; background: #fff; font-family: inherit; transition: border-color 0.2s; width: 100%; }
-        .detail-input:focus { outline: none; border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.1); }
-        .detail-input.changed { border-color: #f97316; background: #fff7ed; }
         .detail-lender { grid-column: 1 / -1; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 10px; padding: 14px 18px; margin-top: 4px; }
         .detail-lender .detail-label { color: #3b82f6; }
         .detail-lender .detail-value { font-size: 18px; color: #1e40af; }
@@ -11156,27 +11153,22 @@ app.get('/resign/:token', async (req, res) => {
 
             <div class="details-card">
                 <h3>Your Details</h3>
-                <p style="font-size:13px; color:#64748b; margin-bottom:16px;">Please review and update any incorrect details below.</p>
                 <div class="details-grid">
                     <div class="detail-item">
-                        <span class="detail-label">First Name</span>
-                        <input type="text" id="firstName" class="detail-input" value="${record.first_name}" data-original="${record.first_name}" oninput="markChanged(this)">
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Last Name</span>
-                        <input type="text" id="lastName" class="detail-input" value="${record.last_name}" data-original="${record.last_name}" oninput="markChanged(this)">
+                        <span class="detail-label">Full Name</span>
+                        <span class="detail-value">${clientName}</span>
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">Date of Birth</span>
-                        <input type="date" id="dob" class="detail-input" value="${record.dob ? new Date(record.dob).toISOString().split('T')[0] : ''}" data-original="${record.dob ? new Date(record.dob).toISOString().split('T')[0] : ''}" oninput="markChanged(this)">
+                        <span class="detail-value">${clientDob}</span>
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">Email</span>
-                        <input type="email" id="email" class="detail-input" value="${record.email || ''}" data-original="${record.email || ''}" oninput="markChanged(this)">
+                        <span class="detail-value">${clientEmail}</span>
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">Phone</span>
-                        <input type="tel" id="phone" class="detail-input" value="${record.phone || ''}" data-original="${record.phone || ''}" oninput="markChanged(this)">
+                        <span class="detail-value">${clientPhone}</span>
                     </div>
                     <div class="detail-item detail-lender">
                         <span class="detail-label">Claim Against</span>
@@ -11249,14 +11241,6 @@ app.get('/resign/:token', async (req, res) => {
             hasDrawn = false;
         }
 
-        function markChanged(el) {
-            if (el.value.trim() !== el.dataset.original.trim()) {
-                el.classList.add('changed');
-            } else {
-                el.classList.remove('changed');
-            }
-        }
-
         async function submitSignature() {
             if (!hasDrawn) {
                 document.getElementById('errorText').textContent = 'Please draw your signature before submitting.';
@@ -11274,15 +11258,7 @@ app.get('/resign/:token', async (req, res) => {
                 const resp = await fetch('/api/submit-resign', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        token: '${token}',
-                        signatureData,
-                        firstName: document.getElementById('firstName').value.trim(),
-                        lastName: document.getElementById('lastName').value.trim(),
-                        dob: document.getElementById('dob').value,
-                        email: document.getElementById('email').value.trim(),
-                        phone: document.getElementById('phone').value.trim()
-                    })
+                    body: JSON.stringify({ token: '${token}', signatureData })
                 });
                 const data = await resp.json();
                 if (data.success) {
@@ -11312,17 +11288,16 @@ app.get('/resign/:token', async (req, res) => {
 // SUBMIT RESIGN SIGNATURE - Save signature.png to S3 (same path as intake)
 // ============================================================================
 app.post('/api/submit-resign', async (req, res) => {
-    const { token, signatureData, firstName, lastName, dob, email, phone } = req.body;
+    const { token, signatureData } = req.body;
 
     if (!token || !signatureData) {
         return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     try {
-        // Find case by resign token — fetch all fields we need for comparison
+        // Find case by resign token
         const caseRes = await pool.query(
-            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name,
-                    cnt.email, cnt.phone, cnt.dob
+            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name
              FROM cases c
              JOIN contacts cnt ON c.contact_id = cnt.id
              WHERE c.resign_token = $1`,
@@ -11336,45 +11311,7 @@ app.post('/api/submit-resign', async (req, res) => {
         const record = caseRes.rows[0];
         const contactId = record.contact_id;
         const actualCaseId = record.case_id;
-
-        // --- Compare submitted details with existing DB values ---
-        const changes = [];
-        if (firstName && firstName !== record.first_name) changes.push(`First Name: "${record.first_name}" → "${firstName}"`);
-        if (lastName && lastName !== record.last_name) changes.push(`Last Name: "${record.last_name}" → "${lastName}"`);
-        if (dob) {
-            const existingDob = record.dob ? new Date(record.dob).toISOString().split('T')[0] : '';
-            if (dob !== existingDob) changes.push(`Date of Birth: "${existingDob}" → "${dob}"`);
-        }
-        if (email !== undefined && email !== (record.email || '')) changes.push(`Email: "${record.email || ''}" → "${email}"`);
-        if (phone !== undefined && phone !== (record.phone || '')) changes.push(`Phone: "${record.phone || ''}" → "${phone}"`);
-
-        const hasChanges = changes.length > 0;
-
-        // Update contact details if any changes
-        if (hasChanges) {
-            await pool.query(
-                `UPDATE contacts SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name),
-                 dob = COALESCE($3, dob), email = COALESCE($4, email), phone = COALESCE($5, phone) WHERE id = $6`,
-                [firstName || null, lastName || null, dob || null, email || null, phone || null, contactId]
-            );
-        }
-
-        // Set case status based on whether changes were made
-        const newStatus = hasChanges ? 'New Lead' : 'Not Qualified';
-        await pool.query('UPDATE cases SET status = $1 WHERE id = $2', [newStatus, actualCaseId]);
-
-        // Add note
-        const noteContent = hasChanges
-            ? `RESEND LOA - Customer updated details:\n${changes.join('\n')}`
-            : 'CUSTOMER MADE NO CHANGES IN THE RESEND LOA FORM';
-        await pool.query(
-            `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')`,
-            [contactId, noteContent]
-        );
-
-        console.log(`[Resign] Case ${actualCaseId} → status "${newStatus}" | Changes: ${hasChanges ? changes.join(', ') : 'none'}`);
-
-        const folderPath = await findOrBuildS3Folder(firstName || record.first_name, lastName || record.last_name, contactId);
+        const folderPath = await findOrBuildS3Folder(record.first_name, record.last_name, contactId);
 
         // Add timestamp to signature
         const signatureBufferWithTimestamp = await addTimestampToSignature(signatureData);
@@ -12909,11 +12846,25 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
             }
         }
 
-        // Save note
+        // Determine if client made any real changes (excluding signature)
+        const hasRealChanges = (nameChanged === 'true') || (dobChanged === 'true') || (addressChanged === 'true')
+            || (accountNumber && accountNumber.trim()) || (parsedNewAddresses.length > 0)
+            || (req.files && req.files.length > 0);
+
+        // Set case status based on whether changes were made
+        const newStatus = hasRealChanges ? 'New Lead' : 'Not Qualified';
+        await pool.query('UPDATE cases SET status = $1 WHERE id = $2', [newStatus, caseId]);
+
+        // Save note — if no changes, use a specific message
+        const finalNoteContent = hasRealChanges
+            ? noteLines.join('\n')
+            : 'CUSTOMER MADE NO CHANGES IN THE UNABLE TO LOCATE FORM';
         await pool.query(
             `INSERT INTO notes (client_id, content, pinned, created_by, created_by_name) VALUES ($1, $2, false, 'system', 'System')`,
-            [contactId, noteLines.join('\n')]
+            [contactId, finalNoteContent]
         );
+
+        console.log(`[Unable to Locate] Case ${caseId} → status "${newStatus}" | Changes: ${hasRealChanges ? 'yes' : 'none'}`);
 
         // Track completed (keep token active for reuse)
         await pool.query(`UPDATE client_communications_tracking SET status = 'Completed', completed_at = NOW() WHERE token = $1`, [token]).catch(() => {});
