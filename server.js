@@ -11874,12 +11874,8 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .suggestions div:hover, .suggestions div.highlighted { background: #fff7ed; color: #ea580c; }
         .suggestions .no-results { color: #94a3b8; font-style: italic; cursor: default; }
         .suggestions .no-results:hover { background: #fff; color: #94a3b8; }
-        .postcode-input-wrap { display: flex; gap: 10px; align-items: flex-end; }
-        .postcode-input-wrap .input-group { flex: 1; margin-bottom: 0; }
-        .btn-find { padding: 12px 20px; background: linear-gradient(145deg, #1e3a5f, #0f172a); color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; white-space: nowrap; height: 47px; }
-        .btn-find:hover { opacity: 0.9; }
-        .btn-find:disabled { opacity: 0.5; cursor: not-allowed; }
-        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+        .spinner-inline { display: none; position: absolute; right: 12px; top: 50%; margin-top: -8px; width: 16px; height: 16px; border: 2px solid #e2e8f0; border-top-color: #f97316; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        .spinner-inline.active { display: block; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
@@ -12037,11 +12033,7 @@ app.get('/unable-to-locate/:token', async (req, res) => {
                 <!-- Address edit -->
                 <div id="addressEdit" class="edit-field">
                     <div style="margin-top:12px;">
-                        <div class="postcode-input-wrap">
-                            <div class="input-group"><label>Postcode</label><input type="text" id="curPostcodeSearch" autocomplete="off" placeholder="Enter postcode..." onkeydown="handlePostcodeKeydown(event, 'cur')"></div>
-                            <button type="button" class="btn-find" id="curFindBtn" onclick="findAddresses('cur')">Find Address</button>
-                        </div>
-                        <div class="search-wrap"><div id="curAddrDropdown" class="suggestions"></div></div>
+                        <div class="input-group"><label>Enter Postcode</label><div class="search-wrap"><input type="text" id="curPostcodeSearch" autocomplete="off" placeholder="Start typing a postcode..." oninput="debounceFindAddresses('cur')" onkeydown="handlePostcodeKeydown(event, 'cur')"><div id="curAddrDropdown" class="suggestions"></div></div></div>
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
                         <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
@@ -12264,27 +12256,35 @@ function clearSignature() { if (ctx) { ctx.clearRect(0, 0, canvas.width, canvas.
 // ── Postcode Address Lookup (Geoapify) ──
 const GEOAPIFY_KEY = '4ce7ddaeaf724f009a58ea42fde55199';
 const UK_POSTCODE_RE = /[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i;
-let addrLookupData = {}; // stores fetched results per context
-let highlightIdx = {}; // keyboard nav index per context
+let addrLookupData = {};
+let highlightIdx = {};
+let searchTimeouts = {};
+
+function debounceFindAddresses(context) {
+    if (searchTimeouts[context]) clearTimeout(searchTimeouts[context]);
+    var postcodeInput = context === 'cur' ? document.getElementById('curPostcodeSearch') : document.getElementById('na_postcode_search_' + context);
+    var query = (postcodeInput.value || '').trim();
+    var dropdown = context === 'cur' ? document.getElementById('curAddrDropdown') : document.getElementById('na_dropdown_' + context);
+
+    if (query.length < 2) { dropdown.className = 'suggestions'; dropdown.innerHTML = ''; return; }
+
+    searchTimeouts[context] = setTimeout(function() { findAddresses(context); }, 400);
+}
 
 async function findAddresses(context) {
-    var postcodeInput, dropdown, findBtn;
+    var postcodeInput, dropdown;
     if (context === 'cur') {
         postcodeInput = document.getElementById('curPostcodeSearch');
         dropdown = document.getElementById('curAddrDropdown');
-        findBtn = document.getElementById('curFindBtn');
     } else {
         postcodeInput = document.getElementById('na_postcode_search_' + context);
         dropdown = document.getElementById('na_dropdown_' + context);
-        findBtn = document.getElementById('na_find_' + context);
     }
     var postcode = (postcodeInput.value || '').trim();
-    if (postcode.length < 3) { postcodeInput.focus(); return; }
+    if (postcode.length < 2) return;
 
-    // Show loading
-    findBtn.disabled = true;
-    findBtn.innerHTML = '<span class="spinner"></span>';
-    dropdown.innerHTML = '<div style="padding:14px;color:#94a3b8;text-align:center;">Searching...</div>';
+    // Show loading in dropdown
+    dropdown.innerHTML = '<div style="padding:14px;color:#94a3b8;text-align:center;font-size:13px;">Searching...</div>';
     dropdown.className = 'suggestions open';
 
     try {
@@ -12292,18 +12292,17 @@ async function findAddresses(context) {
         var data = await res.json();
         var results = (data.features || []).map(function(f) { return f.properties; });
 
-        // Also try amenity/locality search for better coverage
+        // Also try autocomplete for better coverage
         if (results.length < 3) {
             var res2 = await fetch('https://api.geoapify.com/v1/geocode/autocomplete?text=' + encodeURIComponent(postcode) + '&filter=countrycode:gb&lang=en&limit=10&format=json&apiKey=' + GEOAPIFY_KEY);
             var data2 = await res2.json();
             var extra = (data2.results || []);
-            // Merge unique results
             var seen = {};
             results.forEach(function(r) { seen[r.formatted || ''] = true; });
             extra.forEach(function(r) { if (!seen[r.formatted || '']) { results.push(r); seen[r.formatted || ''] = true; } });
         }
 
-        // Filter to results that match the postcode area
+        // Filter to results matching the postcode area
         var pcClean = postcode.replace(/\s+/g, '').toUpperCase();
         var filtered = results.filter(function(r) {
             var rpc = (r.postcode || '').replace(/\s+/g, '').toUpperCase();
@@ -12315,11 +12314,9 @@ async function findAddresses(context) {
         highlightIdx[context] = -1;
         renderAddressDropdown(context, results);
     } catch (e) {
-        dropdown.innerHTML = '<div class="no-results" style="padding:14px;color:#ef4444;">Error fetching addresses. Please try again.</div>';
+        dropdown.innerHTML = '<div class="no-results">Error fetching addresses. Please try again.</div>';
         dropdown.className = 'suggestions open';
     }
-    findBtn.disabled = false;
-    findBtn.textContent = 'Find Address';
 }
 
 function renderAddressDropdown(context, results) {
@@ -12397,8 +12394,6 @@ function handlePostcodeKeydown(e, context) {
         e.preventDefault();
         if (highlightIdx[context] >= 0 && highlightIdx[context] < results.length) {
             selectAddress(context, highlightIdx[context]);
-        } else {
-            findAddresses(context);
         }
         return;
     }
@@ -12434,8 +12429,7 @@ function addAddressRow() {
     div.className = 'prev-addr-add';
     div.id = 'addrForm_' + n;
     div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address</p>' +
-        '<div class="postcode-input-wrap" style="margin-bottom:12px;"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_search_' + n + '" autocomplete="off" placeholder="Enter postcode..." onkeydown="handlePostcodeKeydown(event, ' + n + ')"></div><button type="button" class="btn-find" id="na_find_' + n + '" onclick="findAddresses(' + n + ')">Find Address</button></div>' +
-        '<div class="search-wrap"><div id="na_dropdown_' + n + '" class="suggestions"></div></div>' +
+        '<div class="input-group"><label>Enter Postcode</label><div class="search-wrap"><input type="text" id="na_postcode_search_' + n + '" autocomplete="off" placeholder="Start typing a postcode..." oninput="debounceFindAddresses(' + n + ')" onkeydown="handlePostcodeKeydown(event, ' + n + ')"><div id="na_dropdown_' + n + '" class="suggestions"></div></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>County</label><input type="text" id="na_county_' + n + '"></div></div>' +
         '<div class="addr-row full"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
