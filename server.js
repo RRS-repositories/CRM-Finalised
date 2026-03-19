@@ -12680,7 +12680,8 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
 
         // Find case
         const caseRes = await pool.query(
-            `SELECT c.id as case_id, c.lender, cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.dob,
+            `SELECT c.id as case_id, c.lender, c.account_number as existing_account_number,
+                    cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.dob,
                     cnt.address_line_1, cnt.city, cnt.postal_code
              FROM cases c
              JOIN contacts cnt ON c.contact_id = cnt.id
@@ -12719,10 +12720,11 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         // Build changes note
         const noteLines = ['[Unable to Locate - ' + record.lender + '] Client submitted account details:'];
 
-        // Account number
-        if (accountNumber) {
-            noteLines.push('Account Number provided: ' + accountNumber);
-            await pool.query('UPDATE cases SET account_number = $1 WHERE id = $2', [accountNumber, caseId]);
+        // Account number — only count as change if different from existing
+        const accountNumberChanged = accountNumber && accountNumber.trim() && accountNumber.trim() !== (record.existing_account_number || '').trim();
+        if (accountNumberChanged) {
+            noteLines.push('Account Number changed: ' + (record.existing_account_number || 'none') + ' → ' + accountNumber.trim());
+            await pool.query('UPDATE cases SET account_number = $1 WHERE id = $2', [accountNumber.trim(), caseId]);
 
             // Also update loan_details JSON if it exists
             const loanRes = await pool.query('SELECT loan_details FROM cases WHERE id = $1', [caseId]);
@@ -12833,6 +12835,9 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
             const sigUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: sigKey }), { expiresIn: 604800 });
             noteLines.push('Signature captured: signature_utl.png');
 
+            // Update contact signature_url so LOA generation can find it
+            await pool.query('UPDATE contacts SET signature_url = $1 WHERE id = $2', [sigUrl, contactId]);
+
             // Save to documents table
             const existingSig = await pool.query('SELECT id FROM documents WHERE contact_id = $1 AND name = $2', [contactId, 'signature_utl.png']);
             if (existingSig.rows.length > 0) {
@@ -12848,7 +12853,7 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
 
         // Determine if client made any real changes (excluding signature)
         const hasRealChanges = (nameChanged === 'true') || (dobChanged === 'true') || (addressChanged === 'true')
-            || (accountNumber && accountNumber.trim()) || (parsedNewAddresses.length > 0)
+            || accountNumberChanged || (parsedNewAddresses.length > 0)
             || (req.files && req.files.length > 0);
 
         // Set case status based on whether changes were made
