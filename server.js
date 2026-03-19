@@ -6796,16 +6796,18 @@ app.patch('/api/cases/:id', async (req, res) => {
 
         // Update case with status (and token if Sale)
         // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
+        // If status is "DSAR Overdue", reset dsar_overdue_notified so worker sends emails again
         const isDSARSent = status === 'DSAR Sent to Lender';
+        const isDSAROverdue = status === 'DSAR Overdue';
         const result = await pool.query(
             `UPDATE cases
              SET status = $1,
                  sales_signature_token = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE sales_signature_token END,
                  dsar_sent_at = CASE WHEN $4::boolean THEN NOW() ELSE dsar_sent_at END,
-                 dsar_overdue_notified = CASE WHEN $4::boolean THEN false ELSE dsar_overdue_notified END
+                 dsar_overdue_notified = CASE WHEN $4::boolean OR $5::boolean THEN false ELSE dsar_overdue_notified END
              WHERE id = $3
              RETURNING *`,
-            [status, salesSignatureToken, id, isDSARSent]
+            [status, salesSignatureToken, id, isDSARSent, isDSAROverdue]
         );
 
         if (result.rows.length === 0) {
@@ -7138,6 +7140,11 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
             updates.push(`dsar_overdue_notified = false`);
         }
 
+        // Handle DSAR Overdue status - reset flag so worker sends notifications
+        if (status === 'DSAR Overdue') {
+            updates.push(`dsar_overdue_notified = false`);
+        }
+
         // Handle Sale status - generate token
         let salesSignatureToken = null;
         if (status === 'Sale') {
@@ -7228,10 +7235,16 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
 
         // Use a single query with ANY to update all claims at once
         // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
+        // If status is "DSAR Overdue", reset dsar_overdue_notified so worker sends notifications
         let result;
         if (status === 'DSAR Sent to Lender') {
             result = await pool.query(
                 `UPDATE cases SET status = $1, dsar_sent_at = NOW(), dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
+                [status, claimIds]
+            );
+        } else if (status === 'DSAR Overdue') {
+            result = await pool.query(
+                `UPDATE cases SET status = $1, dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
                 [status, claimIds]
             );
         } else {
@@ -17577,13 +17590,14 @@ crmRouter.patch('/cases/:id', async (req, res) => {
 
     try {
         const isDSARSent = status === 'DSAR Sent to Lender';
+        const isDSAROverdue = status === 'DSAR Overdue';
         const result = await pool.query(
             `UPDATE cases
              SET status = $1,
                  dsar_sent_at = CASE WHEN $3::boolean THEN NOW() ELSE dsar_sent_at END,
-                 dsar_overdue_notified = CASE WHEN $3::boolean THEN false ELSE dsar_overdue_notified END
+                 dsar_overdue_notified = CASE WHEN $3::boolean OR $4::boolean THEN false ELSE dsar_overdue_notified END
              WHERE id = $2 RETURNING *`,
-            [status, id, isDSARSent]
+            [status, id, isDSARSent, isDSAROverdue]
         );
         if (result.rows.length === 0) return res.status(404).json({ error: 'Case not found' });
 
@@ -17605,6 +17619,11 @@ crmRouter.patch('/cases/bulk/status', async (req, res) => {
         if (status === 'DSAR Sent to Lender') {
             result = await pool.query(
                 'UPDATE cases SET status = $1, dsar_sent_at = NOW(), dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *',
+                [status, claimIds]
+            );
+        } else if (status === 'DSAR Overdue') {
+            result = await pool.query(
+                'UPDATE cases SET status = $1, dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *',
                 [status, claimIds]
             );
         } else {
