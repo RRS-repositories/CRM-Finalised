@@ -1888,8 +1888,14 @@ const sendOverdueNotifications = async () => {
                 console.log(`[Worker] 📧 Sending overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
 
                 // --- 1. Create Draft for Lender ---
-                const lenderData = allLendersData.find(l => l.lender?.toUpperCase() === lenderName?.toUpperCase());
-                const lenderEmail = lenderData?.email || null;
+                // Use getLenderEmail which handles name normalization (e.g. LOANS2GO -> LOANS 2 GO)
+                const lenderEmail = getLenderEmail(lenderName);
+                const lenderData = allLendersData.find(l => {
+                    let normalizedInput = lenderName?.toUpperCase().trim();
+                    if (normalizedInput === 'LOANS2GO') normalizedInput = 'LOANS 2 GO';
+                    if (normalizedInput === 'MONEYBOAT') normalizedInput = 'MONEY BOAT';
+                    return l.lender?.toUpperCase() === normalizedInput;
+                });
                 const lenderAddress = lenderData?.address ?
                     `${lenderData.address.company_name || ''}\n${lenderData.address.first_line_address || ''}\n${lenderData.address.town_city || ''}\n${lenderData.address.postcode || ''}`.trim()
                     : lenderName;
