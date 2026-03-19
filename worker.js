@@ -337,29 +337,7 @@ async function addTimestampToSignature(base64Data) {
 
 // --- HELPER FUNCTION: LOOKUP LENDER ADDRESS ---
 function getLenderAddress(lenderName) {
-    if (!lenderName) return null;
-
-    // Normalize the lender name for comparison
-    let normalizedInput = lenderName.toUpperCase().trim();
-
-    // Normalize name variants to standard names
-    if (normalizedInput === 'LOANS2GO') {
-        normalizedInput = 'LOANS 2 GO';
-    }
-    if (normalizedInput === 'MONEYBOAT') {
-        normalizedInput = 'MONEY BOAT';
-    }
-
-    // Try exact match first
-    let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
-
-    // If no exact match, try partial match
-    if (!lenderData) {
-        lenderData = allLendersData.find(l => {
-            const lenderUpper = l.lender?.toUpperCase() || '';
-            return lenderUpper.includes(normalizedInput) || normalizedInput.includes(lenderUpper);
-        });
-    }
+    const lenderData = getLenderData(lenderName);
 
     if (!lenderData || !lenderData.address) {
         return null;
@@ -375,19 +353,48 @@ function getLenderAddress(lenderName) {
 }
 
 // --- HELPER FUNCTION: LOOKUP LENDER EMAIL ---
-function getLenderEmail(lenderName) {
+// Normalize lender name variants to match all_lenders_details.json entries
+function normalizeLenderInput(lenderName) {
+    if (!lenderName) return '';
+    let n = lenderName.toUpperCase().trim();
+    // Map DB name variants to JSON entry names
+    const LENDER_ALIASES = {
+        'LOANS2GO': 'LOANS 2 GO',
+        'MONEYBOAT': 'MONEY BOAT',
+        'MONEYLINE': 'MONEY LINE',
+        'MONEYBARN': 'MONEY BARN',
+        'MONEYSHOP': 'MONEY SHOP',
+        'MONEYWAY': 'MONEY WAY',
+        'DOTDOTLOANS': 'DOT DOT LOANS',
+        'CASHFLOAT': 'CASHFLOAT',
+        'CASHPLUS': 'CASH PLUS',
+        'CASHCONVERTERS': 'CASH CONVERTERS',
+        'QUIDMARKET': 'QUID MARKET',
+        'PAYDAYUK': 'PAYDAY UK',
+        'PIGGYBANK': 'PIGGYBANK',
+        'MRLENDER': 'MR LENDER',
+        'GEORGEBANCO': 'GEORGE BANCO',
+        'BAMBOOLOANS': 'BAMBOO LOANS',
+        'SWIFTLOANS': 'SWIFT LOANS',
+        'CLOSERBROTHERS': 'CLOSE BROTHERS',
+        'LITTLELOANS': 'LITTLE LOANS',
+        'QUICKLOANS': 'QUICK LOANS',
+        'LIVINGLOANS': 'LIFE STYLE LOANS',
+        'EVERYDAYLENDING': 'EVERYDAY LENDING',
+        'FUNDOURSELVES': 'FUND OURSELVES',
+        'FAIRFINANCE': 'FAIR FINANCE',
+        'SAVVYLOANS': 'SAVVY LOANS',
+        'KOYO': 'KOYO LOANS',
+        'CREDITSPRING': 'CREDIT SPRING',
+    };
+    if (LENDER_ALIASES[n]) n = LENDER_ALIASES[n];
+    return n;
+}
+
+// Find full lender data (email, address, etc.) from all_lenders_details.json
+function getLenderData(lenderName) {
     if (!lenderName) return null;
-
-    // Normalize the lender name for comparison
-    let normalizedInput = lenderName.toUpperCase().trim();
-
-    // Normalize name variants to standard names
-    if (normalizedInput === 'LOANS2GO') {
-        normalizedInput = 'LOANS 2 GO';
-    }
-    if (normalizedInput === 'MONEYBOAT') {
-        normalizedInput = 'MONEY BOAT';
-    }
+    const normalizedInput = normalizeLenderInput(lenderName);
 
     // Try exact match first
     let lenderData = allLendersData.find(l => l.lender?.toUpperCase() === normalizedInput);
@@ -399,6 +406,12 @@ function getLenderEmail(lenderName) {
             return lenderUpper.includes(normalizedInput) || normalizedInput.includes(lenderUpper);
         });
     }
+
+    return lenderData || null;
+}
+
+function getLenderEmail(lenderName) {
+    const lenderData = getLenderData(lenderName);
 
     if (!lenderData || !lenderData.email) {
         return null;
@@ -1888,14 +1901,9 @@ const sendOverdueNotifications = async () => {
                 console.log(`[Worker] 📧 Sending overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
 
                 // --- 1. Create Draft for Lender ---
-                // Use getLenderEmail which handles name normalization (e.g. LOANS2GO -> LOANS 2 GO)
+                // Use shared helpers which handle name normalization (e.g. LOANS2GO -> LOANS 2 GO)
                 const lenderEmail = getLenderEmail(lenderName);
-                const lenderData = allLendersData.find(l => {
-                    let normalizedInput = lenderName?.toUpperCase().trim();
-                    if (normalizedInput === 'LOANS2GO') normalizedInput = 'LOANS 2 GO';
-                    if (normalizedInput === 'MONEYBOAT') normalizedInput = 'MONEY BOAT';
-                    return l.lender?.toUpperCase() === normalizedInput;
-                });
+                const lenderData = getLenderData(lenderName);
                 const lenderAddress = lenderData?.address ?
                     `${lenderData.address.company_name || ''}\n${lenderData.address.first_line_address || ''}\n${lenderData.address.town_city || ''}\n${lenderData.address.postcode || ''}`.trim()
                     : lenderName;
