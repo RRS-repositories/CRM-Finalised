@@ -11711,6 +11711,7 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         const { token } = req.params;
         const caseRes = await pool.query(
             `SELECT c.id as case_id, c.lender, c.unable_to_locate_token,
+                    c.account_number, c.loan_details,
                     cnt.id as contact_id, cnt.first_name, cnt.last_name, cnt.email,
                     cnt.dob, cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.postal_code,
                     cnt.previous_addresses
@@ -11740,6 +11741,17 @@ app.get('/unable-to-locate/:token', async (req, res) => {
                 if (!Array.isArray(prevAddresses)) prevAddresses = [];
             }
         } catch (e) { prevAddresses = []; }
+
+        // Parse account number from loan_details or top-level
+        let existingAccountNumber = r.account_number || '';
+        try {
+            if (r.loan_details) {
+                const loans = typeof r.loan_details === 'string' ? JSON.parse(r.loan_details) : r.loan_details;
+                if (Array.isArray(loans) && loans.length > 0 && loans[0].accountNumber) {
+                    existingAccountNumber = loans[0].accountNumber;
+                }
+            }
+        } catch (e) {}
 
         const prevAddressesHtml = prevAddresses.map((a, i) => {
             const parts = [a.address_line_1, a.address_line_2, a.city, a.county, a.postal_code].filter(Boolean);
@@ -11867,6 +11879,11 @@ app.get('/unable-to-locate/:token', async (req, res) => {
                 <li>Send copies via email to <strong>irl@rowanrose.co.uk</strong></li>
                 <li>Take a picture of your documents</li>
             </ul>
+
+            <div class="input-group" style="margin-bottom: 24px;">
+                <label style="font-size: 15px; font-weight: 600; color: #334155;">Account Number</label>
+                <input type="text" id="accountNumber" placeholder="Enter your account number" value="${existingAccountNumber}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; font-family: 'Inter', sans-serif; transition: border-color 0.2s;" onfocus="this.style.borderColor='#f97316'" onblur="this.style.borderColor='#e2e8f0'">
+            </div>
 
             <div class="file-upload" onclick="document.getElementById('fileInput').click()">
                 <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" onchange="handleFiles(this.files)">
@@ -12193,6 +12210,7 @@ async function submitForm() {
         const formData = new FormData();
         formData.append('token', TOKEN);
         formData.append('isOver10Years', isOver10);
+        formData.append('accountNumber', document.getElementById('accountNumber').value || '');
         if (sigDrawn) {
             formData.append('signatureData', canvas.toDataURL('image/png'));
         }
@@ -12274,6 +12292,7 @@ async function submitForm() {
 app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (req, res) => {
     try {
         const { token, isOver10Years, signatureData,
+                accountNumber,
                 nameChanged, newFirstName, newLastName,
                 dobChanged, newDob,
                 addressChanged, newAddr1, newAddr2, newCity, newCounty, newPostcode,
@@ -12322,7 +12341,26 @@ app.post('/api/submit-unable-to-locate', upload.array('documents', 5), async (re
         // Build changes note
         const noteLines = ['[Unable to Locate - ' + record.lender + '] Client submitted account details:'];
 
-        // Account info
+        // Account number
+        if (accountNumber) {
+            noteLines.push('Account Number provided: ' + accountNumber);
+            await pool.query('UPDATE cases SET account_number = $1 WHERE id = $2', [accountNumber, caseId]);
+
+            // Also update loan_details JSON if it exists
+            const loanRes = await pool.query('SELECT loan_details FROM cases WHERE id = $1', [caseId]);
+            let loans = [];
+            try {
+                const raw = loanRes.rows[0]?.loan_details;
+                if (raw) loans = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (!Array.isArray(loans)) loans = [];
+            } catch (e) {}
+            if (loans.length > 0) {
+                loans[0].accountNumber = accountNumber;
+            } else {
+                loans = [{ loanNumber: 1, accountNumber: accountNumber }];
+            }
+            await pool.query('UPDATE cases SET loan_details = $1 WHERE id = $2', [JSON.stringify(loans), caseId]);
+        }
 
         // Name changes
         if (nameChanged === 'true' && newFirstName && newLastName) {
