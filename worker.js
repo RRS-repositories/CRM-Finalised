@@ -1875,7 +1875,8 @@ const sendOverdueNotifications = async () => {
     try {
         const query = `
             SELECT c.id as case_id, c.lender, c.contact_id, c.reference_specified,
-                   cnt.first_name, cnt.last_name, cnt.email as client_email
+                   cnt.first_name, cnt.last_name, cnt.email as client_email,
+                   cnt.dob, cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code
             FROM cases c
             JOIN contacts cnt ON c.contact_id = cnt.id
             WHERE c.status = 'DSAR Overdue'
@@ -1897,6 +1898,8 @@ const sendOverdueNotifications = async () => {
                 const lenderName = record.lender;
                 const referenceNo = record.reference_specified || `${record.first_name} ${record.last_name}`;
                 const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                const clientDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A';
+                const clientAddress = [record.address_line_1, record.address_line_2, record.city, record.state_county, record.postal_code].filter(Boolean).join(', ');
 
                 console.log(`[Worker] 📧 Sending overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
 
@@ -1941,9 +1944,14 @@ const sendOverdueNotifications = async () => {
                             <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #1e3a5f;">
                                 <p style="color: #333; font-size: 14px; margin: 0;"><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
                             </div>
-                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0 0 20px 0;">Re: Outstanding Data Subject Access Request – ${referenceNo}</p>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0 0 20px 0;">Re: Outstanding Data Subject Access Request – ${clientName}</p>
                             <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Dear Sir/Madam,</p>
-                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We act on behalf of our client, <strong>${clientName}</strong>, and write further to our Data Subject Access Request submitted over 33 days ago, to which we have not yet received a response.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We act on behalf of our client, <strong>${clientName}</strong>, and write further to our Data Subject Access Request submitted over 30 days ago, to which we have not yet received a response.</p>
+                            <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #1e3a5f;">
+                                <p style="color: #333; font-size: 14px; margin: 0 0 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
+                                <p style="color: #333; font-size: 14px; margin: 0 0 5px 0;"><strong>Date of Birth:</strong> ${clientDob}</p>
+                                <p style="color: #333; font-size: 14px; margin: 0;"><strong>Address:</strong> ${clientAddress || 'N/A'}</p>
+                            </div>
                             <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">As you are aware, under <strong>Article 12(3) of the UK General Data Protection Regulation (UK GDPR)</strong>, you are required to respond to a DSAR without undue delay and, at the latest, within one calendar month of receipt. This statutory deadline has now passed.</p>
                             <div style="background-color: #fff3cd; padding: 15px 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
                                 <p style="color: #856404; font-size: 14px; margin: 0;">⚠️ Failure to comply with the UK GDPR may result in a complaint being lodged with the <strong>Information Commissioner's Office (ICO)</strong>, which has the authority to investigate and take enforcement action, including the imposition of significant fines.</p>
@@ -1973,7 +1981,7 @@ const sendOverdueNotifications = async () => {
 
                     // Check if this lender should send directly (bypass draft mode)
                     const shouldSendDirectly = DIRECT_SEND_LENDERS.has(normalizeLenderName(lenderName));
-                    const overdueSubject = `Final Notice – Outstanding Data Subject Access Request (DSAR) – ${referenceNo}`;
+                    const overdueSubject = `Final Notice – Outstanding Data Subject Access Request (DSAR) – ${clientName}`;
 
                     if (shouldSendDirectly) {
                         // DIRECT SEND for LOANS 2 GO, TEST, etc.
