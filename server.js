@@ -11868,10 +11868,19 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         .success-msg p { font-size: 16px; color: #64748b; }
 
         .search-wrap { position: relative; }
-        .suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 2px solid #e2e8f0; border-top: none; border-radius: 0 0 10px 10px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
+        .suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 2px solid #e2e8f0; border-top: none; border-radius: 0 0 10px 10px; max-height: 250px; overflow-y: auto; z-index: 100; display: none; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
         .suggestions.open { display: block; }
-        .suggestions div { padding: 10px 14px; font-size: 14px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
-        .suggestions div:hover { background: #fff7ed; }
+        .suggestions div { padding: 12px 16px; font-size: 14px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
+        .suggestions div:hover, .suggestions div.highlighted { background: #fff7ed; color: #ea580c; }
+        .suggestions .no-results { color: #94a3b8; font-style: italic; cursor: default; }
+        .suggestions .no-results:hover { background: #fff; color: #94a3b8; }
+        .postcode-input-wrap { display: flex; gap: 10px; align-items: flex-end; }
+        .postcode-input-wrap .input-group { flex: 1; margin-bottom: 0; }
+        .btn-find { padding: 12px 20px; background: linear-gradient(145deg, #1e3a5f, #0f172a); color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; white-space: nowrap; height: 47px; }
+        .btn-find:hover { opacity: 0.9; }
+        .btn-find:disabled { opacity: 0.5; cursor: not-allowed; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
         .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
@@ -12027,8 +12036,14 @@ app.get('/unable-to-locate/:token', async (req, res) => {
 
                 <!-- Address edit -->
                 <div id="addressEdit" class="edit-field">
-                    <div class="input-group" style="margin-top:12px;"><label>Search Address</label><div class="search-wrap"><input type="text" id="addrSearch" autocomplete="off" placeholder="Start typing to search..." oninput="handleCurrentAddrSearch(this.value)"><div id="addrSuggestions" class="suggestions"></div></div></div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div style="margin-top:12px;">
+                        <div class="postcode-input-wrap">
+                            <div class="input-group"><label>Postcode</label><input type="text" id="curPostcodeSearch" autocomplete="off" placeholder="Enter postcode..." onkeydown="handlePostcodeKeydown(event, 'cur')"></div>
+                            <button type="button" class="btn-find" id="curFindBtn" onclick="findAddresses('cur')">Find Address</button>
+                        </div>
+                        <div class="search-wrap"><div id="curAddrDropdown" class="suggestions"></div></div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
                         <div class="input-group"><label>Address Line 1</label><input type="text" id="newAddr1" value="${r.address_line_1 || ''}"></div>
                         <div class="input-group"><label>Address Line 2</label><input type="text" id="newAddr2" value="${r.address_line_2 || ''}"></div>
                     </div>
@@ -12246,102 +12261,164 @@ function initSignatureCanvas() {
 }
 function clearSignature() { if (ctx) { ctx.clearRect(0, 0, canvas.width, canvas.height); sigDrawn = false; } }
 
-// ── Address search ──
+// ── Postcode Address Lookup (Geoapify) ──
 const GEOAPIFY_KEY = '4ce7ddaeaf724f009a58ea42fde55199';
-let searchTimeouts = {};
 const UK_POSTCODE_RE = /[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}/i;
+let addrLookupData = {}; // stores fetched results per context
+let highlightIdx = {}; // keyboard nav index per context
 
-async function fetchSuggestions(query) {
-    try {
-        const res = await fetch('https://api.geoapify.com/v1/geocode/autocomplete?text=' + encodeURIComponent(query) + '&filter=countrycode:gb&format=json&apiKey=' + GEOAPIFY_KEY);
-        const data = await res.json();
-        return (data.results || []).slice(0, 5);
-    } catch (e) { return []; }
-}
-
-function extractAddress(result) {
-    var ukMatch = (result.formatted || '').match(UK_POSTCODE_RE);
-    var postcode = result.postcode || result.postal_code || (ukMatch ? ukMatch[0].trim() : '');
-    var streetParts = [result.housenumber, result.street].filter(Boolean).join(' ');
-    var street1, street2;
-    if (result.name && result.street && result.name !== result.street) {
-        street1 = result.name; street2 = streetParts;
+async function findAddresses(context) {
+    var postcodeInput, dropdown, findBtn;
+    if (context === 'cur') {
+        postcodeInput = document.getElementById('curPostcodeSearch');
+        dropdown = document.getElementById('curAddrDropdown');
+        findBtn = document.getElementById('curFindBtn');
     } else {
-        street1 = streetParts || result.address_line1 || ''; street2 = '';
+        postcodeInput = document.getElementById('na_postcode_search_' + context);
+        dropdown = document.getElementById('na_dropdown_' + context);
+        findBtn = document.getElementById('na_find_' + context);
     }
-    return { street1: street1, street2: street2, city: result.city || result.town || result.village || result.county || '', county: result.county || result.state || '', postcode: postcode };
-}
+    var postcode = (postcodeInput.value || '').trim();
+    if (postcode.length < 3) { postcodeInput.focus(); return; }
 
-async function reverseGeocodePostcode(lat, lon) {
+    // Show loading
+    findBtn.disabled = true;
+    findBtn.innerHTML = '<span class="spinner"></span>';
+    dropdown.innerHTML = '<div style="padding:14px;color:#94a3b8;text-align:center;">Searching...</div>';
+    dropdown.className = 'suggestions open';
+
     try {
-        var res = await fetch('https://api.geoapify.com/v1/geocode/reverse?lat=' + lat + '&lon=' + lon + '&filter=countrycode:gb&format=json&apiKey=' + GEOAPIFY_KEY);
+        var res = await fetch('https://api.geoapify.com/v1/geocode/search?text=' + encodeURIComponent(postcode) + '&filter=countrycode:gb&lang=en&limit=20&type=street&apiKey=' + GEOAPIFY_KEY);
         var data = await res.json();
-        var top = data.results && data.results[0];
-        if (top) {
-            var pc = top.postcode || top.postal_code || '';
-            if (!pc) { var m = (top.formatted || '').match(UK_POSTCODE_RE); if (m) pc = m[0].trim(); }
-            return { postcode: pc, city: top.city || top.town || top.village || '', county: top.county || top.state || '', street: [top.housenumber, top.street].filter(Boolean).join(' ') || '' };
+        var results = (data.features || []).map(function(f) { return f.properties; });
+
+        // Also try amenity/locality search for better coverage
+        if (results.length < 3) {
+            var res2 = await fetch('https://api.geoapify.com/v1/geocode/autocomplete?text=' + encodeURIComponent(postcode) + '&filter=countrycode:gb&lang=en&limit=10&format=json&apiKey=' + GEOAPIFY_KEY);
+            var data2 = await res2.json();
+            var extra = (data2.results || []);
+            // Merge unique results
+            var seen = {};
+            results.forEach(function(r) { seen[r.formatted || ''] = true; });
+            extra.forEach(function(r) { if (!seen[r.formatted || '']) { results.push(r); seen[r.formatted || ''] = true; } });
         }
-    } catch (e) {}
-    return null;
-}
 
-function showSuggestions(dd, results, onSelect) {
-    if (results.length === 0) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
-    dd.innerHTML = results.map(function(r, i) { return '<div data-idx="' + i + '">' + (r.formatted || '') + '</div>'; }).join('');
-    dd.className = 'suggestions open';
-    dd._results = results;
-    dd.onclick = function(e) { var idx = e.target.getAttribute('data-idx'); if (idx !== null) onSelect(parseInt(idx)); };
-}
-
-function handleAddrSearch(n, query) {
-    if (searchTimeouts[n]) clearTimeout(searchTimeouts[n]);
-    var dd = document.getElementById('na_suggestions_' + n);
-    if (query.length <= 2) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
-    searchTimeouts[n] = setTimeout(async function() {
-        var results = await fetchSuggestions(query);
-        showSuggestions(dd, results, async function(i) {
-            var r = results[i]; if (!r) return;
-            var addr = extractAddress(r);
-            if (!addr.postcode && r.lat && r.lon) {
-                var rev = await reverseGeocodePostcode(r.lat, r.lon);
-                if (rev) { if (!addr.postcode) addr.postcode = rev.postcode; if (!addr.city) addr.city = rev.city; if (!addr.county) addr.county = rev.county; if (!addr.street1 && rev.street) addr.street1 = rev.street; }
-            }
-            document.getElementById('na_addr1_' + n).value = addr.street1;
-            document.getElementById('na_addr2_' + n).value = addr.street2;
-            document.getElementById('na_city_' + n).value = addr.city;
-            document.getElementById('na_county_' + n).value = addr.county;
-            document.getElementById('na_postcode_' + n).value = addr.postcode;
-            document.getElementById('na_search_' + n).value = r.formatted || '';
-            dd.className = 'suggestions';
+        // Filter to results that match the postcode area
+        var pcClean = postcode.replace(/\s+/g, '').toUpperCase();
+        var filtered = results.filter(function(r) {
+            var rpc = (r.postcode || '').replace(/\s+/g, '').toUpperCase();
+            return rpc === pcClean || rpc.startsWith(pcClean.substring(0, Math.min(4, pcClean.length)));
         });
-    }, 300);
+        if (filtered.length > 0) results = filtered;
+
+        addrLookupData[context] = results;
+        highlightIdx[context] = -1;
+        renderAddressDropdown(context, results);
+    } catch (e) {
+        dropdown.innerHTML = '<div class="no-results" style="padding:14px;color:#ef4444;">Error fetching addresses. Please try again.</div>';
+        dropdown.className = 'suggestions open';
+    }
+    findBtn.disabled = false;
+    findBtn.textContent = 'Find Address';
 }
 
-function handleCurrentAddrSearch(query) {
-    if (searchTimeouts['cur']) clearTimeout(searchTimeouts['cur']);
-    var dd = document.getElementById('addrSuggestions');
-    if (query.length <= 2) { dd.className = 'suggestions'; dd.innerHTML = ''; return; }
-    searchTimeouts['cur'] = setTimeout(async function() {
-        var results = await fetchSuggestions(query);
-        showSuggestions(dd, results, async function(i) {
-            var r = results[i]; if (!r) return;
-            var addr = extractAddress(r);
-            if (!addr.postcode && r.lat && r.lon) {
-                var rev = await reverseGeocodePostcode(r.lat, r.lon);
-                if (rev) { if (!addr.postcode) addr.postcode = rev.postcode; if (!addr.city) addr.city = rev.city; if (!addr.county) addr.county = rev.county; if (!addr.street1 && rev.street) addr.street1 = rev.street; }
-            }
-            document.getElementById('newAddr1').value = addr.street1;
-            document.getElementById('newAddr2').value = addr.street2;
-            document.getElementById('newCity').value = addr.city;
-            document.getElementById('newCounty').value = addr.county;
-            document.getElementById('newPostcode').value = addr.postcode;
-            document.getElementById('addrSearch').value = r.formatted || '';
-            dd.className = 'suggestions';
-        });
-    }, 300);
+function renderAddressDropdown(context, results) {
+    var dropdown;
+    if (context === 'cur') {
+        dropdown = document.getElementById('curAddrDropdown');
+    } else {
+        dropdown = document.getElementById('na_dropdown_' + context);
+    }
+
+    if (!results || results.length === 0) {
+        dropdown.innerHTML = '<div class="no-results">No addresses found for this postcode</div>';
+        dropdown.className = 'suggestions open';
+        return;
+    }
+
+    dropdown.innerHTML = results.map(function(r, i) {
+        var street = [r.housenumber, r.street].filter(Boolean).join(' ') || r.name || r.address_line1 || '';
+        var display = [street, r.city || r.town || '', r.postcode || ''].filter(Boolean).join(', ');
+        if (!display) display = r.formatted || 'Unknown address';
+        return '<div data-idx="' + i + '">' + display + '</div>';
+    }).join('');
+    dropdown.className = 'suggestions open';
+
+    dropdown.onclick = function(e) {
+        var el = e.target.closest('[data-idx]');
+        if (el) selectAddress(context, parseInt(el.getAttribute('data-idx')));
+    };
 }
 
+function selectAddress(context, idx) {
+    var results = addrLookupData[context];
+    if (!results || !results[idx]) return;
+    var r = results[idx];
+
+    var street = [r.housenumber, r.street].filter(Boolean).join(' ');
+    var street1, street2;
+    if (r.name && r.street && r.name !== r.street) {
+        street1 = r.name; street2 = street;
+    } else {
+        street1 = street || r.address_line1 || ''; street2 = '';
+    }
+    var city = r.city || r.town || r.village || '';
+    var county = r.county || r.state || '';
+    var postcode = r.postcode || '';
+
+    if (context === 'cur') {
+        document.getElementById('newAddr1').value = street1;
+        document.getElementById('newAddr2').value = street2;
+        document.getElementById('newCity').value = city;
+        document.getElementById('newCounty').value = county;
+        document.getElementById('newPostcode').value = postcode;
+        document.getElementById('curAddrDropdown').className = 'suggestions';
+    } else {
+        document.getElementById('na_addr1_' + context).value = street1;
+        document.getElementById('na_addr2_' + context).value = street2;
+        document.getElementById('na_city_' + context).value = city;
+        document.getElementById('na_county_' + context).value = county;
+        document.getElementById('na_postcode_' + context).value = postcode;
+        document.getElementById('na_dropdown_' + context).className = 'suggestions';
+    }
+}
+
+function handlePostcodeKeydown(e, context) {
+    var dropdown;
+    if (context === 'cur') {
+        dropdown = document.getElementById('curAddrDropdown');
+    } else {
+        dropdown = document.getElementById('na_dropdown_' + context);
+    }
+    var results = addrLookupData[context] || [];
+    var items = dropdown.querySelectorAll('[data-idx]');
+
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (highlightIdx[context] >= 0 && highlightIdx[context] < results.length) {
+            selectAddress(context, highlightIdx[context]);
+        } else {
+            findAddresses(context);
+        }
+        return;
+    }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        highlightIdx[context] = Math.min((highlightIdx[context] || -1) + 1, results.length - 1);
+        items.forEach(function(el, i) { el.className = i === highlightIdx[context] ? 'highlighted' : ''; });
+        if (items[highlightIdx[context]]) items[highlightIdx[context]].scrollIntoView({ block: 'nearest' });
+        return;
+    }
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        highlightIdx[context] = Math.max((highlightIdx[context] || 0) - 1, 0);
+        items.forEach(function(el, i) { el.className = i === highlightIdx[context] ? 'highlighted' : ''; });
+        if (items[highlightIdx[context]]) items[highlightIdx[context]].scrollIntoView({ block: 'nearest' });
+        return;
+    }
+}
+
+// Close dropdowns on outside click
 document.addEventListener('click', function(e) {
     document.querySelectorAll('.suggestions.open').forEach(function(d) {
         if (!d.parentElement.contains(e.target)) d.className = 'suggestions';
@@ -12350,7 +12427,6 @@ document.addEventListener('click', function(e) {
 
 // ── Address rows with save/complete ──
 function addAddressRow() {
-    // Hide "+ Add Another" button while filling
     document.getElementById('addMoreAddrBtn').style.display = 'none';
     newAddressCount++;
     const n = newAddressCount;
@@ -12358,7 +12434,8 @@ function addAddressRow() {
     div.className = 'prev-addr-add';
     div.id = 'addrForm_' + n;
     div.innerHTML = '<p style="font-weight:600;color:#334155;margin-bottom:12px;">New Address</p>' +
-        '<div class="input-group"><label>Search Address</label><div class="search-wrap"><input type="text" id="na_search_' + n + '" autocomplete="off" placeholder="Start typing an address..." oninput="handleAddrSearch(' + n + ', this.value)"><div id="na_suggestions_' + n + '" class="suggestions"></div></div></div>' +
+        '<div class="postcode-input-wrap" style="margin-bottom:12px;"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_search_' + n + '" autocomplete="off" placeholder="Enter postcode..." onkeydown="handlePostcodeKeydown(event, ' + n + ')"></div><button type="button" class="btn-find" id="na_find_' + n + '" onclick="findAddresses(' + n + ')">Find Address</button></div>' +
+        '<div class="search-wrap"><div id="na_dropdown_' + n + '" class="suggestions"></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Address Line 1</label><input type="text" id="na_addr1_' + n + '"></div><div class="input-group"><label>Address Line 2</label><input type="text" id="na_addr2_' + n + '"></div></div>' +
         '<div class="addr-row"><div class="input-group"><label>Town/City</label><input type="text" id="na_city_' + n + '"></div><div class="input-group"><label>County</label><input type="text" id="na_county_' + n + '"></div></div>' +
         '<div class="addr-row full"><div class="input-group"><label>Postcode</label><input type="text" id="na_postcode_' + n + '"></div></div>' +
