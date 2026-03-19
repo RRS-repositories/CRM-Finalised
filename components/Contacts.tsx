@@ -15,7 +15,7 @@ import {
    Loader2, Lock, CheckCheck, Image as ImageIcon, Pause, Play, Bot
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
-import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
+import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, CreditCardDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES, PIPELINE_CATEGORIES, toTitleCase } from '../constants';
 import { API_BASE_URL, API_ENDPOINTS } from '../src/config';
 import BulkImport from './BulkImport';
@@ -536,6 +536,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       financeTypeOther: '',
       numberOfLoans: '1',
       loanDetails: [{ loanNumber: 1, accountNumber: '', valueOfLoan: '', startDate: '', endDate: '', apr: '', billedInterestCharges: '', latePaymentCharges: '', overlimitCharges: '' }] as LoanDetails[],
+      numberOfCreditCards: '0',
+      creditCardDetails: [] as CreditCardDetails[],
       billedInterestCharges: '',
       latePaymentCharges: '',
       overlimitCharges: '',
@@ -1758,6 +1760,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       // Parse JSON fields safely
       let parsedFinanceTypes: FinanceTypeEntry[] = [];
       let parsedLoanDetails: LoanDetails[] = [{ loanNumber: 1, valueOfLoan: '', startDate: '', endDate: '', apr: '', billedInterestCharges: '', latePaymentCharges: '', overlimitCharges: '' }];
+      let parsedCreditCardDetails: CreditCardDetails[] = [];
       let parsedPaymentPlan: PaymentPlan = { clientOutstandingFees: '', planStatus: '', planDate: '', termOfPlan: '', startDate: '', remainingBalance: '', monthlyPaymentAgreed: '' };
 
       try {
@@ -1798,6 +1801,26 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          }
       } catch (e) { console.error('Error parsing loan_details:', e); }
 
+      try {
+         if (fullClaim?.credit_card_details) {
+            const rawCards = typeof fullClaim.credit_card_details === 'string'
+               ? JSON.parse(fullClaim.credit_card_details)
+               : fullClaim.credit_card_details;
+            parsedCreditCardDetails = rawCards.map((card: any, idx: number) => ({
+               cardNumber: card.cardNumber ?? card.card_number ?? idx + 1,
+               accountNumber: stripTrailingDotZero(card.accountNumber ?? card.account_number ?? ''),
+               startingLimit: card.startingLimit ?? card.starting_limit ?? '',
+               maximumLimit: card.maximumLimit ?? card.maximum_limit ?? '',
+               startDate: isoToDisplay(card.startDate ?? card.start_date ?? ''),
+               endDate: isoToDisplay(card.endDate ?? card.end_date ?? ''),
+               apr: card.apr ?? '',
+               billedInterestCharges: card.billedInterestCharges ?? card.billed_interest_charges ?? '',
+               latePaymentCharges: card.latePaymentCharges ?? card.late_payment_charges ?? '',
+               overlimitCharges: card.overlimitCharges ?? card.overlimit_charges ?? '',
+            }));
+         }
+      } catch (e) { console.error('Error parsing credit_card_details:', e); }
+
       // Fallback: if loan_details[0] has empty fields, use top-level claim columns
       if (parsedLoanDetails.length > 0 && fullClaim) {
          const loan0 = parsedLoanDetails[0];
@@ -1825,6 +1848,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          }
       }
 
+      // Ensure creditCardDetails array matches numberOfCreditCards
+      const numCards = parseInt(fullClaim?.number_of_credit_cards?.toString() || '0') || 0;
+      if (parsedCreditCardDetails.length < numCards) {
+         for (let i = parsedCreditCardDetails.length + 1; i <= numCards; i++) {
+            parsedCreditCardDetails.push({ cardNumber: i, accountNumber: '', startingLimit: '', maximumLimit: '', startDate: '', endDate: '', apr: '', billedInterestCharges: '', latePaymentCharges: '', overlimitCharges: '' });
+         }
+      }
+
       // Populate form with fetched data
       if (fullClaim || basicClaim) {
          const rawLender = fullClaim?.lender || basicClaim?.lender || '';
@@ -1839,6 +1870,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             financeTypeOther: fullClaim?.finance_type_other || '',
             numberOfLoans: fullClaim?.number_of_loans?.toString() || '1',
             loanDetails: parsedLoanDetails,
+            numberOfCreditCards: fullClaim?.number_of_credit_cards?.toString() || '0',
+            creditCardDetails: parsedCreditCardDetails,
             billedInterestCharges: fullClaim?.billed_interest_charges || '',
             latePaymentCharges: fullClaim?.late_payment_charges?.toString() || '',
             overlimitCharges: fullClaim?.overlimit_charges || '',
@@ -1891,6 +1924,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          financeTypeOther: '',
          numberOfLoans: '1',
          loanDetails: [{ loanNumber: 1, accountNumber: '', valueOfLoan: '', startDate: '', endDate: '', apr: '', billedInterestCharges: '', latePaymentCharges: '', overlimitCharges: '' }],
+         numberOfCreditCards: '0',
+         creditCardDetails: [],
          billedInterestCharges: '',
          latePaymentCharges: '',
          overlimitCharges: '',
@@ -1957,6 +1992,12 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                ...loan,
                startDate: displayToIso(loan.startDate),
                endDate: displayToIso(loan.endDate),
+            }))),
+            number_of_credit_cards: claimFileForm.numberOfCreditCards ? parseInt(claimFileForm.numberOfCreditCards) : 0,
+            credit_card_details: JSON.stringify(claimFileForm.creditCardDetails.map(card => ({
+               ...card,
+               startDate: displayToIso(card.startDate),
+               endDate: displayToIso(card.endDate),
             }))),
             // Charges fields
             billed_interest_charges: claimFileForm.billedInterestCharges,
@@ -3555,7 +3596,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           </div>
                                        )}
 
-                                       {/* No of Loans - Dropdown 1-50 */}
+                                       {/* No of Loans - Conditional: only when non-credit-card finance type selected */}
+                                       {claimFileForm.financeTypes.some(ft => ft.financeType !== 'Credit Card') && (
                                        <div>
                                           <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">No of Loans</label>
                                           <select
@@ -3583,17 +3625,18 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                           </select>
                                           <p className="text-xs text-gray-400 mt-1">Selecting a number generates loan detail fields below.</p>
                                        </div>
+                                       )}
 
-                                       {/* Dynamic Loan Details (EF fields) - Generated based on No of Loans */}
-                                       {claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
+                                       {/* Dynamic Loan Details - Horizontal Grid Layout */}
+                                       {claimFileForm.financeTypes.some(ft => ft.financeType !== 'Credit Card') && claimFileForm.loanDetails && claimFileForm.loanDetails.length > 0 && (
                                           <div className="pl-4 border-l-4 border-blue-400 dark:border-blue-600 space-y-4">
                                              <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Loan Details (per Loan)</p>
+                                             <div className="flex flex-wrap gap-4">
                                              {claimFileForm.loanDetails.map((loan, idx) => (
-                                                <div key={idx} className="bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-4 border border-gray-300 dark:border-slate-500 shadow-sm">
+                                                <div key={idx} className="min-w-[280px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
                                                    <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Loan {loan.loanNumber}</h4>
-                                                   <div className="space-y-4">
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Account Number</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Account Number</label>
                                                          <input
                                                             type="text"
                                                             value={loan.accountNumber || ''}
@@ -3607,7 +3650,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Value of Loan</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Value of Loan</label>
                                                          <div className="flex items-center gap-2">
                                                             <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
                                                             <input
@@ -3624,7 +3667,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          </div>
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Start Date</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Start Date</label>
                                                          <input
                                                             type="text"
                                                             value={loan.startDate || ''}
@@ -3638,7 +3681,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">End Date</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">End Date</label>
                                                          <input
                                                             type="text"
                                                             value={loan.endDate || ''}
@@ -3652,7 +3695,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">APR (%)</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">APR (%)</label>
                                                          <input
                                                             type="text"
                                                             value={loan.apr || ''}
@@ -3666,7 +3709,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Billed/Interest Charges</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Billed/Interest Charges</label>
                                                          <input
                                                             type="text"
                                                             value={loan.billedInterestCharges || ''}
@@ -3680,7 +3723,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Late Payment Charges</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Late Payment Charges</label>
                                                          <input
                                                             type="text"
                                                             value={loan.latePaymentCharges || ''}
@@ -3694,7 +3737,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                          />
                                                       </div>
                                                       <div>
-                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Overlimit Charges</label>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Overlimit Charges</label>
                                                          <input
                                                             type="text"
                                                             value={loan.overlimitCharges || ''}
@@ -3707,9 +3750,188 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                                                             placeholder="0"
                                                          />
                                                       </div>
-                                                   </div>
                                                 </div>
                                              ))}
+                                             </div>
+                                          </div>
+                                       )}
+
+                                       {/* No of Credit Cards - Conditional: only when Credit Card finance type selected */}
+                                       {claimFileForm.financeTypes.some(ft => ft.financeType === 'Credit Card') && (
+                                       <div>
+                                          <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">No of Credit Cards</label>
+                                          <select
+                                             value={claimFileForm.numberOfCreditCards}
+                                             onChange={(e) => {
+                                                const numCards = parseInt(e.target.value) || 0;
+                                                const currentCards = claimFileForm.creditCardDetails || [];
+                                                let newCardDetails: CreditCardDetails[] = [];
+
+                                                for (let i = 1; i <= numCards; i++) {
+                                                   if (currentCards[i - 1]) {
+                                                      newCardDetails.push({ ...currentCards[i - 1], cardNumber: i });
+                                                   } else {
+                                                      newCardDetails.push({ cardNumber: i, accountNumber: '', startingLimit: '', maximumLimit: '', startDate: '', endDate: '', apr: '', billedInterestCharges: '', latePaymentCharges: '', overlimitCharges: '' });
+                                                   }
+                                                }
+
+                                                setClaimFileForm({ ...claimFileForm, numberOfCreditCards: e.target.value, creditCardDetails: newCardDetails });
+                                             }}
+                                             className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                          >
+                                             {LOAN_NUMBER_OPTIONS.map(num => (
+                                                <option key={num} value={num}>{num}</option>
+                                             ))}
+                                          </select>
+                                          <p className="text-xs text-gray-400 mt-1">Selecting a number generates credit card detail fields below.</p>
+                                       </div>
+                                       )}
+
+                                       {/* Dynamic Credit Card Details - Horizontal Grid Layout */}
+                                       {claimFileForm.financeTypes.some(ft => ft.financeType === 'Credit Card') && claimFileForm.creditCardDetails && claimFileForm.creditCardDetails.length > 0 && (
+                                          <div className="pl-4 border-l-4 border-green-400 dark:border-green-600 space-y-4">
+                                             <p className="text-sm font-bold text-green-600 dark:text-green-400">Credit Card Details (per Card)</p>
+                                             <div className="flex flex-wrap gap-4">
+                                             {claimFileForm.creditCardDetails.map((card, idx) => (
+                                                <div key={idx} className="min-w-[280px] flex-1 bg-gray-200 dark:bg-slate-600 rounded-lg p-4 space-y-3 border border-gray-300 dark:border-slate-500 shadow-sm">
+                                                   <h4 className="text-base font-bold text-gray-800 dark:text-gray-200">Credit card {card.cardNumber}</h4>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Account Number</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.accountNumber || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], accountNumber: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                            placeholder="Enter account number"
+                                                         />
+                                                      </div>
+                                                      <div className="flex gap-3">
+                                                         <div className="flex-1">
+                                                            <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Starting Limit</label>
+                                                            <div className="flex items-center gap-2">
+                                                               <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                                               <input
+                                                                  type="text"
+                                                                  value={card.startingLimit || ''}
+                                                                  onChange={(e) => {
+                                                                     const updated = [...claimFileForm.creditCardDetails];
+                                                                     updated[idx] = { ...updated[idx], startingLimit: e.target.value };
+                                                                     setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                                  }}
+                                                                  className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                                  placeholder="0"
+                                                               />
+                                                            </div>
+                                                         </div>
+                                                         <div className="flex-1">
+                                                            <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Maximum Limit</label>
+                                                            <div className="flex items-center gap-2">
+                                                               <span className="text-sm font-bold text-gray-700 dark:text-gray-200">£</span>
+                                                               <input
+                                                                  type="text"
+                                                                  value={card.maximumLimit || ''}
+                                                                  onChange={(e) => {
+                                                                     const updated = [...claimFileForm.creditCardDetails];
+                                                                     updated[idx] = { ...updated[idx], maximumLimit: e.target.value };
+                                                                     setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                                  }}
+                                                                  className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                                  placeholder="0"
+                                                               />
+                                                            </div>
+                                                         </div>
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Start Date</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.startDate || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], startDate: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                            placeholder="dd/mm/yyyy"
+                                                         />
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">End Date</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.endDate || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], endDate: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-semibold"
+                                                            placeholder="dd/mm/yyyy"
+                                                         />
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">APR (%)</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.apr || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], apr: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                            placeholder="0"
+                                                         />
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Billed/Interest Charges</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.billedInterestCharges || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], billedInterestCharges: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                            placeholder="0"
+                                                         />
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Late Payment Charges</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.latePaymentCharges || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], latePaymentCharges: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                            placeholder="0"
+                                                         />
+                                                      </div>
+                                                      <div>
+                                                         <label className="claim-label block text-sm font-bold text-gray-700 dark:text-gray-200 mb-1">Overlimit Charges</label>
+                                                         <input
+                                                            type="text"
+                                                            value={card.overlimitCharges || ''}
+                                                            onChange={(e) => {
+                                                               const updated = [...claimFileForm.creditCardDetails];
+                                                               updated[idx] = { ...updated[idx], overlimitCharges: e.target.value };
+                                                               setClaimFileForm({ ...claimFileForm, creditCardDetails: updated });
+                                                            }}
+                                                            className="claim-input w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                                            placeholder="0"
+                                                         />
+                                                      </div>
+                                                </div>
+                                             ))}
+                                             </div>
                                           </div>
                                        )}
 

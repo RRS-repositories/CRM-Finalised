@@ -311,6 +311,14 @@ async function logAction({ clientId, claimId, actorType = 'system', actorId = 's
                         ALTER TABLE cases ADD COLUMN fee_percent TEXT;
                     END IF;
 
+                    -- Add credit card details columns to cases table
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='number_of_credit_cards') THEN
+                        ALTER TABLE cases ADD COLUMN number_of_credit_cards INTEGER DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='credit_card_details') THEN
+                        ALTER TABLE cases ADD COLUMN credit_card_details JSONB;
+                    END IF;
+
                     -- Add intake_lender to contacts table
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='intake_lender') THEN
                         ALTER TABLE contacts ADD COLUMN intake_lender TEXT;
@@ -6466,6 +6474,7 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
     const { id } = req.params;
     const {
         lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+        number_of_credit_cards, credit_card_details,
         lender_reference, dates_timeline, apr, outstanding_balance,
         dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
         billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
@@ -6487,11 +6496,12 @@ app.patch('/api/cases/:id/extended', async (req, res) => {
             'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
             'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
             'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
-            'claim_value', 'value_of_loan'
+            'number_of_credit_cards', 'claim_value', 'value_of_loan'
         ];
 
         const fields = {
             lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+            number_of_credit_cards, credit_card_details,
             lender_reference, dates_timeline, apr, outstanding_balance,
             dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
             billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
@@ -7050,6 +7060,7 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
     const {
         contact_id, status, lender, claim_value, product_type, account_number, start_date, end_date,
         lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+        number_of_credit_cards, credit_card_details,
         lender_reference, dates_timeline, apr, outstanding_balance,
         dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
         billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
@@ -7077,12 +7088,13 @@ app.patch('/api/crm/claims/:id', async (req, res) => {
             'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
             'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
             'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
-            'claim_value', 'value_of_loan'
+            'number_of_credit_cards', 'claim_value', 'value_of_loan'
         ];
 
         const fields = {
             contact_id, status, lender, claim_value, product_type, account_number, start_date, end_date,
             lender_other, finance_type, finance_type_other, finance_types, number_of_loans, loan_details,
+            number_of_credit_cards, credit_card_details,
             lender_reference, dates_timeline, apr, outstanding_balance,
             dsar_review, complaint_paragraph, offer_made, fee_percent, late_payment_charges,
             billed_interest_charges, billed_finance_charges, overlimit_charges, credit_limit_increases,
@@ -18260,11 +18272,12 @@ crmRouter.patch('/cases/:id/extended', async (req, res) => {
         'total_refund', 'total_debt', 'client_fee', 'balance_due_to_client', 'our_fees_plus_vat',
         'our_fees_minus_vat', 'vat_amount', 'total_fee', 'outstanding_debt',
         'our_total_fee', 'fee_without_vat', 'vat', 'our_fee_net', 'number_of_loans',
-        'claim_value', 'value_of_loan'
+        'number_of_credit_cards', 'claim_value', 'value_of_loan'
     ];
 
     const allowedFields = [
         'lender_other', 'finance_type', 'finance_type_other', 'finance_types', 'number_of_loans', 'loan_details',
+        'number_of_credit_cards', 'credit_card_details',
         'lender_reference', 'dates_timeline', 'apr', 'outstanding_balance',
         'dsar_review', 'complaint_paragraph', 'offer_made', 'fee_percent', 'late_payment_charges',
         'billed_interest_charges', 'billed_finance_charges', 'overlimit_charges', 'credit_limit_increases',

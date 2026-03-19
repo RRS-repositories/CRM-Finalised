@@ -554,6 +554,20 @@ export interface LoanDetails {
   overlimitCharges?: string;
 }
 
+// Credit Card Details for dynamic fields (per credit card)
+export interface CreditCardDetails {
+  cardNumber: number;
+  accountNumber?: string;
+  startingLimit?: string;
+  maximumLimit?: string;
+  startDate?: string;
+  endDate?: string;
+  apr?: string;
+  billedInterestCharges?: string;
+  latePaymentCharges?: string;
+  overlimitCharges?: string;
+}
+
 // Finance Type Entry for multi-select with account number
 export interface FinanceTypeEntry {
   financeType: string;
