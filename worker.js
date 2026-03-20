@@ -3140,7 +3140,7 @@ const processUnableToLocateEmails = async () => {
                     <!-- Content -->
                     <tr>
                         <td style="padding: 48px 45px; background: #ffffff;">
-                            <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 6px; font-weight: 700;">Account Details Required</h2>
+                            <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 6px; font-weight: 700;">Urgent Matter</h2>
                             <p style="color: #64748b; font-size: 16px; margin: 0 0 30px; font-weight: 500;">We need your help to locate your account with <strong>${record.lender}</strong></p>
 
                             <p style="font-size: 18px; color: #1e293b; margin-bottom: 16px;">Dear ${clientName},</p>
@@ -3161,7 +3161,7 @@ const processUnableToLocateEmails = async () => {
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 36px 0 28px;">
                                 <tr>
                                     <td align="center">
-                                        <a href="${formLink}" style="display: inline-block; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); border: 3px solid #000000;">Provide Account Details</a>
+                                        <a href="${formLink}" style="display: inline-block; background-color: #f97316; background: linear-gradient(145deg, #f97316 0%, #ea580c 100%); color: #ffffff; font-size: 20px; font-weight: 700; padding: 20px 52px; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35); border: 3px solid #f97316;">Provide Account Details</a>
                                     </td>
                                 </tr>
                                 <tr>
@@ -3199,7 +3199,7 @@ const processUnableToLocateEmails = async () => {
                 await irlEmailTransporter.sendMail({
                     from: '"Rowan Rose Solicitors" <irl@rowanrose.co.uk>',
                     to: record.email,
-                    subject: `Account Details Required – ${record.lender} - Rowan Rose Solicitors`,
+                    subject: `Urgent Matter – ${record.lender} - Rowan Rose Solicitors`,
                     html: emailHtml
                 });
 
