@@ -2252,6 +2252,8 @@ const sendComplaintOverdueNotifications = async () => {
                 const clientName = `${record.first_name} ${record.last_name}`;
                 const lenderName = record.lender;
                 const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                const clientDob = record.dob ? new Date(record.dob).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A';
+                const clientAddress = [record.address_line_1, record.address_line_2, record.city, record.state_county, record.postal_code].filter(Boolean).join(', ');
 
                 console.log(`[Worker] 📧 Sending Complaint Overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
 
@@ -2295,6 +2297,11 @@ const sendComplaintOverdueNotifications = async () => {
                                 <p style="color: #333; font-size: 14px; margin: 0;"><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
                             </div>
                             <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0 0 20px 0;">Re: Outstanding Complaint – ${clientName}</p>
+                            <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #1e3a5f;">
+                                <p style="color: #333; font-size: 14px; margin: 0 0 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
+                                <p style="color: #333; font-size: 14px; margin: 0 0 5px 0;"><strong>Date of Birth:</strong> ${clientDob}</p>
+                                <p style="color: #333; font-size: 14px; margin: 0;"><strong>Address:</strong> ${clientAddress || 'N/A'}</p>
+                            </div>
                             <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Dear Sirs,</p>
                             <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We refer to the formal complaint submitted to your organisation. It has now been more than eight weeks since the complaint was raised, and we have yet to receive any response, acknowledgment, or final resolution.</p>
                             <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Your failure to issue a response within the required timeframe is unacceptable and contrary to regulatory expectations, including those set out by the <strong>Financial Conduct Authority (FCA)</strong>, which require firms to provide a final response to complaints within eight weeks.</p>
