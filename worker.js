@@ -2197,7 +2197,7 @@ const markOverdueComplaints = async () => {
             SET status = 'Complaint Overdue'
             WHERE status = 'Complaint Submitted'
             AND complaint_submitted_at IS NOT NULL
-            AND complaint_submitted_at < NOW() - INTERVAL '56 days'
+            AND complaint_submitted_at < NOW() - INTERVAL '5 minutes'
             RETURNING id
         `;
         const { rows } = await pool.query(query);
