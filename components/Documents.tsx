@@ -413,10 +413,7 @@ const DocumentsContent: React.FC = () => {
    };
 
    const handleBackToDashboard = () => {
-      setView('dashboard');
-      setSelectedStatus(null);
-      setSearchQuery('');
-      setDrillDownDocs([]);
+      window.location.reload();
    };
 
    const handleSendDocument = async (doc: Document) => {
