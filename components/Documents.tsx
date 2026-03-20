@@ -357,6 +357,35 @@ const DocumentsContent: React.FC = () => {
    };
 
    const handlePreview = async (doc: Document) => {
+      // For comms tracking items — open the client-facing form link or first attached document
+      if (!doc.url && (doc as any)._commsLink) {
+         const commsLink = (doc as any)._commsLink;
+         const commsDocs = (doc as any)._commsDocuments || [];
+         if (commsDocs.length > 0 && commsDocs[0].url) {
+            // Open the first associated document
+            try {
+               const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ url: commsDocs[0].url })
+               });
+               const data = await res.json();
+               if (data.success && data.signedUrl) {
+                  window.open(data.signedUrl, '_blank');
+                  return;
+               }
+            } catch (err) {
+               console.error('Comms doc preview error:', err);
+            }
+         }
+         // Fallback: open the form link
+         if (commsLink) {
+            window.open(commsLink, '_blank');
+            return;
+         }
+         addNotification('error', 'No document or link available');
+         return;
+      }
       if (!doc.url) return;
       try {
          const res = await fetch(`${API_BASE_URL}/documents/secure-url`, {
@@ -386,6 +415,7 @@ const DocumentsContent: React.FC = () => {
       setView('dashboard');
       setSelectedStatus(null);
       setSearchQuery('');
+      setDrillDownDocs([]);
    };
 
    const handleSendDocument = async (doc: Document) => {

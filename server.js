@@ -11880,7 +11880,7 @@ app.get('/unable-to-locate/:token', async (req, res) => {
         const r = caseRes.rows[0];
 
         // Track viewed
-        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', viewed_at = NOW() WHERE token = $1 AND status = 'Sent'`, [token]).catch(() => {});
+        pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [token]).catch(() => {});
 
         // Format DOB
         const dobFormatted = r.dob ? new Date(r.dob).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Not on file';
