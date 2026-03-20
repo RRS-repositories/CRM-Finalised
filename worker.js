@@ -308,6 +308,12 @@ function getLenderCategory(lenderName) {
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='dsar_overdue_notified') THEN
                     ALTER TABLE cases ADD COLUMN dsar_overdue_notified BOOLEAN DEFAULT FALSE;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='complaint_submitted_at') THEN
+                    ALTER TABLE cases ADD COLUMN complaint_submitted_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cases' AND column_name='complaint_overdue_notified') THEN
+                    ALTER TABLE cases ADD COLUMN complaint_overdue_notified BOOLEAN DEFAULT FALSE;
+                END IF;
                 -- Add email_sent column to pending_lender_confirmations if it doesn't exist
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pending_lender_confirmations' AND column_name='email_sent') THEN
                     ALTER TABLE pending_lender_confirmations ADD COLUMN email_sent BOOLEAN DEFAULT FALSE;
@@ -2181,6 +2187,289 @@ const sendOverdueNotifications = async () => {
     }
 };
 
+// --- COMPLAINT OVERDUE: Mark cases as overdue after 5 minutes (testing) / 8 weeks (production) ---
+const markOverdueComplaints = async () => {
+    console.log('[Worker] Checking for Complaint cases to mark as overdue...');
+    try {
+        // Testing: 5 minutes | Production: 8 weeks (56 days)
+        const query = `
+            UPDATE cases
+            SET status = 'Complaint Overdue'
+            WHERE status = 'Complaint Submitted'
+            AND complaint_submitted_at IS NOT NULL
+            AND complaint_submitted_at < NOW() - INTERVAL '5 minutes'
+            RETURNING id
+        `;
+        const { rows } = await pool.query(query);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No Complaint cases to mark as overdue.');
+        } else {
+            console.log(`[Worker] ✅ Marked ${rows.length} case(s) as Complaint Overdue: ${rows.map(r => r.id).join(', ')}`);
+
+            const timestamp = new Date().toLocaleString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
+            for (const row of rows) {
+                await pool.query(
+                    `INSERT INTO action_logs (claim_id, actor_type, actor_id, action_type, action_category, description)
+                     VALUES ($1, 'system', 'worker', 'status_change', 'claims', $2)`,
+                    [row.id, `[${timestamp}] Status automatically changed to Complaint Overdue after 8 weeks with no response from lender`]
+                );
+            }
+        }
+    } catch (error) {
+        console.error('[Worker] Complaint Overdue Mark Error:', error);
+    }
+};
+
+// --- COMPLAINT OVERDUE: Send notification emails ---
+const sendComplaintOverdueNotifications = async () => {
+    console.log('[Worker] Checking for overdue Complaint notifications to send...');
+    try {
+        const query = `
+            SELECT c.id as case_id, c.lender, c.contact_id, c.reference_specified,
+                   cnt.first_name, cnt.last_name, cnt.email as client_email,
+                   cnt.dob, cnt.address_line_1, cnt.address_line_2, cnt.city, cnt.state_county, cnt.postal_code
+            FROM cases c
+            JOIN contacts cnt ON c.contact_id = cnt.id
+            WHERE c.status = 'Complaint Overdue'
+            AND (c.complaint_overdue_notified IS NULL OR c.complaint_overdue_notified = false)
+            LIMIT 20
+        `;
+        const { rows } = await pool.query(query);
+
+        if (rows.length === 0) {
+            console.log('[Worker] No overdue Complaint notifications to send.');
+            return;
+        }
+
+        console.log(`[Worker] Found ${rows.length} overdue Complaint notification(s) to send.`);
+
+        for (const record of rows) {
+            try {
+                const clientName = `${record.first_name} ${record.last_name}`;
+                const lenderName = record.lender;
+                const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                console.log(`[Worker] 📧 Sending Complaint Overdue notifications for Case ${record.case_id}, Client: ${clientName}, Lender: ${lenderName}`);
+
+                // --- 1. Send/Draft for Lender ---
+                const lenderEmail = getLenderEmail(lenderName);
+                const lenderData = getLenderData(lenderName);
+                const lenderAddress = lenderData?.address ?
+                    `${lenderData.address.company_name || ''}\n${lenderData.address.first_line_address || ''}\n${lenderData.address.town_city || ''}\n${lenderData.address.postcode || ''}`.trim()
+                    : lenderName;
+
+                const lenderHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); padding: 30px 40px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">Fast Action Claims</h1>
+                            <p style="color: #a8c5e2; margin: 5px 0 0 0; font-size: 14px;">Legal Representatives</p>
+                        </td>
+                    </tr>
+                    <!-- Alert Banner -->
+                    <tr>
+                        <td style="background-color: #dc3545; padding: 15px 40px;">
+                            <p style="color: #ffffff; margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">⚠️ Final Notice – Urgent Response Required</p>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="color: #666; font-size: 14px; margin: 0 0 20px 0;"><strong>Date:</strong> ${currentDate}</p>
+                            <div style="background-color: #f8f9fa; padding: 15px 20px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #1e3a5f;">
+                                <p style="color: #333; font-size: 14px; margin: 0;"><strong>To:</strong><br/>${lenderAddress.replace(/\n/g, '<br/>')}</p>
+                            </div>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0 0 20px 0;">Re: Outstanding Complaint – ${clientName}</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Dear Sirs,</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We refer to the formal complaint submitted to your organisation. It has now been more than eight weeks since the complaint was raised, and we have yet to receive any response, acknowledgment, or final resolution.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Your failure to issue a response within the required timeframe is unacceptable and contrary to regulatory expectations, including those set out by the <strong>Financial Conduct Authority (FCA)</strong>, which require firms to provide a final response to complaints within eight weeks.</p>
+                            <div style="background-color: #fff3cd; padding: 15px 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
+                                <p style="color: #856404; font-size: 14px; margin: 0;">⚠️ As a final opportunity to resolve this matter, we are allowing a grace period of <strong>7 days</strong> from the date of this email for you to provide a full written response to the complaint.</p>
+                            </div>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">Should we not receive a satisfactory response within this timeframe, we will have no alternative but to <strong>escalate the matter to the Financial Ombudsman Service</strong> without further notice.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 25px 0;">We trust this will not be necessary and look forward to your prompt response.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 5px 0;">Kind regards,</p>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0;"><strong>Fast Action Claims</strong></p>
+                            <p style="color: #666; font-size: 14px; margin: 5px 0 0 0;">On behalf of ${clientName}</p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8f9fa; padding: 25px 40px; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;">
+                            <p style="color: #666; font-size: 12px; margin: 0 0 10px 0; text-align: center;"><strong>Fast Action Claims</strong> | Consumer Rights Specialists</p>
+                            <p style="color: #999; font-size: 11px; margin: 0; text-align: center;">This email and any attachments are confidential and intended solely for the addressee.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+                `;
+
+                const complaintSubject = `Final Notice – Outstanding Complaint (No Response After 8 Weeks) – ${clientName}`;
+
+                if (lenderEmail && graphClient) {
+                    const shouldSendDirectly = DIRECT_SEND_LENDERS.has(normalizeLenderName(lenderName));
+
+                    if (shouldSendDirectly) {
+                        try {
+                            await lenderEmailTransporter.sendMail({
+                                from: '"Complaints Team - Fast Action Claims" <DSAR@fastactionclaims.co.uk>',
+                                to: lenderEmail,
+                                subject: complaintSubject,
+                                html: lenderHtml
+                            });
+                            console.log(`[Worker] ✅ Complaint Overdue email SENT directly to ${lenderName} (${lenderEmail})`);
+                        } catch (sendErr) {
+                            console.error(`[Worker] ❌ Failed to send complaint overdue email for Case ${record.case_id}:`, sendErr.message);
+                        }
+                    } else {
+                        try {
+                            await graphClient
+                                .api(`/users/${DSAR_MAILBOX}/messages`)
+                                .post({
+                                    subject: complaintSubject,
+                                    body: { contentType: 'HTML', content: lenderHtml },
+                                    toRecipients: [{ emailAddress: { address: lenderEmail } }]
+                                });
+                            console.log(`[Worker] ✅ Complaint Overdue lender draft created for Case ${record.case_id} to ${lenderEmail}`);
+                        } catch (draftErr) {
+                            console.error(`[Worker] ❌ Failed to create complaint overdue lender draft for Case ${record.case_id}:`, draftErr.message);
+                        }
+                    }
+                } else {
+                    console.log(`[Worker] ⚠️ No lender email found for ${lenderName} - skipping complaint overdue lender email`);
+                }
+
+                // --- 2. Send Email to Client ---
+                if (record.client_email) {
+                    const clientHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); padding: 30px 40px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">Fast Action Claims</h1>
+                            <p style="color: #a8c5e2; margin: 5px 0 0 0; font-size: 14px;">Your Claim Update</p>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="color: #333; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">Dear ${record.first_name},</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">We are writing to provide you with an update on the progress of your complaint against <strong style="color: #1e3a5f;">${lenderName}</strong>.</p>
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">It has now been more than eight weeks since your complaint was submitted, and unfortunately the lender has failed to provide a response within the required timeframe. Under FCA regulations, lenders are expected to issue a final response to complaints within eight weeks.</p>
+
+                            <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #ffc107;">
+                                <p style="color: #856404; font-size: 15px; line-height: 1.7; margin: 0;">⚠️ As a result, we have today issued a <strong>final warning</strong> to ${lenderName}, giving them <strong>7 days</strong> to provide a full written response to your complaint.</p>
+                            </div>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 15px 0;">If we do not receive a satisfactory response within this period, we will escalate your complaint directly to the <strong>Financial Ombudsman Service (FOS)</strong> on your behalf. The FOS is an independent body that resolves disputes between consumers and financial firms, and they have the power to order the lender to pay compensation where appropriate.</p>
+
+                            <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #28a745;">
+                                <p style="color: #155724; font-size: 15px; line-height: 1.7; margin: 0;">✅ Please be assured that this delay does not weaken your claim. We are continuing to pursue this matter on your behalf and will keep you informed of any developments.</p>
+                            </div>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 25px 0;">If you have any questions in the meantime, please do not hesitate to get in touch.</p>
+
+                            <p style="color: #333; font-size: 15px; line-height: 1.7; margin: 0 0 5px 0;">Kind regards,</p>
+                            <p style="color: #1e3a5f; font-size: 16px; font-weight: 600; margin: 0;"><strong>The Fast Action Claims Team</strong></p>
+                        </td>
+                    </tr>
+                    <!-- Contact Section -->
+                    <tr>
+                        <td style="padding: 0 40px 30px 40px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8f9fa; border-radius: 8px;">
+                                <tr>
+                                    <td style="padding: 20px; text-align: center;">
+                                        <p style="color: #666; font-size: 14px; margin: 0 0 10px 0;"><strong>Need to get in touch?</strong></p>
+                                        <p style="color: #1e3a5f; font-size: 14px; margin: 0;">📧 info@fastactionclaims.co.uk</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #1e3a5f; padding: 25px 40px; border-radius: 0 0 8px 8px;">
+                            <p style="color: #a8c5e2; font-size: 12px; margin: 0 0 10px 0; text-align: center;"><strong style="color: #ffffff;">Fast Action Claims</strong> | Consumer Rights Specialists</p>
+                            <p style="color: #7a9cc6; font-size: 11px; margin: 0; text-align: center;">Helping you get the compensation you deserve</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+                    `;
+
+                    try {
+                        await clientEmailTransporter.sendMail({
+                            from: '"Fast Action Claims" <info@fastactionclaims.co.uk>',
+                            to: record.client_email,
+                            subject: `Update on Your Complaint – Final Warning Issued to ${lenderName}`,
+                            html: clientHtml
+                        });
+                        console.log(`[Worker] ✅ Complaint Overdue client email sent for Case ${record.case_id} to ${record.client_email}`);
+                    } catch (sendErr) {
+                        console.error(`[Worker] ❌ Failed to send complaint overdue client email for Case ${record.case_id}:`, sendErr.message);
+                    }
+                } else {
+                    console.log(`[Worker] ⚠️ No client email for Case ${record.case_id} - skipping complaint overdue client notification`);
+                }
+
+                // --- 3. Mark as notified ---
+                await pool.query(
+                    `UPDATE cases SET complaint_overdue_notified = true WHERE id = $1`,
+                    [record.case_id]
+                );
+
+                const successTimestamp = new Date().toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                });
+                await pool.query(
+                    `INSERT INTO action_logs (client_id, claim_id, actor_type, actor_id, action_type, action_category, description)
+                     VALUES ($1, $2, 'system', 'worker', 'complaint_overdue_notification', 'claims', $3)`,
+                    [record.contact_id, record.case_id, `[${successTimestamp}] Complaint Overdue notifications sent - Email to ${lenderName}${lenderEmail ? ` (${lenderEmail})` : ''}, Email to client${record.client_email ? ` (${record.client_email})` : ''}`]
+                );
+
+            } catch (err) {
+                console.error(`[Worker] ❌ Error sending complaint overdue notifications for Case ${record.case_id}:`, err.message);
+            }
+        }
+    } catch (error) {
+        console.error('[Worker] Complaint Overdue Notification Error:', error);
+    }
+};
+
 // --- CATEGORY 3 CONFIRMATION EMAIL PROCESSING ---
 // Get misspelled alternatives for a Category 3 lender
 function getCategory3Alternatives(lenderName) {
@@ -2977,6 +3266,10 @@ const runWorkerCycle = async () => {
     await markOverdueDSARs();
     // Send notifications for newly overdue cases
     await sendOverdueNotifications();
+    // Check for Complaint cases that have been waiting 8 weeks and mark as overdue
+    await markOverdueComplaints();
+    // Send notifications for newly overdue complaint cases
+    await sendComplaintOverdueNotifications();
     // Send pending Category 3 confirmation emails
     await processPendingCategory3Confirmations();
     // Process document expiry (30-day) and chase emails (Day 3, 10, 17, 24, 30)

@@ -6871,17 +6871,22 @@ app.patch('/api/cases/:id', async (req, res) => {
         // Update case with status (and token if Sale)
         // If status is "DSAR Sent to Lender", also set dsar_sent_at and reset notification flag
         // If status is "DSAR Overdue", reset dsar_overdue_notified so worker sends emails again
+        // If status is "Complaint Submitted", set complaint_submitted_at and reset notification flag
         const isDSARSent = status === 'DSAR Sent to Lender';
         const isDSAROverdue = status === 'DSAR Overdue';
+        const isComplaintSubmitted = status === 'Complaint Submitted';
+        const isComplaintOverdue = status === 'Complaint Overdue';
         const result = await pool.query(
             `UPDATE cases
              SET status = $1,
                  sales_signature_token = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE sales_signature_token END,
                  dsar_sent_at = CASE WHEN $4::boolean THEN NOW() ELSE dsar_sent_at END,
-                 dsar_overdue_notified = CASE WHEN $4::boolean OR $5::boolean THEN false ELSE dsar_overdue_notified END
+                 dsar_overdue_notified = CASE WHEN $4::boolean OR $5::boolean THEN false ELSE dsar_overdue_notified END,
+                 complaint_submitted_at = CASE WHEN $6::boolean THEN NOW() ELSE complaint_submitted_at END,
+                 complaint_overdue_notified = CASE WHEN $6::boolean OR $7::boolean THEN false ELSE complaint_overdue_notified END
              WHERE id = $3
              RETURNING *`,
-            [status, salesSignatureToken, id, isDSARSent, isDSAROverdue]
+            [status, salesSignatureToken, id, isDSARSent, isDSAROverdue, isComplaintSubmitted, isComplaintOverdue]
         );
 
         if (result.rows.length === 0) {
@@ -7332,6 +7337,16 @@ app.patch('/api/cases/bulk/status', async (req, res) => {
         } else if (status === 'DSAR Overdue') {
             result = await pool.query(
                 `UPDATE cases SET status = $1, dsar_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
+                [status, claimIds]
+            );
+        } else if (status === 'Complaint Submitted') {
+            result = await pool.query(
+                `UPDATE cases SET status = $1, complaint_submitted_at = NOW(), complaint_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
+                [status, claimIds]
+            );
+        } else if (status === 'Complaint Overdue') {
+            result = await pool.query(
+                `UPDATE cases SET status = $1, complaint_overdue_notified = false WHERE id = ANY($2::int[]) RETURNING *`,
                 [status, claimIds]
             );
         } else {
