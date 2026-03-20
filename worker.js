@@ -2330,8 +2330,8 @@ const sendComplaintOverdueNotifications = async () => {
 
                     if (shouldSendDirectly) {
                         try {
-                            await lenderEmailTransporter.sendMail({
-                                from: '"Complaints Team - Fast Action Claims" <DSAR@fastactionclaims.co.uk>',
+                            await clientEmailTransporter.sendMail({
+                                from: '"Complaints Team - Fast Action Claims" <info@fastactionclaims.co.uk>',
                                 to: lenderEmail,
                                 subject: complaintSubject,
                                 html: lenderHtml
@@ -2343,7 +2343,7 @@ const sendComplaintOverdueNotifications = async () => {
                     } else {
                         try {
                             await graphClient
-                                .api(`/users/${DSAR_MAILBOX}/messages`)
+                                .api(`/users/${INFO_MAILBOX}/messages`)
                                 .post({
                                     subject: complaintSubject,
                                     body: { contentType: 'HTML', content: lenderHtml },
