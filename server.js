@@ -72,7 +72,14 @@ async function findOrBuildS3Folder(firstName, lastName, contactId) {
     return buildS3Folder(firstName, lastName, contactId);
 }
 
+// HTML-escape to prevent XSS in server-rendered pages
+function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderAlreadySubmittedPage(title, message) {
+    title = escapeHtml(title);
+    message = escapeHtml(message);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -137,7 +144,7 @@ const pdfQueue = {
 
 // --- MATTERMOST CONFIGURATION ---
 const MATTERMOST_URL = process.env.MATTERMOST_URL || 'https://chat.rowanroseclaims.co.uk';
-const MATTERMOST_BOT_TOKEN = process.env.MATTERMOST_BOT_TOKEN || 'quzf9nxpx3bdx8im4abycsgzuw';
+const MATTERMOST_BOT_TOKEN = process.env.MATTERMOST_BOT_TOKEN || '';
 
 // Mattermost API helper
 async function mattermostAPI(endpoint, method = 'GET', body = null) {
@@ -199,7 +206,11 @@ async function createMattermostUser(email, password, fullName) {
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
-app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
+
+// Serve built frontend (Vite output) — must come BEFORE public/ so dist/ assets take priority
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // --- AWS & DB CLIENTS ---
 const s3Client = new S3Client({
@@ -232,7 +243,11 @@ const pool = new Pool({
     ssl: {
         require: true,
         rejectUnauthorized: false
-    }
+    },
+    // Connection pool limits — prevents exhaustion under load on EC2
+    max: 20,                    // Max 20 connections (default is 10, too low for CRM traffic)
+    idleTimeoutMillis: 30000,   // Close idle connections after 30s
+    connectionTimeoutMillis: 10000, // Fail fast if DB unreachable (10s)
 });
 
 // The pool will emit an error on behalf of any idle clients
@@ -6041,26 +6056,36 @@ app.post('/api/ai/chat', async (req, res) => {
 
 // Clear chat session
 app.post('/api/ai/clear-session', (req, res) => {
-    const { sessionId } = req.body;
-    if (sessionId && chatSessions.has(sessionId)) {
-        chatSessions.delete(sessionId);
+    try {
+        const { sessionId } = req.body;
+        if (sessionId && chatSessions.has(sessionId)) {
+            chatSessions.delete(sessionId);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error clearing AI session:', err);
+        res.status(500).json({ success: false, error: 'Failed to clear session' });
     }
-    res.json({ success: true });
 });
 
 // Get session info (for debugging/analytics)
 app.get('/api/ai/session/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
-    if (chatSessions.has(sessionId)) {
-        const session = chatSessions.get(sessionId);
-        res.json({
-            success: true,
-            messageCount: session.messageCount,
-            historyLength: session.messages.length,
-            hasContext: !!session.context
-        });
-    } else {
-        res.json({ success: false, error: 'Session not found' });
+    try {
+        const { sessionId } = req.params;
+        if (chatSessions.has(sessionId)) {
+            const session = chatSessions.get(sessionId);
+            res.json({
+                success: true,
+                messageCount: session.messageCount,
+                historyLength: session.messages.length,
+                hasContext: !!session.context
+            });
+        } else {
+            res.json({ success: false, error: 'Session not found' });
+        }
+    } catch (err) {
+        console.error('Error getting AI session:', err);
+        res.status(500).json({ success: false, error: 'Failed to get session' });
     }
 });
 
@@ -7636,7 +7661,7 @@ app.get('/loa-form/:uniqueId', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
-        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
+        const contactName = escapeHtml(contact.full_name || `${contact.first_name} ${contact.last_name}`);
 
         // Track viewed
         pool.query(`UPDATE client_communications_tracking SET status = 'Viewed', first_viewed_at = NOW() WHERE token = $1 AND first_viewed_at IS NULL`, [uniqueId]).catch(() => {});
@@ -8333,8 +8358,8 @@ app.get('/questionnaire/:contactId', async (req, res) => {
         }
 
         const contact = contactRes.rows[0];
-        const contactName = contact.full_name || `${contact.first_name} ${contact.last_name}`;
-        const clientRef = contact.client_id || `RR-${contact.id}`;
+        const contactName = escapeHtml(contact.full_name || `${contact.first_name} ${contact.last_name}`);
+        const clientRef = escapeHtml(contact.client_id || `RR-${contact.id}`);
 
         if (contact.questionnaire_submitted) {
             return res.status(400).send(renderAlreadySubmittedPage('Already Submitted', 'This questionnaire has already been submitted. Thank you for completing it — no further action is needed.'));
@@ -8866,8 +8891,8 @@ app.get('/questionnaire/token/:token', async (req, res) => {
             return res.status(400).send(renderAlreadySubmittedPage('Already Submitted', 'This questionnaire has already been submitted. Thank you for completing it — no further action is needed.'));
         }
         const templateFile = qType === 1 ? 'questionnaire1.html' : 'questionnaire2.html';
-        const contactName = row.full_name || `${row.first_name} ${row.last_name}`.trim();
-        const clientRef = row.client_id || `RR-${row.cid}`;
+        const contactName = escapeHtml(row.full_name || `${row.first_name} ${row.last_name}`.trim());
+        const clientRef = escapeHtml(row.client_id || `RR-${row.cid}`);
         const today = new Date().toLocaleDateString('en-GB');
 
         let html = fs.readFileSync(path.join(__dirname, templateFile), 'utf8');
@@ -20525,6 +20550,28 @@ app.use('/api', async (req, res, next) => {
         if (!res.headersSent) {
             res.status(502).json({ error: 'Windmill proxy error', detail: err.message });
         }
+    }
+});
+
+// ============================================================================
+// SPA FALLBACK — serves index.html for all non-API routes so that client-side
+// routing (React Router) works on page refresh / direct URL navigation.
+// MUST be the LAST route, after all /api/* and static-file handlers.
+// ============================================================================
+const distIndexPath = path.join(__dirname, 'dist', 'index.html');
+const distIndexExists = fs.existsSync(distIndexPath);
+if (!distIndexExists) {
+    console.warn('⚠️  dist/index.html not found — SPA fallback disabled. Run "npm run build" to generate frontend.');
+}
+app.get('*', (req, res, next) => {
+    // Skip API routes, let them 404 naturally
+    if (req.path.startsWith('/api/') || req.path.startsWith('/wm/')) {
+        return next();
+    }
+    if (distIndexExists) {
+        res.sendFile(distIndexPath);
+    } else {
+        res.status(503).send('Frontend not built. Run "npm run build" first.');
     }
 });
 

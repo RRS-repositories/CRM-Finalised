@@ -5,6 +5,14 @@ import { MOCK_CONTACTS, MOCK_DOCUMENTS, MOCK_TEMPLATES, MOCK_FORMS, WORKFLOW_TYP
 import { emailService } from '../services/emailService';
 import { API_ENDPOINTS } from '../src/config';
 
+// Fetch wrapper with timeout to prevent hanging requests on EC2
+function fetchWithTimeout(url: string, opts?: RequestInit, timeoutMs = 15000): Promise<Response> {
+   const controller = new AbortController();
+   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+   return fetch(url, { ...opts, signal: controller.signal })
+      .finally(() => clearTimeout(timeoutId));
+}
+
 interface PendingRegistration {
   email: string;
   fullName: string;
@@ -939,7 +947,7 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchDocuments(),
       (async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/actions/all`);
+          const response = await fetchWithTimeout(`${API_BASE_URL}/actions/all`);
           if (response.ok) {
             const data = await response.json();
             const mappedLogs: ActionLogEntry[] = data.map((a: any) => ({
@@ -974,8 +982,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const startTime = performance.now();
 
       try {
-        // Try optimized combined endpoint first
-        const response = await fetch(`${API_BASE_URL}/init-data`);
+        // Try optimized combined endpoint first (30s timeout for initial load)
+        const response = await fetchWithTimeout(`${API_BASE_URL}/init-data`, undefined, 30000);
 
         if (response.ok) {
           const data = await response.json();

@@ -18,6 +18,14 @@ import { useCRM } from '../context/CRMContext';
 import { Contact, ClaimStatus, Claim, Document, CRMCommunication, WorkflowTrigger, CRMNote, ActionLogEntry, ClaimStatusSpec, BankDetails, LoanDetails, CreditCardDetails, FinanceTypeEntry, PaymentPlan, PreviousAddressEntry } from '../types';
 import { SPEC_LENDERS, FINANCE_TYPES, WORKFLOW_TYPES, SPEC_STATUS_COLORS, DOCUMENT_CATEGORIES, getSpecStatusColor, SMS_TEMPLATES, EMAIL_TEMPLATES, WHATSAPP_TEMPLATES, CALL_OUTCOMES, PIPELINE_CATEGORIES, toTitleCase } from '../constants';
 import { API_BASE_URL, API_ENDPOINTS } from '../src/config';
+
+// Fetch wrapper with timeout to prevent hanging requests
+function fetchWithTimeout(url: string, opts?: RequestInit, timeoutMs = 15000): Promise<Response> {
+   const controller = new AbortController();
+   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+   return fetch(url, { ...opts, signal: controller.signal })
+      .finally(() => clearTimeout(timeoutId));
+}
 import BulkImport from './BulkImport';
 
 // Date format helpers: ISO (YYYY-MM-DD) <-> display (dd/mm/yyyy)
@@ -278,8 +286,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    const [fetchedContact, setFetchedContact] = useState<Contact | null>(null);
    const [isLoadingContact, setIsLoadingContact] = useState(false);
 
+   // Eagerly fetch contact from API so we always have a stable fallback
+   // This prevents the form from unmounting when the paginated contacts list is replaced
    useEffect(() => {
-      if (!inMemoryContact && contactId && !fetchedContact && !isLoadingContact) {
+      if (contactId && !fetchedContact && !isLoadingContact) {
          setIsLoadingContact(true);
          fetch(`${API_BASE_URL}/api/contacts/${contactId}/full`)
             .then(res => res.ok ? res.json() : Promise.reject('Not found'))
@@ -341,8 +351,10 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
             .catch(() => setFetchedContact(null))
             .finally(() => setIsLoadingContact(false));
       }
-   }, [inMemoryContact, contactId, fetchedContact, isLoadingContact]);
+   }, [contactId, fetchedContact, isLoadingContact]);
 
+   // Use inMemoryContact for fresh data, but always fall back to fetchedContact
+   // so the component never briefly unmounts when the contacts list is replaced
    const contact = inMemoryContact || fetchedContact;
 
    // When contact was fetched from API (not in memory), also load its cases
@@ -639,6 +651,23 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       } else if (activeTab === 'timeline') {
          fetchActionLogs(contact.id);
       }
+
+      // Restore autosaved claim form data when switching back to claims tab
+      // This prevents data loss (e.g. DSAR review) when user switches tabs
+      if (activeTab === 'claims' && viewingClaimId) {
+         const autosaveKey = `claim_autosave_${viewingClaimId}`;
+         const autosaveData = localStorage.getItem(autosaveKey);
+         if (autosaveData) {
+            try {
+               const parsed = JSON.parse(autosaveData);
+               if (parsed.claimFileForm) {
+                  setClaimFileForm(parsed.claimFileForm);
+               }
+            } catch (e) {
+               console.error('Error restoring autosaved claim data on tab switch:', e);
+            }
+         }
+      }
    }, [activeTab, contact?.id]);
 
    // Sync activeTab when initialTab changes (e.g., re-navigation from global search)
@@ -657,6 +686,16 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    }, [initialClaimId, activeTab]);
 
    // Autosave claim form to localStorage when changes are made
+   // Keep a ref to the latest form data so we can flush on unmount
+   const claimFileFormRef = useRef(claimFileForm);
+   const viewingClaimIdRef = useRef(viewingClaimId);
+   claimFileFormRef.current = claimFileForm;
+   viewingClaimIdRef.current = viewingClaimId;
+
+   // Refs to hold nested timeout IDs so they can be cleaned up properly
+   const autosaveSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const autosaveIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
    useEffect(() => {
       if (!viewingClaimId) return;
 
@@ -669,14 +708,41 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          };
          localStorage.setItem(autosaveKey, JSON.stringify(dataToSave));
          setClaimAutoSaveStatus('saving');
+         // Clear any pending status timeouts before setting new ones
+         if (autosaveSavedTimeoutRef.current) clearTimeout(autosaveSavedTimeoutRef.current);
+         if (autosaveIdleTimeoutRef.current) clearTimeout(autosaveIdleTimeoutRef.current);
          // Show "saved" status briefly
-         setTimeout(() => setClaimAutoSaveStatus('saved'), 300);
+         autosaveSavedTimeoutRef.current = setTimeout(() => setClaimAutoSaveStatus('saved'), 300);
          // Reset to idle after showing saved
-         setTimeout(() => setClaimAutoSaveStatus('idle'), 2000);
+         autosaveIdleTimeoutRef.current = setTimeout(() => setClaimAutoSaveStatus('idle'), 2000);
       }, 1000); // 1 second debounce
 
-      return () => clearTimeout(timeoutId);
+      return () => {
+         clearTimeout(timeoutId);
+         if (autosaveSavedTimeoutRef.current) clearTimeout(autosaveSavedTimeoutRef.current);
+         if (autosaveIdleTimeoutRef.current) clearTimeout(autosaveIdleTimeoutRef.current);
+      };
    }, [claimFileForm, viewingClaimId]);
+
+   // Flush autosave immediately on unmount so data is never lost when navigating away
+   // Also clean up any running intervals/timeouts
+   useEffect(() => {
+      return () => {
+         const claimId = viewingClaimIdRef.current;
+         if (claimId) {
+            const autosaveKey = `claim_autosave_${claimId}`;
+            const dataToSave = {
+               claimFileForm: claimFileFormRef.current,
+               timestamp: Date.now()
+            };
+            localStorage.setItem(autosaveKey, JSON.stringify(dataToSave));
+         }
+         // Clean up any running delete progress interval
+         if (deleteProgressIntervalRef.current) {
+            clearInterval(deleteProgressIntervalRef.current);
+         }
+      };
+   }, []);
 
    // Initialize bank details, addresses from contact
    useEffect(() => {
@@ -1070,6 +1136,9 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       }
    };
 
+   // Ref to track delete progress interval for cleanup on unmount
+   const deleteProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
    // Handle document delete - removes from DB and S3
    const handleDeleteDocument = async () => {
       if (!docToDelete || deleteDocConfirmText !== 'DELETE') return;
@@ -1077,13 +1146,14 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
       setIsDeletingDoc(true);
       setDeleteDocProgress(0);
 
-      // Simulate progress
+      // Simulate progress (stored in ref for cleanup on unmount)
       const progressInterval = setInterval(() => {
          setDeleteDocProgress(prev => {
             if (prev >= 90) return prev;
             return prev + Math.random() * 15;
          });
       }, 200);
+      deleteProgressIntervalRef.current = progressInterval;
 
       try {
          const res = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(docToDelete.id)}`, {
@@ -1443,7 +1513,43 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
    // Workflow Handlers
    const handleTriggerWorkflow = async () => {
       if (!selectedWorkflowType) return;
-      await triggerWorkflow(contact.id, selectedWorkflowType);
+      if (!contact?.id) {
+         addNotification('error', 'No contact selected');
+         return;
+      }
+
+      const numericContactId = parseInt(contactId, 10);
+      if (isNaN(numericContactId)) {
+         addNotification('error', 'Invalid contact ID');
+         return;
+      }
+
+      // Route to Windmill webhooks for supported workflow types
+      const WINDMILL_WEBHOOKS: Record<string, string> = {
+         id_chase: 'https://flowmill.fastactionclaims.com/api/w/admins/jobs/run_wait_result/p/f/crm/sw1_id_chase_trigger?token=45wqwUNeFEONX7TJjh45N31b6jTYs0qS',
+      };
+
+      const webhookUrl = WINDMILL_WEBHOOKS[selectedWorkflowType];
+      if (webhookUrl) {
+         try {
+            const response = await fetch(webhookUrl, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ args: { contact_id: numericContactId } }),
+            });
+            if (!response.ok) {
+               const errText = await response.text();
+               throw new Error(errText || `HTTP ${response.status}`);
+            }
+            addNotification('success', `${WORKFLOW_TYPES.find(w => w.id === selectedWorkflowType)?.name || 'Workflow'} triggered successfully`);
+            fetchWorkflows(contact.id);
+         } catch (e: any) {
+            addNotification('error', `Failed to trigger workflow: ${e.message}`);
+         }
+      } else {
+         await triggerWorkflow(contact.id, selectedWorkflowType);
+      }
+
       setSelectedWorkflowType('');
    };
 
@@ -2278,11 +2384,17 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                   <button
                      key={tab.id}
                      onClick={() => {
-                        setActiveTab(tab.id);
-                        // If clicking Claims tab while viewing a claim file, go back to claims list
-                        if (tab.id === 'claims') {
-                           setViewingClaimId(null);
+                        // Flush autosave immediately before switching tabs
+                        // so claim form data (DSAR review, etc.) is never lost
+                        if (viewingClaimId && activeTab === 'claims' && tab.id !== 'claims') {
+                           const autosaveKey = `claim_autosave_${viewingClaimId}`;
+                           const dataToSave = {
+                              claimFileForm: claimFileFormRef.current,
+                              timestamp: Date.now()
+                           };
+                           localStorage.setItem(autosaveKey, JSON.stringify(dataToSave));
                         }
+                        setActiveTab(tab.id);
                      }}
                      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id
                         ? 'border-navy-600 text-navy-900 dark:text-white'

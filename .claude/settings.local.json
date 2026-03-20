@@ -149,7 +149,8 @@
       "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised -type f \\\\\\(-name .env* -o -name *.config.* -o -name *config*.ts* -o -name *config*.js* \\\\\\))",
       "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised -maxdepth 1 -name tailwind.config.* -o -name .css -o -name index.css)",
       "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised -maxdepth 1 -type f -name *.config.*)",
-      "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/src -name *.ts -o -name *.js)"
+      "Bash(find /c/Users/Admin/Documents/FAC/AWS2/CRM-Finalised/src -name *.ts -o -name *.js)",
+      "Bash(wc -l /c/Users/Admin/Documents/FAC/AWS/CRM-Finalised/components/*.tsx)"
     ]
   }
 }
