@@ -244,6 +244,7 @@ const DocumentsContent: React.FC = () => {
 
    useEffect(() => {
       if (view !== 'list' || !selectedStatus) return;
+      setDrillDownDocs([]);
       setDrillDownLoading(true);
       const params = new URLSearchParams({ status: selectedStatus, limit: '200' });
       if (searchQuery) params.set('search', searchQuery);
