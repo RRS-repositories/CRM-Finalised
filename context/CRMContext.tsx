@@ -2285,8 +2285,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await response.json();
 
       const mappedWorkflows: WorkflowTrigger[] = data.map((w: any) => ({
-        id: w.id.toString(),
-        clientId: w.client_id.toString(),
+        id: (w.id ?? '').toString(),
+        clientId: (w.client_id ?? '').toString(),
         workflowType: w.workflow_type,
         workflowName: w.workflow_name,
         triggeredBy: w.triggered_by,
@@ -2337,8 +2337,8 @@ export const CRMProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await response.json();
 
       const newWorkflow: WorkflowTrigger = {
-        id: data.id.toString(),
-        clientId: data.client_id.toString(),
+        id: (data.id ?? '').toString(),
+        clientId: (data.client_id ?? '').toString(),
         workflowType: data.workflow_type,
         workflowName: data.workflow_name,
         triggeredBy: data.triggered_by,

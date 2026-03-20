@@ -1518,8 +1518,8 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
          return;
       }
 
-      const numericContactId = parseInt(contactId, 10);
-      if (isNaN(numericContactId)) {
+      const numericContactId = Number(contact.id);
+      if (!numericContactId || isNaN(numericContactId)) {
          addNotification('error', 'Invalid contact ID');
          return;
       }
@@ -1542,7 +1542,7 @@ const ContactDetailView = ({ contactId, onBack, initialTab = 'personal', initial
                throw new Error(errText || `HTTP ${response.status}`);
             }
             addNotification('success', `${WORKFLOW_TYPES.find(w => w.id === selectedWorkflowType)?.name || 'Workflow'} triggered successfully`);
-            fetchWorkflows(contact.id);
+            await fetchWorkflows(contact.id);
          } catch (e: any) {
             addNotification('error', `Failed to trigger workflow: ${e.message}`);
          }
