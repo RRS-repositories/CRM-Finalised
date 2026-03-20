@@ -20563,7 +20563,7 @@ const distIndexExists = fs.existsSync(distIndexPath);
 if (!distIndexExists) {
     console.warn('⚠️  dist/index.html not found — SPA fallback disabled. Run "npm run build" to generate frontend.');
 }
-app.get('*', (req, res, next) => {
+app.get('/{*path}', (req, res, next) => {
     // Skip API routes, let them 404 naturally
     if (req.path.startsWith('/api/') || req.path.startsWith('/wm/')) {
         return next();
